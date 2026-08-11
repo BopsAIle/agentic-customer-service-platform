@@ -18,13 +18,15 @@ from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentResponse, StructuredDecision
 from app.agent.tool_catalog import TOOL_DEFINITIONS, AgentToolDefinition
+from app.core.config import Settings
 from app.core.context import ExecutionContext
 from app.memory.models import MemoryRecord
 from app.memory.schemas import MemorySource, MemoryStatus, MemoryType
 from app.memory.service import MemoryService
 from app.models import Escalation, Order
 from app.policies.engine import PolicyEngine
-from app.rag.retrieval.service import KnowledgeRetriever
+from app.rag.interfaces import KnowledgeRetriever
+from app.rag.retrieval.service import build_knowledge_service
 from app.rag.schemas import RetrievedChunk
 from app.resilience.config import ResilienceConfig
 from app.resilience.errors import FailureCategory, ResilienceError, UnknownWriteOutcomeError
@@ -241,12 +243,15 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
     policy_engine: PolicyEngine | None = None
     if scenario.fault is not None and scenario.fault.kind == "policy_error":
         policy_engine = FailingPolicyEngine()
+    knowledge_retriever = _retriever(scenario) or build_knowledge_service(
+        Settings(rag_backend="local", embedding_provider="deterministic")
+    )
     runtime = AgentRuntime(
         provider=provider,
         checkpointer=MemorySaver(),
         clock=clock,
         confirmation_ttl_seconds=300,
-        knowledge_retriever=_retriever(scenario),
+        knowledge_retriever=knowledge_retriever,
         memory_service=memory_service,
         policy_engine=policy_engine,
         resilience_config=ResilienceConfig(

@@ -17,15 +17,19 @@ configure_observability(settings)
 @asynccontextmanager
 async def lifespan(application: FastAPI) -> AsyncIterator[None]:
     checkpoint_provider = build_checkpoint_provider(settings)
+    runtime: AgentRuntime | None = None
     try:
         checkpoint_provider.initialize()
         application.state.checkpoint_provider = checkpoint_provider
-        application.state.agent_runtime = AgentRuntime(
+        runtime = AgentRuntime(
             checkpointer=checkpoint_provider.checkpointer,
             checkpoint_backend=checkpoint_provider.backend,
         )
+        application.state.agent_runtime = runtime
         yield
     finally:
+        if runtime is not None:
+            runtime.close()
         checkpoint_provider.close()
 
 

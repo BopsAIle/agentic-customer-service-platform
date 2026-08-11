@@ -30,7 +30,7 @@ from app.policies.engine import PolicyEngine
 from app.policies.models import PolicyOutcome
 from app.policies.registry import InMemoryPolicyAuditLog
 from app.rag.generation.grounded import GroundedAnswerGenerator
-from app.rag.retrieval.service import KnowledgeRetriever
+from app.rag.interfaces import KnowledgeRetriever
 from app.resilience.config import ResilienceConfig
 from app.tools import registry
 from app.ui.projection import record_node

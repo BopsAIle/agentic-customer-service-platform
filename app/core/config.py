@@ -18,6 +18,15 @@ class Settings(BaseSettings):
     llm_connect_timeout_seconds: float = Field(default=5.0, gt=0.0)
     llm_timeout_seconds: float = Field(default=30.0, gt=0.0)
     confirmation_ttl_seconds: int = Field(default=300, gt=0)
+    rag_backend: str = Field(default="qdrant", pattern="^(qdrant|local)$")
+    embedding_provider: str = Field(
+        default="deterministic", pattern="^(deterministic|openai|huggingface)$"
+    )
+    embedding_model: str = "text-embedding-3-small"
+    embedding_dimension: int = Field(default=32, gt=0)
+    embedding_base_url: str | None = None
+    embedding_api_key: SecretStr | None = None
+    reranker_enabled: bool = True
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "customer_service_knowledge"
     rag_dense_top_k: int = Field(default=8, gt=0)

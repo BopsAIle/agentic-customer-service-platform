@@ -1,7 +1,7 @@
 from pathlib import Path
 
 from app.core.config import get_settings
-from app.rag.embeddings import DeterministicEmbeddingProvider
+from app.rag.embeddings import build_embedding_provider
 from app.rag.ingestion.chunking import chunk_document
 from app.rag.ingestion.loader import load_markdown_documents
 from app.rag.storage.qdrant import QdrantKnowledgeStore
@@ -18,11 +18,17 @@ def main() -> None:
     store = QdrantKnowledgeStore(
         settings.qdrant_url,
         settings.qdrant_collection,
-        DeterministicEmbeddingProvider(),
+        build_embedding_provider(settings),
         timeout_seconds=settings.qdrant_timeout_seconds,
     )
-    count = store.upsert(chunks)
-    print(f"Ingested {count} deterministic chunks into {settings.qdrant_collection}.")
+    try:
+        count = store.upsert(chunks)
+    finally:
+        store.close()
+    print(
+        f"Ingested {count} chunks into {settings.qdrant_collection} "
+        f"with {settings.embedding_provider} embeddings."
+    )
 
 
 if __name__ == "__main__":

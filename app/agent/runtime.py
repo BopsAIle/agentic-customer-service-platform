@@ -26,7 +26,8 @@ from app.policies.confirmation import Clock, SystemClock
 from app.policies.engine import PolicyEngine
 from app.policies.registry import InMemoryPolicyAuditLog
 from app.rag.generation.grounded import GroundedAnswerGenerator
-from app.rag.retrieval.service import KnowledgeRetriever, build_default_knowledge_service
+from app.rag.interfaces import KnowledgeRetriever, ManagedKnowledgeRetriever
+from app.rag.retrieval.service import build_default_knowledge_service
 from app.resilience.config import ResilienceConfig
 from app.ui.projection import get_projection_store
 
@@ -67,6 +68,10 @@ class AgentRuntime:
             support_context_ttl_days=settings.memory_support_context_ttl_days,
         )
         self.resilience_config = resilience_config or ResilienceConfig.from_settings(settings)
+
+    def close(self) -> None:
+        if isinstance(self.knowledge_retriever, ManagedKnowledgeRetriever):
+            self.knowledge_retriever.close()
 
     def run(
         self,

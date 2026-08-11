@@ -2,6 +2,7 @@ import os
 from collections.abc import Generator
 
 os.environ.setdefault("CHECKPOINT_BACKEND", "memory")
+os.environ.setdefault("RAG_BACKEND", "local")
 
 import pytest
 from fastapi.testclient import TestClient

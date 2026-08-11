@@ -46,19 +46,26 @@ class QdrantKnowledgeStore:
     def upsert(self, chunks: Sequence[DocumentChunk]) -> int:
         from qdrant_client.http import models
 
-        self.ensure_collection(len(self.embedding_provider.embed("dimension probe")))
+        vectors = self.embedding_provider.embed_documents([chunk.content for chunk in chunks])
+        dimension = (
+            len(vectors[0]) if vectors else len(self.embedding_provider.embed_query("probe"))
+        )
+        self.ensure_collection(dimension)
         run_with_timeout(
             lambda: self.client.upsert(
                 collection_name=self.collection_name,
                 points=[
                     models.PointStruct(
                         id=str(uuid5(NAMESPACE_URL, chunk.chunk_id)),
-                        vector=self.embedding_provider.embed(chunk.content),
+                        vector=vector,
                         payload=chunk.model_dump(),
                     )
-                    for chunk in chunks
+                    for chunk, vector in zip(chunks, vectors, strict=True)
                 ],
             ),
             timeout_seconds=self.timeout_seconds,
         )
         return len(chunks)
+
+    def close(self) -> None:
+        self.client.close()

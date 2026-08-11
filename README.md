@@ -121,7 +121,17 @@ Risk 2 proposals create a typed pending action with a stable `action_id`, valida
 
 ### RAG
 
-Version-controlled Markdown knowledge is loaded, split into stable section chunks, embedded, and upserted with deterministic IDs. Retrieval combines dense cosine search with BM25-style sparse search, weighted hybrid fusion, and a swappable reranker. Context is deduplicated and bounded before grounded response generation.
+The agent depends on a provider-neutral knowledge retriever. `RAG_BACKEND=qdrant` is the production
+default and queries the configured collection at runtime; `RAG_BACKEND=local` loads the
+version-controlled Markdown corpus into a deterministic in-process hybrid retriever for tests,
+offline evaluation, and lightweight development. Both paths return the same ranked chunk schema
+and citation metadata.
+
+Embeddings are selected independently with `EMBEDDING_PROVIDER=deterministic|openai|huggingface`.
+The OpenAI-compatible adapter uses the existing LangChain integration, while Hugging Face remains
+an optional lazy adapter so the base installation does not pull a model runtime. Reranking can be
+disabled with `RERANKER_ENABLED=false`; a reranker failure retains the original retrieval ranking
+and is marked as degraded.
 
 Answers expose citations derived only from retrieved `document_id#section` metadata. Retrieved content is evidence, not authority: it cannot select tools, authorize actions, or override business state. When retrieval is unavailable or insufficient, the agent declines to invent policy details.
 
@@ -164,6 +174,9 @@ Current verified results:
 | Duplicate write rate | 0% |
 
 These are deterministic portfolio-scale evaluation results, not claims about live-model behavior or production traffic.
+Runtime RAG evaluation hooks separately report retrieval success, citation availability, reranker
+use, fallback behavior, and latency. They deliberately do not turn deterministic retrieval scores
+into claims about live-model answer accuracy.
 
 ### Observability
 
@@ -246,6 +259,9 @@ make migrate
 make seed
 make rag-ingest
 ```
+
+For a dependency-free RAG loop, set `RAG_BACKEND=local`; no Qdrant or external embedding service is
+then required. Keep the embedding provider consistent between Qdrant ingestion and runtime queries.
 
 For a host-based backend development loop:
 

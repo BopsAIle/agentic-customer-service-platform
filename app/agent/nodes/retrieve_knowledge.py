@@ -3,7 +3,7 @@ from collections.abc import Callable
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.rag.generation.grounded import GroundedAnswerGenerator
-from app.rag.retrieval.service import KnowledgeRetriever
+from app.rag.interfaces import KnowledgeRetriever
 from app.resilience.config import ResilienceConfig
 from app.resilience.errors import RetryExhaustedError
 from app.resilience.fallbacks import degraded_message
