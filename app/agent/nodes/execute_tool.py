@@ -31,13 +31,27 @@ def make_execute_tool_node(
                 "error_category": AgentErrorCategory.UNKNOWN_TOOL,
                 "tool_execution_status": "failed",
             }
+        context = state.get("execution_context")
+        if context is None:
+            return {
+                "last_error": "Authenticated execution context is required.",
+                "error_category": AgentErrorCategory.POLICY_DENIED,
+                "tool_execution_status": "failed",
+            }
         try:
             arguments = definition.input_model.model_validate(state.get("tool_arguments", {}))
+            requested_customer = getattr(arguments, "customer_id", None)
+            if requested_customer != context.effective_customer_id:
+                return {
+                    "last_error": "Tool customer scope conflicts with execution context.",
+                    "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
+                    "tool_execution_status": "failed",
+                }
             operation_type = registry.get_tool(tool_name).operation_type.value
 
             def attempt() -> object:
                 try:
-                    result = definition.execute(session, arguments)
+                    result = definition.execute(session, context, arguments)
                     if operation_type == "write":
                         session.commit()
                     return result

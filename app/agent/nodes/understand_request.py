@@ -15,6 +15,7 @@ def make_understand_request_node(
     resilience_config: ResilienceConfig | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def understand_request(state: AgentState) -> AgentState:
+        context = state["execution_context"]
         with span(
             "llm.structured_decision",
             attributes={
@@ -26,7 +27,7 @@ def make_understand_request_node(
                 decision = run_with_retry(
                     lambda: provider.decide(
                         messages=state.get("messages", []),
-                        customer_id=state["customer_id"],
+                        customer_id=context.effective_customer_id,
                         memory_context=state.get("memory_context", []),
                     ),
                     dependency="llm",

@@ -20,10 +20,13 @@ def make_create_pending_node(
         ):
             return {}
         action_id = state.get("action_id") or f"act_{uuid4().hex}"
+        context = state["execution_context"]
         action = PendingAction(
             action_id=action_id,
-            conversation_id=state["conversation_id"],
-            customer_id=state["customer_id"],
+            conversation_id=context.conversation_id,
+            actor_id=context.principal.actor_id,
+            actor_type=context.principal.actor_type,
+            effective_customer_id=context.effective_customer_id,
             tool_name=tool_name,
             arguments=state.get("tool_arguments", {}),
             risk_level=decision.risk_level,

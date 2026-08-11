@@ -22,6 +22,12 @@ def make_evaluate_policy_node(
                 "error_category": AgentErrorCategory.POLICY_DENIED,
                 "last_error": "Policy evaluation requires a selected tool.",
             }
+        context = state.get("execution_context")
+        if context is None:
+            return {
+                "error_category": AgentErrorCategory.POLICY_DENIED,
+                "last_error": "Authenticated execution context is required.",
+            }
         with span(
             "policy.evaluate",
             attributes={"tool.name": tool_name},
@@ -29,7 +35,7 @@ def make_evaluate_policy_node(
             try:
                 decision = engine.evaluate(
                     tool_name=tool_name,
-                    customer_id=state.get("customer_id"),
+                    context=context,
                     arguments=state.get("tool_arguments", {}),
                 )
             except Exception:
@@ -51,7 +57,12 @@ def make_evaluate_policy_node(
         audit_log.append(
             PolicyAuditEvent(
                 agent_run_id=state["agent_run_id"],
-                conversation_id=state["conversation_id"],
+                request_id=context.request_id,
+                conversation_id=context.conversation_id,
+                actor_id=context.principal.actor_id,
+                actor_type=context.principal.actor_type,
+                roles=list(context.principal.roles),
+                effective_customer_id=context.effective_customer_id,
                 action_id=action_id,
                 tool_name=tool_name,
                 risk_level=decision.risk_level,

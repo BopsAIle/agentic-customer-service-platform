@@ -8,6 +8,7 @@ from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
 from app.agent.tool_catalog import TOOL_DEFINITIONS, AgentToolDefinition
+from app.core.context import ExecutionContext
 from app.models import Order
 from app.models.entities import OrderStatus
 from app.policies.engine import PolicyEngine
@@ -78,12 +79,12 @@ def test_read_tool_retries_once_then_executes(db_session: Session) -> None:
     original = TOOL_DEFINITIONS["get_customer_orders"]
     calls = 0
 
-    def flaky(session: Session, request: BaseModel) -> object:
+    def flaky(session: Session, context: ExecutionContext, request: BaseModel) -> object:
         nonlocal calls
         calls += 1
         if calls == 1:
             raise TimeoutError("temporary read timeout")
-        return original.execute(session, request)
+        return original.execute(session, context, request)
 
     TOOL_DEFINITIONS["get_customer_orders"] = AgentToolDefinition(original.input_model, flaky)
     try:
@@ -119,7 +120,7 @@ def test_policy_failure_fails_closed_without_pending_or_mutation(db_session: Ses
             self,
             *,
             tool_name: str,
-            customer_id: int | None,
+            context: ExecutionContext,
             arguments: dict[str, object],
         ) -> PolicyDecision:
             raise RuntimeError("policy unavailable")
@@ -189,7 +190,8 @@ def test_confirmation_executes_without_second_llm_call(db_session: Session) -> N
 def test_unknown_write_outcome_is_not_replayed(db_session: Session) -> None:
     original = TOOL_DEFINITIONS["cancel_order"]
 
-    def unknown(session: Session, request: object) -> object:
+    def unknown(session: Session, context: ExecutionContext, request: BaseModel) -> object:
+        del session, context, request
         raise UnknownWriteOutcomeError("cancel_order")
 
     TOOL_DEFINITIONS["cancel_order"] = AgentToolDefinition(original.input_model, unknown)

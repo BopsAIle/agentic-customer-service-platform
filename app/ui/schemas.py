@@ -18,6 +18,10 @@ class UIToolEvent(BaseModel):
 
 
 class UIPolicyEvent(BaseModel):
+    actor_id: str
+    actor_type: str
+    roles: list[str] = Field(default_factory=list)
+    effective_customer_id: int
     tool_name: str
     risk_level: int
     outcome: str
@@ -47,8 +51,12 @@ class UITraceEvent(BaseModel):
 
 class AgentRunView(BaseModel):
     run_id: str
+    request_id: str
     conversation_id: str
     customer_id: int
+    actor_id: str
+    actor_type: str
+    roles: list[str] = Field(default_factory=list)
     intent: str
     request_type: str
     status: str

@@ -15,9 +15,21 @@ def validate_tool(state: AgentState) -> AgentState:
             "last_error": f"Tool {tool_name} is not registered.",
             "error_category": AgentErrorCategory.UNKNOWN_TOOL,
         }
+    context = state.get("execution_context")
+    if context is None:
+        return {
+            "last_error": "Authenticated execution context is required.",
+            "error_category": AgentErrorCategory.POLICY_DENIED,
+        }
     raw_arguments = dict(state.get("tool_arguments", {}))
-    if tool_name in {"get_order", "get_ticket"} and raw_arguments.get("customer_id") is None:
-        raw_arguments["customer_id"] = state["customer_id"]
+    requested_customer = raw_arguments.get("customer_id")
+    if requested_customer is not None and requested_customer != context.effective_customer_id:
+        return {
+            "last_error": "The selected resource does not belong to this customer.",
+            "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
+        }
+    if "customer_id" in definition.input_model.model_fields:
+        raw_arguments["customer_id"] = context.effective_customer_id
     try:
         arguments = definition.input_model.model_validate(raw_arguments)
     except PydanticValidationError:
@@ -26,10 +38,4 @@ def validate_tool(state: AgentState) -> AgentState:
             "error_category": AgentErrorCategory.INVALID_TOOL_ARGUMENTS,
         }
     arguments_data = arguments.model_dump(mode="json")
-    requested_customer = arguments_data.get("customer_id")
-    if requested_customer is not None and requested_customer != state.get("customer_id"):
-        return {
-            "last_error": "The selected resource does not belong to this customer.",
-            "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
-        }
     return {"tool_arguments": arguments_data}

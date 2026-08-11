@@ -18,6 +18,7 @@ from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentResponse, StructuredDecision
 from app.agent.tool_catalog import TOOL_DEFINITIONS, AgentToolDefinition
+from app.core.context import ExecutionContext
 from app.memory.models import MemoryRecord
 from app.memory.schemas import MemorySource, MemoryStatus, MemoryType
 from app.memory.service import MemoryService
@@ -120,12 +121,12 @@ def fault_scope(scenario: EvaluationScenario) -> Iterator[None]:
 
     remaining = fault.times
 
-    def injected(session: Session, request: Any) -> object:
+    def injected(session: Session, context: ExecutionContext, request: Any) -> object:
         nonlocal remaining
         if remaining > 0:
             remaining -= 1
         else:
-            return original.execute(session, request)
+            return original.execute(session, context, request)
         if fault.kind == "unknown_write_outcome":
             assert fault.tool is not None
             raise UnknownWriteOutcomeError(fault.tool)

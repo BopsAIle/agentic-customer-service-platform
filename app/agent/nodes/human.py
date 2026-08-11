@@ -24,9 +24,23 @@ def make_human_escalation_node(session: Session) -> Callable[[AgentState], Agent
                 "last_error": "Escalation tool is not registered.",
                 "tool_execution_status": "failed",
             }
+        context = state.get("execution_context")
+        if context is None:
+            return {
+                "error_category": AgentErrorCategory.POLICY_DENIED,
+                "last_error": "Authenticated execution context is required.",
+                "tool_execution_status": "failed",
+            }
         try:
             arguments = definition.input_model.model_validate(state.get("tool_arguments", {}))
-            result = definition.execute(session, arguments)
+            requested_customer = getattr(arguments, "customer_id", None)
+            if requested_customer != context.effective_customer_id:
+                return {
+                    "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
+                    "last_error": "Tool customer scope conflicts with execution context.",
+                    "tool_execution_status": "failed",
+                }
+            result = definition.execute(session, context, arguments)
             session.commit()
             return {
                 "tool_result": serialise_result(result),

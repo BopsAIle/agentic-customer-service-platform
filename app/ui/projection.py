@@ -9,6 +9,7 @@ from time import perf_counter
 
 from app.agent.schemas import AgentResponse
 from app.agent.state import AgentState
+from app.core.context import ExecutionContext
 from app.policies.models import PolicyAuditEvent
 from app.ui.schemas import (
     AgentRunView,
@@ -31,8 +32,7 @@ class _NodeEvent:
 @dataclass
 class _RunProjection:
     run_id: str
-    conversation_id: str
-    customer_id: int
+    context: ExecutionContext
     started_at: datetime
     trace_id: str | None
     nodes: list[_NodeEvent] = field(default_factory=list)
@@ -53,14 +53,12 @@ class UIProjectionStore:
         self,
         *,
         run_id: str,
-        conversation_id: str,
-        customer_id: int,
+        context: ExecutionContext,
         trace_id: str | None,
     ) -> Iterator[_RunProjection]:
         projection = _RunProjection(
             run_id=run_id,
-            conversation_id=conversation_id,
-            customer_id=customer_id,
+            context=context,
             started_at=datetime.now(UTC),
             trace_id=trace_id,
         )
@@ -101,6 +99,10 @@ class UIProjectionStore:
             )
         policy = [
             UIPolicyEvent(
+                actor_id=event.actor_id,
+                actor_type=event.actor_type.value,
+                roles=list(event.roles),
+                effective_customer_id=event.effective_customer_id,
                 tool_name=event.tool_name,
                 risk_level=event.risk_level,
                 outcome=event.policy_outcome.value,
@@ -153,8 +155,12 @@ class UIProjectionStore:
         ]
         view = AgentRunView(
             run_id=projection.run_id,
-            conversation_id=projection.conversation_id,
-            customer_id=projection.customer_id,
+            request_id=projection.context.request_id,
+            conversation_id=projection.context.conversation_id,
+            customer_id=projection.context.effective_customer_id,
+            actor_id=projection.context.principal.actor_id,
+            actor_type=projection.context.principal.actor_type.value,
+            roles=list(projection.context.principal.roles),
             intent=response.intent.value,
             request_type=response.request_type.value,
             status="error" if response.error_category else "completed",

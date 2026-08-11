@@ -9,6 +9,7 @@ from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.agent.tool_catalog import get_agent_tool_definition
 from app.observability.tracing import span
+from app.policies.confirmation import belongs_to_context
 from app.policies.models import PendingAction, PendingActionStatus
 from app.tools.base import ToolError
 from app.tools.orders import CancelOrderInput, validate_cancel_order
@@ -37,9 +38,8 @@ def make_revalidate_node(session: Session) -> Callable[[AgentState], AgentState]
 def _revalidate_action(
     state: AgentState, session: Session, action: PendingAction, policy_span: Span
 ) -> AgentState:
-    if action.conversation_id != state.get("conversation_id") or action.customer_id != state.get(
-        "customer_id"
-    ):
+    context = state.get("execution_context")
+    if context is None or not belongs_to_context(action, context):
         policy_span.set_attribute("policy.outcome", "deny")
         return _failed(
             state, AgentErrorCategory.OWNERSHIP_VIOLATION, "Pending action ownership failed."
@@ -52,6 +52,14 @@ def _revalidate_action(
                 state, AgentErrorCategory.UNKNOWN_TOOL, "Pending tool is not registered."
             )
         arguments = definition.input_model.model_validate(action.arguments)
+        requested_customer = getattr(arguments, "customer_id", None)
+        if requested_customer != context.effective_customer_id:
+            policy_span.set_attribute("policy.outcome", "deny")
+            return _failed(
+                state,
+                AgentErrorCategory.OWNERSHIP_VIOLATION,
+                "Pending action customer scope failed.",
+            )
         if action.tool_name == "cancel_order":
             validate_cancel_order(session, CancelOrderInput.model_validate(arguments))
         elif action.tool_name == "request_refund":

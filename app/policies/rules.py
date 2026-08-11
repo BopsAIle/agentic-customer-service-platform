@@ -1,10 +1,11 @@
+from app.core.context import ExecutionContext
 from app.policies.models import PolicyDecision, PolicyOutcome
 from app.tools import registry
 
 
 def evaluate_default_policy(
     tool_name: str,
-    customer_id: int | None,
+    context: ExecutionContext,
     arguments: dict[str, object],
 ) -> PolicyDecision:
     metadata = registry.TOOL_REGISTRY.get(tool_name)
@@ -16,7 +17,8 @@ def evaluate_default_policy(
             reasons=["unknown_tool"],
             required_conditions=[],
         )
-    if customer_id is None or customer_id <= 0:
+    customer_id = context.effective_customer_id
+    if customer_id <= 0:
         return PolicyDecision(
             outcome=PolicyOutcome.DENY,
             tool_name=tool_name,

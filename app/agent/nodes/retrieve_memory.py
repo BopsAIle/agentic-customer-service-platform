@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
@@ -17,11 +18,18 @@ def make_retrieve_memory_node(
     resilience_config: ResilienceConfig | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def retrieve_memory(state: AgentState) -> AgentState:
+        context = state.get("execution_context")
+        if context is None:
+            return {
+                "memory_context": [],
+                "error_category": AgentErrorCategory.POLICY_DENIED,
+                "last_error": "Authenticated execution context is required for memory.",
+            }
         query = _latest_user_message(state)
         with span("memory.retrieve") as memory_span:
             try:
                 records = run_with_retry(
-                    lambda: service.retrieve(session, state["customer_id"], query),
+                    lambda: service.retrieve(session, context.effective_customer_id, query),
                     dependency="memory",
                     config=resilience_config,
                 )

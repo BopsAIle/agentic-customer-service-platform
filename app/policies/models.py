@@ -4,6 +4,8 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.auth.models import ActorType
+
 
 class PolicyOutcome(StrEnum):
     ALLOW = "allow"
@@ -24,7 +26,9 @@ class PendingActionStatus(StrEnum):
 class PendingAction(BaseModel):
     action_id: str
     conversation_id: str
-    customer_id: int
+    actor_id: str
+    actor_type: ActorType
+    effective_customer_id: int
     tool_name: str
     arguments: dict[str, Any]
     risk_level: int
@@ -42,7 +46,12 @@ class PolicyDecision(BaseModel):
 
 class PolicyAuditEvent(BaseModel):
     agent_run_id: str
+    request_id: str
     conversation_id: str
+    actor_id: str
+    actor_type: ActorType
+    roles: list[str]
+    effective_customer_id: int
     action_id: str | None
     tool_name: str
     risk_level: int

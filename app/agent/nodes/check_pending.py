@@ -4,7 +4,13 @@ from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
-from app.policies.confirmation import Clock, is_expired, parse_confirmation, transition
+from app.policies.confirmation import (
+    Clock,
+    belongs_to_context,
+    is_expired,
+    parse_confirmation,
+    transition,
+)
 from app.policies.models import PendingActionStatus
 
 
@@ -30,16 +36,11 @@ def _check_pending(state: AgentState, clock: Clock, ttl_seconds: int) -> AgentSt
     parsed = parse_confirmation(current_message)
     if action is None:
         return {"confirmation_status": "no_pending" if parsed != "ambiguous" else "normal"}
-    if action.conversation_id != state.get("conversation_id"):
+    context = state.get("execution_context")
+    if context is None or not belongs_to_context(action, context):
         return {
             "confirmation_status": "ownership_error",
-            "last_error": "Pending action belongs to another conversation.",
-            "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
-        }
-    if action.customer_id != state.get("customer_id"):
-        return {
-            "confirmation_status": "ownership_error",
-            "last_error": "Pending action belongs to another customer.",
+            "last_error": "Pending action belongs to another execution context.",
             "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
         }
     if action.status == PendingActionStatus.PENDING:

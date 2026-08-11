@@ -15,6 +15,12 @@ def make_memory_action_node(
     service: MemoryService, session: Session
 ) -> Callable[[AgentState], AgentState]:
     def memory_action(state: AgentState) -> AgentState:
+        context = state.get("execution_context")
+        if context is None:
+            return _failed(
+                AgentErrorCategory.POLICY_DENIED,
+                "Authenticated execution context is required for memory.",
+            )
         intent = state.get("intent")
         if intent == Intent.MEMORY_REMEMBER:
             candidate = state.get("memory_candidate")
@@ -27,7 +33,7 @@ def make_memory_action_node(
                 with span("memory.evaluate_candidate") as memory_span:
                     result = service.remember(
                         session,
-                        state["customer_id"],
+                        context.effective_customer_id,
                         candidate,
                         source=MemorySource.USER_EXPLICIT,
                     )
@@ -73,7 +79,7 @@ def make_memory_action_node(
                     "Please specify which memory to forget.",
                 )
             with span("memory.forget", attributes={"memory.key": key}) as memory_span:
-                result = service.forget(session, state["customer_id"], key)
+                result = service.forget(session, context.effective_customer_id, key)
                 memory_span.set_attribute("memory.status", result.status)
             if result.status == "forgotten":
                 get_metrics().memory_forgets_total.add(1, {"status": result.status})

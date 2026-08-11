@@ -2,9 +2,24 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.auth.models import ActorType, Principal
+from app.core.context import ExecutionContext
 from app.policies.confirmation import is_expired, parse_confirmation
 from app.policies.engine import PolicyEngine
 from app.policies.models import PendingAction, PolicyOutcome
+
+
+def context(customer_id: int = 1) -> ExecutionContext:
+    return ExecutionContext(
+        request_id="req_test",
+        conversation_id="conv_test",
+        principal=Principal(
+            actor_id="operator-test",
+            actor_type=ActorType.SUPPORT_OPERATOR,
+            roles=["support_operator"],
+        ),
+        effective_customer_id=customer_id,
+    )
 
 
 @pytest.mark.parametrize("value", ["yes", "YES", " confirm ", "proceed", "do it"])
@@ -25,19 +40,21 @@ def test_policy_engine_applies_registry_risk_deterministically() -> None:
     engine = PolicyEngine()
     assert (
         engine.evaluate(
-            tool_name="get_order", customer_id=1, arguments={"customer_id": 1, "order_id": 2}
+            tool_name="get_order", context=context(), arguments={"customer_id": 1, "order_id": 2}
         ).outcome
         == PolicyOutcome.ALLOW
     )
     assert (
         engine.evaluate(
-            tool_name="cancel_order", customer_id=1, arguments={"customer_id": 1, "order_id": 3}
+            tool_name="cancel_order",
+            context=context(),
+            arguments={"customer_id": 1, "order_id": 3},
         ).outcome
         == PolicyOutcome.REQUIRE_CONFIRMATION
     )
     assert (
         engine.evaluate(
-            tool_name="escalate_to_human", customer_id=1, arguments={"customer_id": 1}
+            tool_name="escalate_to_human", context=context(), arguments={"customer_id": 1}
         ).outcome
         == PolicyOutcome.REQUIRE_HUMAN
     )
@@ -45,9 +62,11 @@ def test_policy_engine_applies_registry_risk_deterministically() -> None:
 
 def test_policy_engine_denies_unknown_or_wrong_customer() -> None:
     engine = PolicyEngine()
-    unknown = engine.evaluate(tool_name="not_registered", customer_id=1, arguments={})
+    unknown = engine.evaluate(tool_name="not_registered", context=context(), arguments={})
     wrong_customer = engine.evaluate(
-        tool_name="cancel_order", customer_id=1, arguments={"customer_id": 2, "order_id": 3}
+        tool_name="cancel_order",
+        context=context(),
+        arguments={"customer_id": 2, "order_id": 3},
     )
     assert unknown.outcome == PolicyOutcome.DENY
     assert "unknown_tool" in unknown.reasons
@@ -60,7 +79,9 @@ def test_expiration_is_clock_driven() -> None:
     action = PendingAction(
         action_id="act_test",
         conversation_id="conv_test",
-        customer_id=1,
+        actor_id="operator-test",
+        actor_type=ActorType.SUPPORT_OPERATOR,
+        effective_customer_id=1,
         tool_name="cancel_order",
         arguments={"customer_id": 1, "order_id": 3},
         risk_level=2,

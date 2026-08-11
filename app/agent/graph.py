@@ -97,19 +97,47 @@ def _after_execution(state: AgentState) -> str:
 
 
 def _load_context(state: AgentState) -> AgentState:
-    existing_customer = state.get("conversation_customer_id")
-    if existing_customer is not None and existing_customer != state.get("customer_id"):
+    context = state.get("execution_context")
+    if context is None:
+        return {
+            "intent": Intent.UNKNOWN,
+            "request_type": AgentRequestType.UNCLEAR,
+            "error_category": AgentErrorCategory.POLICY_DENIED,
+            "last_error": "Authenticated execution context is required.",
+            "selected_tool": None,
+            "tool_result": None,
+        }
+    if state.get("conversation_id") != context.conversation_id:
         return {
             "intent": Intent.UNKNOWN,
             "request_type": AgentRequestType.UNCLEAR,
             "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
-            "last_error": "Conversation belongs to a different customer.",
+            "last_error": "Execution context does not match request state.",
+            "selected_tool": None,
+            "tool_result": None,
+        }
+    existing_customer = state.get("conversation_customer_id")
+    existing_actor_id = state.get("conversation_actor_id")
+    existing_actor_type = state.get("conversation_actor_type")
+    principal = context.principal
+    if (
+        (existing_customer is not None and existing_customer != context.effective_customer_id)
+        or (existing_actor_id is not None and existing_actor_id != principal.actor_id)
+        or (existing_actor_type is not None and existing_actor_type != principal.actor_type.value)
+    ):
+        return {
+            "intent": Intent.UNKNOWN,
+            "request_type": AgentRequestType.UNCLEAR,
+            "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
+            "last_error": "Conversation belongs to a different execution context.",
             "selected_tool": None,
             "pending_action": state.get("pending_action"),
             "tool_result": None,
         }
     return {
-        "conversation_customer_id": state["customer_id"],
+        "conversation_customer_id": context.effective_customer_id,
+        "conversation_actor_id": principal.actor_id,
+        "conversation_actor_type": principal.actor_type.value,
         "agent_run_id": state["agent_run_id"],
         "retry_count": 0,
         "last_error": None,

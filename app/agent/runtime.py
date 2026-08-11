@@ -10,7 +10,9 @@ from app.agent.llm.base import StructuredDecisionProvider
 from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import AgentRequestType, AgentResponse, AgentToolCall, Intent
 from app.agent.state import AgentState
+from app.auth.models import ActorType, Principal
 from app.core.config import get_settings
+from app.core.context import ExecutionContext
 from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
@@ -59,8 +61,17 @@ class AgentRuntime:
         self.resilience_config = resilience_config or ResilienceConfig.from_settings(settings)
 
     def run(
-        self, *, conversation_id: str, customer_id: int, message: str, session: Session
+        self,
+        *,
+        message: str,
+        session: Session,
+        context: ExecutionContext | None = None,
+        conversation_id: str | None = None,
+        customer_id: int | None = None,
     ) -> AgentResponse:
+        execution_context = context or _legacy_execution_context(conversation_id, customer_id)
+        conversation_id = execution_context.conversation_id
+        customer_id = execution_context.effective_customer_id
         agent_run_id = str(uuid4())
         metric = get_metrics()
         labels = {"status": "ok"}
@@ -69,8 +80,12 @@ class AgentRuntime:
             "agent.run",
             attributes={
                 "agent.run_id": agent_run_id,
+                "request.id": execution_context.request_id,
                 "conversation.id": conversation_id,
-                "customer.present": customer_id > 0,
+                "actor.id": execution_context.principal.actor_id,
+                "actor.type": execution_context.principal.actor_type.value,
+                "actor.roles": execution_context.principal.roles,
+                "customer.id": customer_id,
             },
         ) as root_span:
             import time
@@ -95,20 +110,23 @@ class AgentRuntime:
                 )
                 with projection_store.capture(
                     run_id=agent_run_id,
-                    conversation_id=conversation_id,
-                    customer_id=customer_id,
+                    context=execution_context,
                     trace_id=trace_id,
                 ) as projection:
                     state = cast(
                         AgentState,
                         graph.invoke(
                             {
+                                "execution_context": execution_context,
                                 "conversation_id": conversation_id,
-                                "customer_id": customer_id,
                                 "agent_run_id": agent_run_id,
                                 "messages": [{"role": "user", "content": message}],
                             },
-                            config={"configurable": {"thread_id": conversation_id}},
+                            config={
+                                "configurable": {
+                                    "thread_id": _thread_id(execution_context),
+                                }
+                            },
                         ),
                     )
                     response = _response_from_state(state)
@@ -136,6 +154,28 @@ class AgentRuntime:
                 metric.agent_run_duration_seconds.record(time.perf_counter() - started, labels)
                 if labels["status"] == "error":
                     metric.agent_errors_total.add(1, labels)
+
+
+def _legacy_execution_context(
+    conversation_id: str | None, customer_id: int | None
+) -> ExecutionContext:
+    if conversation_id is None or customer_id is None:
+        raise ValueError("Execution context is required.")
+    return ExecutionContext(
+        request_id=str(uuid4()),
+        conversation_id=conversation_id,
+        principal=Principal(
+            actor_id="legacy-runtime",
+            actor_type=ActorType.SUPPORT_OPERATOR,
+            roles=["support_operator"],
+        ),
+        effective_customer_id=customer_id,
+    )
+
+
+def _thread_id(context: ExecutionContext) -> str:
+    principal = context.principal
+    return f"{principal.actor_type.value}:{principal.actor_id}:{context.conversation_id}"
 
 
 def _response_from_state(state: AgentState) -> AgentResponse:

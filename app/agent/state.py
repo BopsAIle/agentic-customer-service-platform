@@ -6,6 +6,7 @@ from app.agent.schemas import (
     AgentRequestType,
     Intent,
 )
+from app.core.context import ExecutionContext
 from app.memory.schemas import MemoryCandidate
 from app.policies.models import PendingAction, PolicyDecision
 
@@ -16,9 +17,11 @@ class ConversationMessage(TypedDict):
 
 
 class AgentState(TypedDict, total=False):
+    execution_context: ExecutionContext
     conversation_id: str
-    customer_id: int
     conversation_customer_id: int
+    conversation_actor_id: str
+    conversation_actor_type: str
     messages: Annotated[list[ConversationMessage], operator.add]
     intent: Intent
     request_type: AgentRequestType
