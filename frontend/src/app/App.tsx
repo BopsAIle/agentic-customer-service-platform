@@ -1,14 +1,21 @@
+import { Activity, Bot, Clock3, Command, HeartPulse, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../api/client";
-import { MemoryPanel } from "../components/MemoryPanel";
 import { Inspector } from "../components/Inspector";
 import { Playground } from "../components/Playground";
-import { PolicyPanel } from "../components/PolicyPanel";
-import { RagPanel } from "../components/RagPanel";
 import { ResiliencePanel } from "../components/ResiliencePanel";
-import { ToolPanel } from "../components/ToolPanel";
 import { TraceTimeline } from "../components/TraceTimeline";
+import { Badge, DataRow, MetricCard, StatusIndicator } from "../components/ui";
 import type { AgentRun, ConversationTurn, Health, MemoryRecord } from "../types";
+
+function RunHeader({ run, conversationId }: { run: AgentRun | null; conversationId: string }) {
+  const risk = run?.tools.reduce((max, tool) => Math.max(max, tool.risk_level ?? 0), 0) ?? 0;
+  return <section className="run-header"><div className="flex flex-wrap items-start justify-between gap-5"><div className="flex items-start gap-3"><div className="brand-mark"><Command size={17} strokeWidth={1.8} aria-hidden="true" /></div><div><div className="eyebrow">Agent run control plane</div><h1 className="mt-1 text-xl font-semibold tracking-tight text-main">Operator Console</h1><div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted"><span className="inline-flex items-center gap-1.5"><Activity size={13} aria-hidden="true" />{run ? `Run ${run.run_id.slice(0, 12)}` : "No active run"}</span><span className="text-border">/</span><span className="font-mono">{conversationId}</span></div></div></div><div className="flex items-center gap-3"><StatusIndicator label={run?.status ?? "Ready"} tone={run?.status === "error" ? "danger" : "success"} /><div className="hidden h-7 w-px bg-border sm:block" /><span className="text-xs text-muted">Metadata only</span></div></div><div className="mt-6 grid grid-cols-2 gap-px overflow-hidden rounded-lg border border-border bg-border sm:grid-cols-4"><MetricCard label="Intent" value={run?.intent ?? "—"} detail={run ? run.request_type.replace(/_/g, " ") : "Awaiting request"} /><MetricCard label="Customer" value={run ? `#${run.customer_id}` : "—"} detail="Authenticated scope" /><MetricCard label="Risk" value={run ? `Level ${risk}` : "—"} detail={risk > 1 ? "Confirmation boundary" : "No write risk"} /><MetricCard label="Latency" value={run ? `${run.duration_ms.toFixed(1)} ms` : "—"} detail={run ? "End-to-end run" : "No run measured"} /></div></section>;
+}
+
+function SystemStrip({ health }: { health: Health | null }) {
+  return <section className="surface p-4"><div className="flex flex-wrap items-center justify-between gap-3"><div className="flex items-center gap-2"><HeartPulse size={15} className="text-success" aria-hidden="true" /><span className="text-sm font-medium text-main">System status</span><Badge tone={health?.status === "degraded" ? "warning" : "success"}>{health?.status ?? "checking"}</Badge></div><div className="flex flex-wrap gap-4">{(health?.components ?? []).map((component) => <StatusIndicator key={component.name} label={`${component.name} · ${component.status}`} tone={component.status === "degraded" ? "warning" : component.status === "healthy" || component.status === "configured" ? "success" : "neutral"} compact />)}</div></div></section>;
+}
 
 export function App() {
   const [customerId, setCustomerId] = useState(1);
@@ -19,23 +26,9 @@ export function App() {
   const [health, setHealth] = useState<Health | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => { api.health().then(setHealth).catch(() => setHealth(null)); }, []);
   useEffect(() => { api.memory(customerId).then(setMemory).catch(() => setMemory([])); }, [customerId]);
-
-  const send = async (message: string) => {
-    setBusy(true); setError(null);
-    try {
-      const response = await api.chat(conversationId, customerId, message);
-      setTurns((current) => [...current, { request: message, response }]);
-      const nextRun = await api.run(response.agent_run_id);
-      setRun(nextRun);
-      const nextMemory = await api.memory(customerId);
-      setMemory(nextMemory);
-      setHealth(await api.health());
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "The operator API is unavailable."); }
-    finally { setBusy(false); }
-  };
-  const title = useMemo(() => run ? `${run.intent} · ${run.status}` : "Live agent workspace", [run]);
-  return <div className="min-h-screen bg-ink text-slate-200"><header className="border-b border-line/80 bg-ink/90"><div className="mx-auto flex max-w-[1600px] items-center justify-between px-6 py-5"><div><div className="flex items-center gap-3"><div className="h-3 w-3 rounded-full bg-mint shadow-[0_0_18px_rgba(120,230,196,.9)]" /><span className="text-sm font-bold tracking-[.18em] text-white">AGENTIC OPS</span></div><p className="mt-2 text-xs text-slate-500">Operator console · {title}</p></div><div className="hidden text-right md:block"><div className="text-[10px] uppercase tracking-[.2em] text-slate-500">Transparency boundary</div><div className="mt-1 text-xs text-mint">Metadata only · no chain-of-thought</div></div></div></header><main className="mx-auto grid max-w-[1600px] gap-5 px-6 py-6 xl:grid-cols-[minmax(420px,1.1fr)_minmax(440px,.9fr)]"><div className="space-y-5"><Playground customerId={customerId} conversationId={conversationId} turns={turns} busy={busy} error={error} onCustomerChange={setCustomerId} onSend={send} /><Inspector run={run} /><ResiliencePanel health={health} run={run} /></div><div className="space-y-5"><div className="grid gap-5 md:grid-cols-2"><ToolPanel tools={run?.tools ?? []} /><PolicyPanel events={run?.policy ?? []} /></div><RagPanel documents={run?.rag_documents ?? []} /><MemoryPanel usage={run?.memory ?? { item_count: 0, keys: [], types: [] }} records={memory} /><TraceTimeline events={run?.trace ?? []} /></div></main><footer className="mx-auto max-w-[1600px] px-6 pb-8 text-[11px] text-slate-600">For support operators and demonstrations. Authentication and authorization are deployment concerns.</footer></div>;
+  const send = async (message: string) => { setBusy(true); setError(null); try { const response = await api.chat(conversationId, customerId, message); setTurns((current) => [...current, { request: message, response }]); const nextRun = await api.run(response.agent_run_id); setRun(nextRun); setMemory(await api.memory(customerId)); setHealth(await api.health()); } catch (caught) { setError(caught instanceof Error ? caught.message : "The operator API is unavailable."); } finally { setBusy(false); } };
+  const lastUpdated = useMemo(() => run ? new Date(run.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—", [run]);
+  return <div className="min-h-screen"><header className="topbar"><div className="topbar-inner"><div className="flex items-center gap-3"><div className="brand-mark brand-mark-small"><Bot size={15} aria-hidden="true" /></div><span className="text-sm font-semibold tracking-[.12em] text-main">AGENTIC OPS</span><span className="hidden text-xs text-muted sm:inline">/ control plane</span></div><div className="flex items-center gap-4"><span className="hidden text-xs text-muted md:inline">Sprint 9 · operator workspace</span><StatusIndicator label="API connected" tone="success" compact /></div></div></header><main className="mx-auto max-w-[1680px] space-y-5 px-4 py-5 sm:px-6 lg:px-8"><RunHeader run={run} conversationId={conversationId} /><div className="workspace-grid"><Playground customerId={customerId} conversationId={conversationId} turns={turns} busy={busy} error={error} onCustomerChange={setCustomerId} onSend={send} /><Inspector run={run} memoryRecords={memory} /></div><div className="grid gap-5 xl:grid-cols-[1.1fr_1fr_1fr]"><TraceTimeline events={run?.trace ?? []} /><ResiliencePanel health={health} run={run} /><section className="surface p-5"><div className="eyebrow">Run context</div><h2 className="section-title mt-1">Correlation</h2><div className="mt-4 divide-y divide-border/70"><DataRow label="Last activity" value={<span className="inline-flex items-center gap-1"><Clock3 size={13} aria-hidden="true" />{lastUpdated}</span>} /><DataRow label="Conversation" value={conversationId} mono /><DataRow label="Scope" value={<span className="inline-flex items-center gap-1"><ShieldCheck size={13} aria-hidden="true" />customer #{customerId}</span>} /></div></section></div><SystemStrip health={health} /></main><footer className="mx-auto max-w-[1680px] px-4 pb-8 text-[11px] text-muted sm:px-6 lg:px-8">Operator surface for debugging and demonstrations · no prompts, raw payloads, or chain-of-thought are displayed.</footer></div>;
 }

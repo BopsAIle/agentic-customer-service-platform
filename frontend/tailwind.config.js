@@ -4,14 +4,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        ink: "#09111f",
-        panel: "#101c2e",
-        line: "#24344b",
-        mint: "#78e6c4",
-        amber: "#f6c66b",
+        void: "#0b0f14",
+        surface: "#121820",
+        border: "#27313d",
+        "border-strong": "#3a4654",
+        main: "#e8edf3",
+        muted: "#8793a3",
+        success: "#61d6a7",
+        warning: "#e6b65c",
+        danger: "#f07878",
+        info: "#79aaf7",
       },
       boxShadow: {
-        glow: "0 0 0 1px rgba(120,230,196,.12), 0 24px 70px rgba(0,0,0,.24)",
+        panel: "0 12px 32px rgba(0,0,0,.14)",
       },
     },
   },

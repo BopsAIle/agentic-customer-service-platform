@@ -1,6 +1,8 @@
+import { Clock3, Wrench } from "lucide-react";
 import type { ToolEvent } from "../types";
-import { Badge } from "./Badge";
-import { Empty } from "./Inspector";
-import { Panel } from "./Panel";
+import { Badge, EmptyState, Panel, SectionHeader, Timeline } from "./ui";
 
-export function ToolPanel({ tools }: { tools: ToolEvent[] }) { return <Panel title="Tool execution" eyebrow="Bounded actions">{tools.length === 0 ? <Empty text="No tool execution in this run." /> : <div className="space-y-3">{tools.map((tool, i) => <div key={`${tool.name}-${i}`} className="rounded-xl border border-line bg-ink/60 p-4"><div className="flex items-center justify-between"><span className="font-mono text-sm text-white">{tool.name}</span><Badge tone={tool.status === "executed" ? "mint" : "amber"}>{tool.status}</Badge></div><div className="mt-3 flex gap-2"><Badge tone="slate">Risk {tool.risk_level ?? "—"}</Badge><Badge tone="slate">{tool.duration_ms.toFixed(1)} ms</Badge></div>{tool.result_fields.length > 0 && <div className="mt-3 text-xs text-slate-500">Result metadata: {tool.result_fields.join(", ")}</div>}</div>)}</div>}</Panel>; }
+export function ToolPanel({ tools, embedded = false }: { tools: ToolEvent[]; embedded?: boolean }) {
+  const content = tools.length === 0 ? <EmptyState title="No tool activity" description="This run did not execute a business tool." icon={Wrench} /> : <Timeline items={tools.map((tool) => ({ title: tool.name, subtitle: <span className="inline-flex items-center gap-2"><Badge tone={tool.status === "executed" ? "success" : "warning"}>Risk {tool.risk_level ?? "—"}</Badge><span>{tool.status}</span></span>, meta: <span className="inline-flex items-center gap-1"><Clock3 size={12} aria-hidden="true" />{tool.duration_ms.toFixed(1)} ms</span>, tone: tool.status === "executed" ? "success" : "warning" }))} />;
+  return embedded ? <div>{content}</div> : <Panel title="Tool execution" eyebrow="Execution timeline"><SectionHeader title="Business tools" description="Risk and status only; sensitive arguments are omitted." />{content}</Panel>;
+}

@@ -69,6 +69,8 @@ export type AgentResponse = {
   failure_category: string | null;
   degraded_components: string[];
   recovery_action: string | null;
+  tool_call?: { name: string; status: string; result?: Record<string, unknown> | null } | null;
+  pending_action?: { action_id?: string; tool_name?: string; status?: string } | null;
 };
 
 export type ConversationTurn = {

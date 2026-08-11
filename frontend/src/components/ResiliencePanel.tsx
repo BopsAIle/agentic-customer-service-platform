@@ -1,6 +1,8 @@
-import type { Health, AgentRun } from "../types";
-import { Badge } from "./Badge";
-import { Empty } from "./Inspector";
-import { Panel } from "./Panel";
+import { HeartPulse, RotateCw } from "lucide-react";
+import type { AgentRun, Health } from "../types";
+import { Badge, Card, EmptyState, SectionHeader, StatusIndicator } from "./ui";
 
-export function ResiliencePanel({ health, run }: { health: Health | null; run: AgentRun | null }) { const components = health?.components ?? []; return <Panel title="System status" eyebrow="Failure hardening"><div className="grid grid-cols-2 gap-2">{components.map((component) => <div key={component.name} className="rounded-xl border border-line bg-ink/60 p-3"><div className="flex items-center justify-between text-xs text-slate-300"><span>{component.name}</span><Badge tone={component.status === "degraded" ? "amber" : "mint"}>{component.status}</Badge></div><div className="mt-2 text-[11px] text-slate-600">{component.detail}</div></div>)}</div>{run?.failure_category && <div className="mt-4 rounded-xl border border-amber/20 bg-amber/5 p-3 text-xs text-amber"><div className="font-semibold">Recent recovery</div><div className="mt-1">{run.failure_category} · {run.recovery_action ?? "safe failure"}</div></div>}{!health && !run && <Empty text="Health and recovery data appear after the first run." />}</Panel>; }
+export function ResiliencePanel({ health, run }: { health: Health | null; run: AgentRun | null }) {
+  const components = health?.components ?? [];
+  return <Card as="section" className="p-5"><SectionHeader eyebrow="Operational health" title="Dependencies" description="Current availability and bounded recovery state." />{components.length === 0 ? <EmptyState title="System health unavailable" description="Health data will appear when the operator API responds." icon={HeartPulse} /> : <div className="grid gap-2 sm:grid-cols-3">{components.map((component) => { const tone = component.status === "degraded" ? "warning" : component.status === "healthy" || component.status === "configured" ? "success" : "neutral"; return <div className="health-row" key={component.name}><div className="flex items-center justify-between gap-2"><span className="text-sm font-medium capitalize text-main">{component.name}</span><StatusIndicator label={component.status} tone={tone} compact /></div><div className="mt-2 text-xs text-muted">{component.detail}</div></div>; })}</div>}{run?.failure_category && <div className="notice notice-warning mt-4"><RotateCw size={15} aria-hidden="true" /><span><strong>Recent recovery</strong> · {run.failure_category.replace(/_/g, " ")} · {run.recovery_action ?? "safe failure"}</span><Badge tone="warning">degraded</Badge></div>}</Card>;
+}

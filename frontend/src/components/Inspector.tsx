@@ -1,19 +1,20 @@
-import type { ReactNode } from "react";
+import { Activity, BookOpen, Brain, GitBranch, ShieldCheck, Wrench } from "lucide-react";
 import type { AgentRun } from "../types";
-import { Panel } from "./Panel";
+import { Badge, DataRow, EmptyState, MetricCard, Panel, SectionHeader, StatusIndicator, Tabs } from "./ui";
+import { ToolPanel } from "./ToolPanel";
+import { PolicyPanel } from "./PolicyPanel";
+import { RagPanel } from "./RagPanel";
+import { MemoryPanel } from "./MemoryPanel";
+import { TraceTimeline } from "./TraceTimeline";
 
-export function Inspector({ run }: { run: AgentRun | null }) {
-  if (!run) return <Panel title="Agent inspector" eyebrow="Structured metadata"><Empty text="Run a request to open the inspector." /></Panel>;
-  return <Panel title="Agent inspector" eyebrow="Structured metadata">
-    <div className="grid grid-cols-2 gap-3 text-xs">
-      <Metric label="Intent" value={run.intent} /><Metric label="Request type" value={run.request_type} /><Metric label="Status" value={run.status} /><Metric label="Duration" value={`${run.duration_ms.toFixed(1)} ms`} />
-    </div>
-    <div className="mt-5 space-y-2 text-xs"><Meta label="Conversation ID" value={run.conversation_id} /><Meta label="Agent run" value={run.run_id} /><Meta label="Trace ID" value={run.trace_id ?? "not exported"} /></div>
-    <div className="mt-5"><div className="mb-2 text-[10px] font-bold uppercase tracking-[.2em] text-slate-500">Path</div><div className="flex flex-wrap items-center gap-2">{run.path.map((step, i) => <span key={`${step}-${i}`} className="flex items-center gap-2"><span className="rounded-md border border-line bg-ink px-2 py-1 text-[11px] text-slate-300">{step}</span>{i < run.path.length - 1 && <span className="text-mint/50">→</span>}</span>)}</div></div>
-  </Panel>;
+export function Inspector({ run, memoryRecords = [] }: { run: AgentRun | null; memoryRecords?: import("../types").MemoryRecord[] }) {
+  if (!run) return <Panel title="Agent inspector" eyebrow="Run analysis"><EmptyState title="No run selected" description="Run an agent request to inspect intent, tools, policy, evidence, and trace data." icon={Activity} /></Panel>;
+  const components = [run.memory.item_count > 0 && "Memory", run.rag_documents.length > 0 && "RAG", run.tools.length > 0 && "Tool", run.policy.length > 0 && "Policy"].filter(Boolean) as string[];
+  const risk = run.tools.reduce((max, tool) => Math.max(max, tool.risk_level ?? 0), 0);
+  const overview = <div className="space-y-5"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><MetricCard label="Intent" value={run.intent} icon={Activity} /><MetricCard label="Request type" value={run.request_type.replace(/_/g, " ")} icon={GitBranch} /><MetricCard label="Risk" value={`Level ${risk}`} icon={ShieldCheck} /><MetricCard label="Latency" value={`${run.duration_ms.toFixed(1)} ms`} icon={Activity} /></div><div className="grid gap-5 lg:grid-cols-2"><div><SectionHeader title="Run metadata" description="Safe identifiers for correlation." /><div className="divide-y divide-border/70"><DataRow label="Status" value={<StatusIndicator label={run.status} tone={run.status === "completed" ? "success" : "danger"} compact />} /><DataRow label="Conversation" value={run.conversation_id} mono /><DataRow label="Agent run" value={run.run_id} mono /><DataRow label="Trace" value={run.trace_id ?? "not exported"} mono /></div></div><div><SectionHeader title="Components used" description="Observed execution boundaries in this run." /><div className="flex flex-wrap gap-2">{components.length ? components.map((component) => <Badge key={component} tone="success"><span className="inline-flex items-center gap-1.5"><ShieldCheck size={12} aria-hidden="true" />{component}</span></Badge>) : <span className="text-xs text-muted">No downstream components recorded.</span>}</div></div></div><div><SectionHeader title="Execution path" description="Structured graph nodes only; no hidden reasoning." /><div className="path-strip">{run.path.map((step, index) => <span className="path-step" key={`${step}-${index}`}>{step}{index < run.path.length - 1 && <span className="path-arrow" aria-hidden="true">›</span>}</span>)}</div></div></div>;
+  const tabs = [{ id: "overview", label: "Overview", icon: Activity, content: overview }, { id: "tools", label: "Tools", icon: Wrench, content: <ToolPanel tools={run.tools} embedded /> }, { id: "policy", label: "Policy", icon: ShieldCheck, content: <PolicyPanel events={run.policy} embedded /> }, { id: "rag", label: "RAG", icon: BookOpen, content: <RagPanel documents={run.rag_documents} embedded /> }, { id: "memory", label: "Memory", icon: Brain, content: <MemoryPanel usage={run.memory} records={memoryRecords} embedded /> }, { id: "trace", label: "Trace", icon: GitBranch, content: <TraceTimeline events={run.trace} embedded /> }];
+  return <Panel title="Agent inspector" eyebrow="Run analysis" description="Structured metadata across the agent execution path."><Tabs tabs={tabs} /></Panel>;
 }
 
-export function Metric({ label, value }: { label: string; value: string }) { return <div className="rounded-xl border border-line bg-ink/60 p-3"><div className="mb-1 text-[10px] uppercase tracking-wider text-slate-500">{label}</div><div className="truncate font-mono text-xs text-mint">{value}</div></div>; }
-function Meta({ label, value }: { label: string; value: string }) { return <div className="flex justify-between gap-4 border-b border-line/70 pb-2"><span className="text-slate-500">{label}</span><span className="max-w-[62%] truncate font-mono text-slate-300">{value}</span></div>; }
-export function Empty({ text }: { text: string }) { return <div className="rounded-xl border border-dashed border-line p-5 text-center text-xs text-slate-500">{text}</div>; }
-export function SectionLabel({ children }: { children: ReactNode }) { return <div className="mb-3 text-[10px] font-bold uppercase tracking-[.2em] text-slate-500">{children}</div>; }
+export function Metric({ label, value }: { label: string; value: string }) { return <MetricCard label={label} value={value} />; }
+export function Empty({ text }: { text: string }) { return <EmptyState title="Nothing to inspect" description={text} />; }
