@@ -1,25 +1,43 @@
+import logging
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 
+import pytest
 from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
-from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
+from app.agent.schemas import AgentErrorCategory, AgentRequestType, Intent, StructuredDecision
 from app.auth.models import ActorType, Principal
 from app.core.config import Settings
 from app.core.context import ExecutionContext
+from app.memory.schemas import MemoryCandidate, MemoryType
 from app.memory.service import MemoryService
 from app.models import Order
 from app.models.entities import OrderStatus
 from app.persistence.checkpoint import (
+    CHECKPOINT_ALLOWED_MSGPACK_TYPES,
     CheckpointBackend,
+    CheckpointDeserializationError,
     MemoryCheckpointProvider,
     build_checkpoint_provider,
+    build_checkpoint_serializer,
     checkpoint_thread_id,
     checkpoint_thread_id_hash,
 )
-from app.policies.models import PendingActionStatus
+from app.policies.models import (
+    PendingAction,
+    PendingActionStatus,
+    PolicyDecision,
+    PolicyOutcome,
+)
+
+
+class UnregisteredCheckpointType(BaseModel):
+    value: str
 
 
 def execution_context(
@@ -58,6 +76,103 @@ def decision(
 
 def informational_decision() -> StructuredDecision:
     return decision(Intent.CAPABILITY_QUESTION, AgentRequestType.INFORMATIONAL)
+
+
+def test_configured_serializer_round_trips_intentional_application_types(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    principal = Principal(
+        actor_id="operator-checkpoint",
+        actor_type=ActorType.SUPPORT_OPERATOR,
+        roles=["support_operator"],
+    )
+    values = (
+        ExecutionContext(
+            request_id="request-checkpoint",
+            conversation_id="conversation-checkpoint",
+            principal=principal,
+            effective_customer_id=2,
+        ),
+        principal,
+        ActorType.SUPPORT_OPERATOR,
+        Intent.ORDER_CANCEL,
+        AgentRequestType.WRITE_ACTION,
+        AgentErrorCategory.POLICY_DENIED,
+        PolicyDecision(
+            outcome=PolicyOutcome.REQUIRE_CONFIRMATION,
+            tool_name="cancel_order",
+            risk_level=2,
+            reasons=["explicit confirmation required"],
+        ),
+        PolicyOutcome.REQUIRE_CONFIRMATION,
+        PendingAction(
+            action_id="act_checkpoint",
+            conversation_id="conversation-checkpoint",
+            actor_id=principal.actor_id,
+            actor_type=principal.actor_type,
+            effective_customer_id=2,
+            tool_name="cancel_order",
+            arguments={"customer_id": 2, "order_id": 3},
+            risk_level=2,
+            created_at=datetime(2026, 8, 12, tzinfo=UTC),
+        ),
+        PendingActionStatus.PENDING,
+        MemoryCandidate(
+            memory_type=MemoryType.PREFERENCE,
+            content="Prefers email updates",
+            normalized_key="contact.preference",
+        ),
+        MemoryType.PREFERENCE,
+    )
+    serializer = build_checkpoint_serializer()
+
+    with caplog.at_level(logging.WARNING, logger="langgraph.checkpoint.serde.jsonplus"):
+        restored = [serializer.loads_typed(serializer.dumps_typed(value)) for value in values]
+
+    assert [type(value) for value in restored] == [type(value) for value in values]
+    assert restored == list(values)
+    assert "Deserializing unregistered type" not in caplog.text
+    assert serializer.pickle_fallback is False
+    assert serializer._allowed_msgpack_modules == set(CHECKPOINT_ALLOWED_MSGPACK_TYPES)
+
+
+def test_configured_serializer_rejects_unregistered_application_type(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    serializer = build_checkpoint_serializer()
+    payload = serializer.dumps_typed(UnregisteredCheckpointType(value="must-not-load"))
+
+    with (
+        caplog.at_level(logging.WARNING, logger="langgraph.checkpoint.serde.jsonplus"),
+        pytest.raises(CheckpointDeserializationError, match="UnregisteredCheckpointType"),
+    ):
+        serializer.loads_typed(payload)
+
+    assert "Blocked deserialization of" in caplog.text
+    assert "Deserializing unregistered type" not in caplog.text
+
+
+def test_configured_serializer_reads_pre_strict_msgpack_checkpoint() -> None:
+    legacy_serializer = JsonPlusSerializer()
+    legacy_value = PolicyDecision(
+        outcome=PolicyOutcome.REQUIRE_CONFIRMATION,
+        tool_name="cancel_order",
+        risk_level=2,
+    )
+    legacy_payload = legacy_serializer.dumps_typed(legacy_value)
+
+    restored = build_checkpoint_serializer().loads_typed(legacy_payload)
+
+    assert restored == legacy_value
+    assert type(restored) is PolicyDecision
+
+
+def test_checkpoint_allowlist_is_immutable_exact_application_symbols() -> None:
+    assert len(CHECKPOINT_ALLOWED_MSGPACK_TYPES) == len(set(CHECKPOINT_ALLOWED_MSGPACK_TYPES))
+    assert all(
+        len(symbol) == 2 and symbol[0].startswith("app.")
+        for symbol in CHECKPOINT_ALLOWED_MSGPACK_TYPES
+    )
 
 
 def test_thread_identity_contains_all_authoritative_scope_fields() -> None:

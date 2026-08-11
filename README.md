@@ -116,6 +116,11 @@ load_context → retrieve_memory → check_pending_action
 Short-term conversation state is durably checkpointed in PostgreSQL through the official
 LangGraph checkpointer. Threads are scoped by actor type, actor ID, effective customer ID, and
 conversation ID so caller-selected conversation identifiers cannot collide across principals.
+Checkpoint reconstruction uses an explicit, exact-symbol allowlist for application-owned state;
+unknown Python types cause checkpoint loading to fail. Pickle fallback is disabled. Local Compose,
+integration, and production set `LANGGRAPH_STRICT_MSGPACK=true`, which also enables LangGraph's
+schema-derived allowlist support. Existing msgpack checkpoints remain compatible because the
+serialized format is unchanged and every intentional application state type is allowlisted.
 `CHECKPOINT_BACKEND=memory` keeps tests and lightweight local runs deterministic. Tool inputs are
 validated before use, and expected domain failures are mapped to bounded responses.
 

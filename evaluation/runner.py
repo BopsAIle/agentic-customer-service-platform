@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy.orm import Session
 
 from app.agent.llm.base import StructuredDecisionProvider
@@ -24,6 +23,7 @@ from app.memory.models import MemoryRecord
 from app.memory.schemas import MemorySource, MemoryStatus, MemoryType
 from app.memory.service import MemoryService
 from app.models import Escalation, Order
+from app.persistence.checkpoint import MemoryCheckpointProvider
 from app.policies.engine import PolicyEngine
 from app.rag.interfaces import KnowledgeRetriever
 from app.rag.retrieval.service import build_knowledge_service
@@ -248,7 +248,7 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
     )
     runtime = AgentRuntime(
         provider=provider,
-        checkpointer=MemorySaver(),
+        checkpointer=MemoryCheckpointProvider().checkpointer,
         clock=clock,
         confirmation_ttl_seconds=300,
         knowledge_retriever=knowledge_retriever,

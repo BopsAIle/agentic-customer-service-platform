@@ -73,7 +73,8 @@ The script uses a per-run Compose project and fresh volumes, layers
 - a backend restart preserves the PostgreSQL checkpoint and confirmation resumes the real graph;
 - the cancellation commits once, stores one idempotency receipt, and confirmation replay is safe;
 - initial and resumed Operator Console projections expose bounded policy/tool metadata without the
-  credential or hidden reasoning.
+  credential or hidden reasoning;
+- strict msgpack restoration emits no permissive unregistered-type warnings.
 
 `LLM_PROVIDER=deterministic_integration` is available only with `APP_ENV=integration`. It supports
 only this canonical seeded scenario and is rejected by configuration elsewhere. The production

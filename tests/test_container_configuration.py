@@ -62,6 +62,7 @@ def test_compose_wires_demo_authentication_and_bootstrap_without_production_inhe
     )
     assert compose["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"]
     assert production["services"]["backend"]["environment"]["AUTH_MODE"] == "static"
+    assert production["services"]["backend"]["environment"]["LANGGRAPH_STRICT_MSGPACK"] == ("true")
     assert production["services"]["backend"]["environment"]["LLM_PROVIDER"] == ("openai_compatible")
     assert production["services"]["backend"]["environment"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
     assert production["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
@@ -73,7 +74,23 @@ def test_integration_llm_provider_is_explicit_and_excluded_from_production_overl
 
     assert integration["services"]["backend"]["environment"] == {
         "APP_ENV": "integration",
+        "LANGGRAPH_STRICT_MSGPACK": "true",
         "LLM_PROVIDER": "deterministic_integration",
     }
     assert integration["services"]["demo-setup"]["environment"]["APP_ENV"] == "integration"
+    assert (
+        integration["services"]["demo-setup"]["environment"]["LANGGRAPH_STRICT_MSGPACK"] == "true"
+    )
     assert "deterministic_integration" not in production_text
+
+
+def test_checkpoint_strict_mode_is_enabled_without_permissive_or_pickle_configuration() -> None:
+    compose_text = (ROOT / "docker-compose.yml").read_text()
+    integration_text = (ROOT / "docker-compose.integration.yml").read_text()
+    production_text = (ROOT / "docker-compose.prod.yml").read_text()
+
+    assert "LANGGRAPH_STRICT_MSGPACK: ${LANGGRAPH_STRICT_MSGPACK:-true}" in compose_text
+    assert 'LANGGRAPH_STRICT_MSGPACK: "true"' in integration_text
+    assert 'LANGGRAPH_STRICT_MSGPACK: "true"' in production_text
+    assert "allowed_msgpack_modules" not in production_text
+    assert "pickle_fallback" not in production_text

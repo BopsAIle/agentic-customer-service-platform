@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import threading
 from enum import StrEnum
 from math import ceil
 from typing import Protocol
@@ -10,19 +11,70 @@ from urllib.parse import quote
 from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.checkpoint.memory import MemorySaver
 from langgraph.checkpoint.postgres import PostgresSaver
+from langgraph.checkpoint.serde.event_hooks import SerdeEvent, register_serde_event_listener
 from langgraph.checkpoint.serde.jsonplus import JsonPlusSerializer
 from psycopg import Connection
 from psycopg.rows import DictRow, dict_row
 from psycopg_pool import ConnectionPool
 
-from app.agent.schemas import AgentErrorCategory, AgentRequestType, Intent
-from app.auth.models import ActorType, Principal
 from app.core.config import Settings
 from app.core.context import ExecutionContext
-from app.memory.schemas import MemoryCandidate, MemoryType
-from app.policies.models import PendingAction, PendingActionStatus, PolicyDecision, PolicyOutcome
 
 logger = logging.getLogger(__name__)
+
+# Exact application symbols intentionally persisted in AgentState. LangGraph's built-in safe
+# types remain independently allowlisted by the checkpoint package. Keep this tuple narrow:
+# adding a symbol authorizes its constructor during checkpoint deserialization.
+CHECKPOINT_ALLOWED_MSGPACK_TYPES: tuple[tuple[str, str], ...] = (
+    # AgentState stores these decision/error enums directly.
+    ("app.agent.schemas", "AgentErrorCategory"),
+    ("app.agent.schemas", "AgentRequestType"),
+    ("app.agent.schemas", "Intent"),
+    # ExecutionContext persists the authenticated principal and its actor enum.
+    ("app.auth.models", "ActorType"),
+    ("app.auth.models", "Principal"),
+    ("app.core.context", "ExecutionContext"),
+    # Explicit memory requests persist the candidate and memory classification.
+    ("app.memory.schemas", "MemoryCandidate"),
+    ("app.memory.schemas", "MemoryType"),
+    # Risk decisions and durable confirmation state remain typed across restart.
+    ("app.policies.models", "PendingAction"),
+    ("app.policies.models", "PendingActionStatus"),
+    ("app.policies.models", "PolicyDecision"),
+    ("app.policies.models", "PolicyOutcome"),
+)
+
+
+class CheckpointDeserializationError(RuntimeError):
+    """Raised when checkpoint data requests construction of an unapproved Python type."""
+
+
+class StrictCheckpointSerializer(JsonPlusSerializer):
+    """Make LangGraph's blocked-type signal a fail-closed checkpoint load error."""
+
+    def loads_typed(self, data: tuple[str, bytes]) -> object:
+        blocked_events: list[SerdeEvent] = []
+        loader_thread_id = threading.get_ident()
+
+        def capture_blocked_event(event: SerdeEvent) -> None:
+            if threading.get_ident() == loader_thread_id and event["kind"] in {
+                "msgpack_blocked",
+                "msgpack_method_blocked",
+            }:
+                blocked_events.append(event)
+
+        unregister = register_serde_event_listener(capture_blocked_event)
+        try:
+            value = super().loads_typed(data)
+        finally:
+            unregister()
+        if blocked_events:
+            blocked = blocked_events[0]
+            symbol = f"{blocked['module']}.{blocked['name']}"
+            raise CheckpointDeserializationError(
+                f"Checkpoint deserialization rejected unregistered type {symbol}."
+            )
+        return value
 
 
 class CheckpointBackend(StrEnum):
@@ -50,7 +102,7 @@ class MemoryCheckpointProvider:
     """Deterministic process-local provider for tests and explicit local use."""
 
     def __init__(self, checkpointer: MemorySaver | None = None) -> None:
-        self._checkpointer = checkpointer or MemorySaver(serde=_checkpoint_serializer())
+        self._checkpointer = checkpointer or MemorySaver(serde=build_checkpoint_serializer())
 
     @property
     def backend(self) -> CheckpointBackend:
@@ -96,7 +148,7 @@ class PostgresCheckpointProvider:
                 "row_factory": dict_row,
             },
         )
-        self._checkpointer = PostgresSaver(self._pool, serde=_checkpoint_serializer())
+        self._checkpointer = PostgresSaver(self._pool, serde=build_checkpoint_serializer())
         self._initialized = False
 
     @property
@@ -188,20 +240,8 @@ def _psycopg_conninfo(database_url: str) -> str:
     return database_url
 
 
-def _checkpoint_serializer() -> JsonPlusSerializer:
-    return JsonPlusSerializer(
-        allowed_msgpack_modules=(
-            ExecutionContext,
-            Principal,
-            ActorType,
-            Intent,
-            AgentRequestType,
-            AgentErrorCategory,
-            PendingAction,
-            PendingActionStatus,
-            PolicyDecision,
-            PolicyOutcome,
-            MemoryCandidate,
-            MemoryType,
-        )
+def build_checkpoint_serializer() -> StrictCheckpointSerializer:
+    return StrictCheckpointSerializer(
+        pickle_fallback=False,
+        allowed_msgpack_modules=CHECKPOINT_ALLOWED_MSGPACK_TYPES,
     )

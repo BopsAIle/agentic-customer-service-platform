@@ -23,6 +23,7 @@ services:
       AUTH_MODE: local_demo
       LOCAL_DEMO_AUTH_TOKEN: ${LOCAL_DEMO_AUTH_TOKEN:-local-demo-support-token}
       LOCAL_DEMO_ACTOR_ID: ${LOCAL_DEMO_ACTOR_ID:-operator-local-demo}
+      LANGGRAPH_STRICT_MSGPACK: ${LANGGRAPH_STRICT_MSGPACK:-true}
       LLM_MODEL: ${LLM_MODEL:-llama3.1}
       LLM_BASE_URL: ${COMPOSE_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
       LLM_API_KEY: ${LLM_API_KEY:-}

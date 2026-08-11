@@ -44,6 +44,22 @@ The backend receives `SIGTERM` directly. Uvicorn stops accepting connections and
 Compose allows 35 seconds before forcefully stopping the backend. Lifecycle logs contain only
 bounded component names and statuses; they do not contain prompts, customer data, or credentials.
 
+## Checkpoint deserialization boundary
+
+PostgreSQL checkpoint data is integrity-sensitive. The application configures LangGraph's msgpack
+serializer with a small allowlist of exact `(module_name, class_name)` application symbols and no
+pickle fallback. Unknown Python types fail checkpoint loading rather than being imported or
+reconstructed. Local Compose defaults `LANGGRAPH_STRICT_MSGPACK=true`; the integration and
+production overlays set it unconditionally so LangGraph also derives allowed types from the graph
+schema during compilation.
+
+Checkpoints written before strict mode remain readable when they contain the same legitimate
+application types because strict mode changes reconstruction authorization, not the msgpack wire
+format. There is deliberately no permissive retry or automatic migration fallback. Deployments
+with independently modified historical state should validate it before rollout. This boundary
+reduces risk from tampered checkpoint rows; it does not protect a system whose application runtime
+or database credentials are already fully compromised.
+
 ## Local development stack
 
 The base file keeps an explicitly development-only authenticated demo. It migrates the database,
@@ -96,7 +112,8 @@ CPU and memory defaults can be overridden with `BACKEND_CPU_LIMIT`, `BACKEND_MEM
 
 The production overlay sets `APP_ENV=production`, forces `AUTH_MODE=static`, requires a non-empty
 externally supplied principal map, removes the demo token from backend/setup containers, and builds
-the frontend without a bundled demo credential. Backend startup rejects disabled or local-demo
+the frontend without a bundled demo credential. It also forces `LANGGRAPH_STRICT_MSGPACK=true`.
+Backend startup rejects disabled or local-demo
 authentication in production. Static opaque bearers are only the repository's current integration
 adapter, not a claim of production IAM; deployers must provide secret rotation/storage and their
 environment-specific identity integration.

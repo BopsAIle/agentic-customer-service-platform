@@ -417,6 +417,14 @@ def run_smoke(stack: ComposeStack) -> None:
     expect(stack.token not in captured, "Credential appeared in an API response projection.")
     logs = stack.run(("logs", "--no-color", "backend", "frontend"), timeout=30).stdout
     expect(stack.token not in logs, "Credential appeared in application logs.")
+    expect(
+        "Deserializing unregistered type" not in logs,
+        "Checkpoint restore used permissive unregistered-type deserialization.",
+    )
+    expect(
+        "Blocked deserialization of" not in logs,
+        "Checkpoint restore encountered a type outside the application allowlist.",
+    )
 
     print("Authenticated full-stack lifecycle smoke passed.")
     print("bootstrap=migrated,seeded,knowledge-ingested")

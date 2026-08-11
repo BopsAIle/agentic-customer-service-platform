@@ -4,9 +4,11 @@ services:
   demo-setup:
     environment:
       APP_ENV: integration
+      LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: deterministic_integration
 
   backend:
     environment:
       APP_ENV: integration
+      LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: deterministic_integration
