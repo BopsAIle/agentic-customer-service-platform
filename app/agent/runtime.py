@@ -2,6 +2,7 @@ from typing import cast
 from uuid import uuid4
 
 from langgraph.checkpoint.memory import MemorySaver
+from opentelemetry import trace
 from sqlalchemy.orm import Session
 
 from app.agent.graph import build_graph
@@ -19,6 +20,7 @@ from app.policies.registry import InMemoryPolicyAuditLog
 from app.rag.generation.grounded import GroundedAnswerGenerator
 from app.rag.retrieval.service import KnowledgeRetriever, build_default_knowledge_service
 from app.resilience.config import ResilienceConfig
+from app.ui.projection import get_projection_store
 
 
 class AgentRuntime:
@@ -75,6 +77,9 @@ class AgentRuntime:
 
             started = time.perf_counter()
             try:
+                current_span = trace.get_current_span().get_span_context()
+                trace_id = f"{current_span.trace_id:032x}" if current_span.is_valid else None
+                projection_store = get_projection_store()
                 graph = build_graph(
                     self.provider,
                     session,
@@ -88,19 +93,32 @@ class AgentRuntime:
                     memory_service=self.memory_service,
                     resilience_config=self.resilience_config,
                 )
-                state = cast(
-                    AgentState,
-                    graph.invoke(
-                        {
-                            "conversation_id": conversation_id,
-                            "customer_id": customer_id,
-                            "agent_run_id": agent_run_id,
-                            "messages": [{"role": "user", "content": message}],
-                        },
-                        config={"configurable": {"thread_id": conversation_id}},
-                    ),
-                )
-                response = _response_from_state(state)
+                with projection_store.capture(
+                    run_id=agent_run_id,
+                    conversation_id=conversation_id,
+                    customer_id=customer_id,
+                    trace_id=trace_id,
+                ) as projection:
+                    state = cast(
+                        AgentState,
+                        graph.invoke(
+                            {
+                                "conversation_id": conversation_id,
+                                "customer_id": customer_id,
+                                "agent_run_id": agent_run_id,
+                                "messages": [{"role": "user", "content": message}],
+                            },
+                            config={"configurable": {"thread_id": conversation_id}},
+                        ),
+                    )
+                    response = _response_from_state(state)
+                    projection_store.finish(
+                        projection,
+                        response=response,
+                        state=state,
+                        policy_events=self.audit_log.events,
+                        duration_ms=(time.perf_counter() - started) * 1000,
+                    )
                 root_span.set_attribute("agent.intent", response.intent.value)
                 root_span.set_attribute("agent.request_type", response.request_type.value)
                 if response.error_category is not None:

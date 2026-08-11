@@ -41,7 +41,7 @@ dev = [
 [tool.ruff]
 line-length = 100
 target-version = "py312"
-exclude = [".venv", "alembic/versions"]
+exclude = [".venv", "alembic/versions", "frontend/node_modules"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP"]

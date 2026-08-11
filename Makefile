@@ -1,4 +1,4 @@
-.PHONY: dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-report eval-baseline observability-up observability-down
+.PHONY: dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-report eval-baseline observability-up observability-down frontend-install frontend-dev frontend-build frontend-test frontend-typecheck
 
 dev:
 	uv run uvicorn app.main:app --reload
@@ -50,3 +50,18 @@ observability-up:
 
 observability-down:
 	docker compose down
+
+frontend-install:
+	cd frontend && npm install
+
+frontend-dev:
+	cd frontend && npm run dev
+
+frontend-build:
+	cd frontend && npm run build
+
+frontend-test:
+	cd frontend && npm test
+
+frontend-typecheck:
+	cd frontend && npm run typecheck

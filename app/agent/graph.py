@@ -33,6 +33,7 @@ from app.rag.generation.grounded import GroundedAnswerGenerator
 from app.rag.retrieval.service import KnowledgeRetriever
 from app.resilience.config import ResilienceConfig
 from app.tools import registry
+from app.ui.projection import record_node
 
 
 def _after_context(state: AgentState) -> str:
@@ -144,26 +145,34 @@ def _instrument_node(
     name: str, node: Callable[[AgentState], AgentState]
 ) -> Callable[[AgentState], AgentState]:
     def instrumented(state: AgentState) -> AgentState:
+        import time
+
+        started = time.perf_counter()
         with span(
             f"agent.{name}", attributes={"agent.node": name, "node.name": name}
         ) as active_span:
-            if name in {"execute_tool", "escalate"}:
-                result = _instrument_tool_node(name, node, state)
-            else:
-                result = node(state)
-            error = result.get("error_category")
-            active_span.set_attribute("node.status", "error" if error else "ok")
-            if error is not None:
-                active_span.set_attribute("error.category", error.value)
-            selected_tool = result.get("selected_tool")
-            if isinstance(selected_tool, str):
-                active_span.set_attribute("tool.selected", selected_tool)
-            recovery = result.get("recovery_action")
-            if isinstance(recovery, str):
-                active_span.set_attribute("recovery.action", recovery)
-                if recovery in {"degraded", "continue_without_memory"}:
-                    get_metrics().degraded_requests_total.add(1, {"component": name})
-            return result
+            try:
+                if name in {"execute_tool", "escalate"}:
+                    result = _instrument_tool_node(name, node, state)
+                else:
+                    result = node(state)
+                error = result.get("error_category")
+                active_span.set_attribute("node.status", "error" if error else "ok")
+                if error is not None:
+                    active_span.set_attribute("error.category", error.value)
+                selected_tool = result.get("selected_tool")
+                if isinstance(selected_tool, str):
+                    active_span.set_attribute("tool.selected", selected_tool)
+                recovery = result.get("recovery_action")
+                if isinstance(recovery, str):
+                    active_span.set_attribute("recovery.action", recovery)
+                    if recovery in {"degraded", "continue_without_memory"}:
+                        get_metrics().degraded_requests_total.add(1, {"component": name})
+                record_node(name, "error" if error else "ok", started)
+                return result
+            except Exception:
+                record_node(name, "error", started)
+                raise
 
     return instrumented
 

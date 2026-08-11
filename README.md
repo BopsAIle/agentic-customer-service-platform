@@ -152,6 +152,22 @@ Authority ordering remains strict: policy engine > business tool state > current
 
 Memory is enabled by `MEMORY_ENABLED=true` and configured with `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_DEFAULT_TTL_DAYS`, and `MEMORY_SUPPORT_CONTEXT_TTL_DAYS`. Set `MEMORY_ENABLED=false` to preserve Sprint 0–6 behavior without reads or writes. The default evaluation suite includes persistent-memory scenarios for consent, isolation, expiry, conflict resolution, injection boundaries, business authority, and confirmation safety.
 
+## Operator Console
+
+Sprint 9 adds a React/TypeScript operator console for debugging and demonstration. It is an operator-facing workspace, not a customer chat surface. The playground can send requests for the seeded demo customers, while the inspector exposes structured intent, routing, tools, policy outcomes, RAG citation metadata, approved memory usage, trace timing, and resilience status.
+
+Start the backend with `make dev`, then run the frontend in another terminal:
+
+```bash
+make frontend-install
+make frontend-dev
+# UI: http://localhost:5173
+```
+
+`make frontend-typecheck`, `make frontend-test`, and `make frontend-build` validate the frontend independently. The frontend uses the existing FastAPI `/agent/chat` endpoint and bounded `/ui/*` read APIs; it does not query the database directly or replace Jaeger. The backend projection is a bounded in-process read model built from existing agent graph events, policy audit events, RAG metadata, memory metadata, and the current trace context. It is intentionally ephemeral and may be empty after a restart.
+
+The UI exposes agent execution metadata, not chain-of-thought. Conversation messages, raw prompts, raw model responses, full tool arguments/results, customer contact details, and retrieved document bodies are excluded from the operator API. The memory view displays only active customer-scoped memory records already approved by the memory policy. Document title, section, source, score, citation ID, bounded result field names, and reason codes are safe projections. Authentication and authorization for the operator console remain deployment concerns and should be added before exposing it outside a trusted local environment.
+
 ## Roadmap
 
 1. Business tools — implemented
@@ -163,6 +179,6 @@ Memory is enabled by `MEMORY_ENABLED=true` and configured with `MEMORY_MAX_CONTE
 7. Observability — implemented
 8. Persistent memory — implemented
 9. Failure hardening — implemented
-10. Demo UI
+10. Operator console — implemented
 
-The live OpenAI-compatible provider, LangGraph orchestration, deterministic policy engine, confirmation lifecycle, Risk 3 persistence path, deterministic RAG pipeline, knowledge/action routing, evaluation harness, OpenTelemetry tracing, selective persistent memory, and failure hardening are implemented, but live LLM, embedding, reranking, and Qdrant services are not required for automated tests. Timeout enforcement for synchronous local adapters remains deployment-specific; unknown write outcomes require an adapter to report that ambiguity explicitly. Human operator dashboard/workflow, voice, and multi-agent architecture remain future work.
+The live OpenAI-compatible provider, LangGraph orchestration, deterministic policy engine, confirmation lifecycle, Risk 3 persistence path, deterministic RAG pipeline, knowledge/action routing, evaluation harness, OpenTelemetry tracing, selective persistent memory, failure hardening, and operator console are implemented, but live LLM, embedding, reranking, and Qdrant services are not required for automated tests. Timeout enforcement for synchronous local adapters remains deployment-specific; unknown write outcomes require an adapter to report that ambiguity explicitly. The operator console is a local/debug surface, not a complete production operator-authentication or durable event-management system. Voice and multi-agent architecture remain future work.
