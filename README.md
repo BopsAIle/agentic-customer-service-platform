@@ -1,6 +1,7 @@
 # Agentic Customer Service Platform
 
-> A production-oriented reference platform for safe, observable, and testable AI customer service agents.
+> A production-oriented reference platform for building safe, stateful, observable, and testable
+> AI customer service systems.
 
 [![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
@@ -10,50 +11,94 @@
 [![OpenTelemetry](https://img.shields.io/badge/Observability-OpenTelemetry-000000?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
 [![React](https://img.shields.io/badge/Operator_Console-React-61DAFB?logo=react&logoColor=black)](https://react.dev/)
 
-The platform combines typed LangGraph orchestration, deterministic authorization, hybrid retrieval, selective persistent memory, resilience controls, evaluation, and an operator-facing control plane. It is designed to demonstrate the engineering boundaries required when an agent can read customer data and propose real business actions.
+This repository is an end-to-end agent platform, not only a conversational demo. It combines
+authenticated HTTP boundaries, server-owned execution context, typed LangGraph orchestration,
+deterministic policy enforcement, durable workflow state, customer-scoped memory and retrieval,
+idempotent business writes, observability, and repeatable evaluation. The implementation focuses
+on the control boundaries required when an LLM can interpret customer requests and propose real
+business actions.
+
+The project remains a reference implementation: local static bearer credentials keep development
+simple, while replaceable identity, persistence, retrieval, and provider abstractions establish
+production-oriented boundaries without claiming a complete deployment environment.
 
 ## Overview
 
-Enterprise customer support agents need more than conversational fluency. They must reason over a request, select tools, respect live business state, enforce safety rules, recover from dependency failures, and expose enough telemetry for operators to understand what happened.
+Enterprise customer support agents need more than conversational fluency. They must authenticate
+callers, preserve customer isolation, select tools, respect live business state, enforce safety
+rules, recover from dependency failures, and expose enough telemetry for operators to understand
+what happened.
 
 This project provides those capabilities as separate, testable layers:
 
 - ✓ LangGraph orchestration with typed state and structured decisions
+- ✓ Authentication, role enforcement, and server-owned customer scope
+- ✓ Actor-scoped PostgreSQL checkpoint persistence
 - ✓ Hybrid RAG with citations
 - ✓ Selective persistent customer memory
 - ✓ Deterministic policy engine and confirmation boundaries
+- ✓ Database-backed write idempotency and timeout-aware resilience
 - ✓ Human escalation for high-risk work
 - ✓ Offline evaluation framework with fault injection
 - ✓ OpenTelemetry traces exported to Jaeger with bounded in-process metrics
-- ✓ Bounded retries and degraded modes
+- ✓ Reproducible CI gates and hardened non-root containers
 - ✓ React Operator Console with metadata-only inspection
 
 ## Architecture
 
 ```mermaid
 flowchart TD
-    U[User] --> API[FastAPI API]
-    API --> AGENT[LangGraph Agent]
+    CLIENT[Customer / Support Operator] --> API[FastAPI HTTP Boundary]
+    API --> AUTH[Authentication and RBAC]
+    AUTH --> CONTEXT[Server-owned ExecutionContext]
+    CONTEXT --> GRAPH[LangGraph Agent Runtime]
 
-    AGENT --> MEMORY[Persistent Memory]
-    AGENT --> RAG[Hybrid RAG]
-    AGENT --> TOOLS[Typed Business Tools]
-    AGENT --> POLICY[Policy Engine]
-    AGENT --> RESILIENCE[Resilience Layer]
+    GRAPH --> POLICY[Policy and Confirmation]
+    GRAPH --> MEMORY[Customer-scoped Memory]
+    GRAPH --> RAG[Configured RAG Runtime]
+    GRAPH --> TOOLS[Typed Business Tools]
 
-    MEMORY --> DB[(PostgreSQL)]
-    RAG --> QDRANT[(Qdrant)]
-    TOOLS --> SYSTEMS[Business Systems]
     POLICY --> TOOLS
-    RESILIENCE --> AGENT
+    MEMORY --> POSTGRES[(PostgreSQL)]
+    TOOLS --> POSTGRES
+    GRAPH --> CHECKPOINTS[Durable Checkpoints]
+    CHECKPOINTS --> POSTGRES
+    RAG --> QDRANT[(Qdrant)]
 
-    API -. telemetry .-> OTEL[OpenTelemetry]
-    AGENT -. telemetry .-> OTEL
-    OTEL --> JAEGER[Jaeger]
-    CONSOLE[Operator Console] --> API
+    API -. safe metadata .-> OBS[OpenTelemetry / Jaeger]
+    GRAPH -. safe metadata .-> OBS
+    GRAPH -. deterministic scenarios .-> EVAL[Evaluation Harness]
+    CONSOLE[React Operator Console] --> API
 ```
 
-The LLM proposes a structured decision; it does not authorize execution. Customer, order, ticket, and escalation operations pass through typed tools and deterministic policy checks. PostgreSQL owns business state and persistent memory, while Qdrant is the deployment adapter for retrieval storage.
+Authentication resolves a typed principal before protected HTTP work begins. The server derives an
+`ExecutionContext` containing actor identity, effective customer scope, request ID, and conversation
+ID; request bodies and model output cannot replace that identity. The LLM proposes a structured
+decision, but customer, order, ticket, refund, cancellation, and escalation operations remain
+behind typed tools, ownership checks, policy decisions, and confirmation rules.
+
+PostgreSQL owns business records, idempotency receipts, persistent memory, and LangGraph
+checkpoints. Qdrant provides the configured production retrieval path. OpenTelemetry and the
+deterministic evaluation harness observe behavior without becoming authorization inputs.
+
+## Production Hardening
+
+The current implementation includes the following production-oriented controls:
+
+| Area | Current boundary |
+| --- | --- |
+| Authentication and RBAC | Typed principals, replaceable authenticator protocol, static bearer development backend, protected business routes, operator-only APIs, and central customer-scope resolution |
+| Durable checkpoints | Official PostgreSQL LangGraph checkpointer behind an application provider boundary; memory backend remains available for deterministic tests |
+| Confirmation persistence | Pending actions survive process restarts and are bound to actor, actor type, customer scope, and conversation |
+| Idempotent writes | Request-scoped keys and database uniqueness prevent duplicate refunds, cancellations, tickets, and escalations across workers |
+| Timeout-aware resilience | Explicit LLM, retrieval, reranker, database, and HTTP timeouts; unknown write outcomes are not automatically replayed |
+| Production RAG runtime | Configurable local or Qdrant retrieval, provider-neutral embeddings, optional reranking, citation preservation, and safe fallback metadata |
+| CI/CD gates | Frozen backend and frontend installs, lint, types, tests, deterministic evaluations, vulnerability and secret scanning, image builds, Compose validation, and main-branch smoke checks |
+| Hardened containers | Multi-stage builds, non-root runtime users, graceful SIGTERM handling, bounded telemetry flush, readiness checks, security headers, and a production-oriented Compose overlay |
+
+Together these controls make the repository a production-oriented deployment reference, but they
+do not replace environment-specific identity providers, secret management, high-availability data
+services, TLS termination, or infrastructure orchestration.
 
 ## Core Capabilities
 
@@ -224,6 +269,19 @@ The console does **not** expose chain-of-thought, raw prompts, raw model respons
 
 ## Safety Model
 
+The platform separates model reasoning from authority:
+
+1. **The LLM proposes.** It produces a typed intent, request type, candidate tool, and validated
+   arguments. Its output is untrusted input to the control plane.
+2. **Deterministic systems authorize.** Authenticated identity, effective customer scope,
+   ownership checks, live database state, and tool schemas decide whether a proposal is valid.
+3. **Policy controls actions.** The policy engine assigns risk handling and returns a bounded
+   `allow`, `require_confirmation`, `require_human`, or `deny` decision. Policy failures fail
+   closed.
+4. **Confirmation protects risky operations.** Refund and cancellation proposals bind a durable
+   pending action to the actor, customer, and conversation. Confirmation revalidates ownership,
+   expiry, policy, and current business state before an idempotent write executes.
+
 Authorization precedence is explicit:
 
 ```text
@@ -234,7 +292,9 @@ Policy Engine
                 > Persistent Memory
 ```
 
-The model may propose; only deterministic code may authorize. Business state remains authoritative for ownership and valid transitions, RAG remains untrusted evidence, and memory remains non-authoritative context.
+Business state remains authoritative for ownership and valid transitions. Retrieved knowledge is
+untrusted evidence and cannot authorize tools or change customer scope. Memory is non-authoritative
+context and cannot confirm an action, bypass policy, or grant access.
 
 Verified deterministic evaluation guarantees:
 
@@ -290,7 +350,32 @@ npm run dev
 
 Stop the Compose stack with `docker compose down` or `make down`.
 
-### Container health
+## Deployment
+
+Docker Compose is the supported local deployment workflow. The base `docker-compose.yml` starts
+PostgreSQL, Qdrant, Jaeger, the backend, and the frontend with development-friendly defaults:
+
+```bash
+docker compose up --build --detach
+docker compose down
+```
+
+`docker-compose.prod.yml` is a production-oriented Compose reference layered over the base file.
+It adds external database credential requirements, restart policies, read-only application
+filesystems, dropped capabilities, temporary writable filesystems, and configurable CPU and memory
+limits:
+
+```bash
+export POSTGRES_PASSWORD='set-outside-source-control'
+export DATABASE_URL='postgresql+psycopg://app:encoded-password@db:5432/customer_service'
+docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build --detach
+```
+
+The overlay is a deployment reference rather than a high-availability production orchestrator.
+Kubernetes, Helm, cloud infrastructure, and automated deployment are future scope.
+
+### Health and readiness
 
 - `GET /health` is process liveness only and returns `{"status":"ok"}` while FastAPI can serve.
 - `GET /ready` verifies PostgreSQL, checkpoint persistence, and the configured knowledge backend.
@@ -301,8 +386,8 @@ model with read-only application filesystems, restart policies, and configurable
 limits, layer `docker-compose.prod.yml` over the development file. It requires externally supplied
 database credentials and does not provide secret management or deployment automation.
 
-See [docs/deployment.md](docs/deployment.md) for probe semantics, graceful shutdown, configuration,
-and container commands.
+See [docs/deployment.md](docs/deployment.md) for probe semantics, graceful shutdown, external
+configuration, resource limits, and container expectations.
 
 ## Testing
 
@@ -352,8 +437,11 @@ See [docs/ci.md](docs/ci.md) for the gate graph, scanner behavior, and integrati
 ├── app/
 │   ├── agent/              # LangGraph state, nodes, providers, and runtime
 │   ├── api/                # FastAPI routes and transport boundaries
+│   ├── auth/               # Principal, authenticator, RBAC, and scope boundaries
+│   ├── core/               # Configuration, execution context, and database runtime
 │   ├── memory/             # Selective persistent memory
 │   ├── observability/      # OpenTelemetry traces, metrics, and middleware
+│   ├── persistence/        # LangGraph checkpoint provider boundary
 │   ├── policies/           # Risk policy, confirmation, and revalidation
 │   ├── rag/                # Ingestion, retrieval, fusion, and generation
 │   ├── resilience/         # Failure classification, retry, and fallback
@@ -384,12 +472,19 @@ Completed:
 - [x] Persistent memory
 - [x] Resilience layer
 - [x] Operator Console
+- [x] Authentication, route authorization, and RBAC
+- [x] Execution context propagation and customer isolation
+- [x] Durable PostgreSQL agent checkpoints
+- [x] Write idempotency and timeout enforcement
+- [x] Production Qdrant RAG runtime separation
+- [x] CI/CD quality and security gates
+- [x] Hardened backend and frontend containers
 
 Future:
 
 - [ ] Voice agent
 - [ ] Kubernetes deployment
-- [ ] Production authentication and authorization
+- [ ] JWT/OIDC and enterprise identity-provider adapters
 - [ ] Multi-agent workflows
 
 ## Engineering Decisions
