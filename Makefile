@@ -1,4 +1,4 @@
-.PHONY: dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-report eval-baseline
+.PHONY: dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-report eval-baseline observability-up observability-down
 
 dev:
 	uv run uvicorn app.main:app --reload
@@ -41,3 +41,9 @@ eval-report:
 
 eval-baseline:
 	uv run python -m evaluation.runner --save-baseline
+
+observability-up:
+	docker compose up --build -d
+
+observability-down:
+	docker compose down

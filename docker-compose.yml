@@ -21,6 +21,9 @@ services:
       DATABASE_URL: postgresql+psycopg://app:app@db:5432/customer_service
       APP_ENV: development
       QDRANT_URL: http://qdrant:6333
+      OTEL_ENABLED: "true"
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
+      OTEL_SERVICE_NAME: agentic-customer-service-platform
     ports:
       - "8000:8000"
     depends_on:
@@ -28,6 +31,8 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+      jaeger:
+        condition: service_started
     command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
 
   qdrant:
@@ -42,6 +47,15 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.62
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
 
 volumes:
   postgres_data:

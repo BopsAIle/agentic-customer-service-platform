@@ -47,6 +47,9 @@ class AgentErrorCategory(StrEnum):
     UNKNOWN_TOOL = "unknown_tool"
     LLM_ERROR = "llm_error"
     POLICY_DENIED = "policy_denied"
+    RETRIEVAL_ERROR = "retrieval_error"
+    RERANKER_ERROR = "reranker_error"
+    CONFIRMATION_EXPIRED = "confirmation_expired"
 
 
 class StructuredDecision(BaseModel):

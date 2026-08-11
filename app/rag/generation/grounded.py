@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 
+from app.observability.tracing import span
 from app.rag.context import construct_context
 from app.rag.schemas import Citation, GroundedAnswer, RetrievedChunk
 
@@ -14,7 +15,9 @@ class GroundedAnswerGenerator:
         chunks: Sequence[RetrievedChunk],
         business_result: dict[str, object] | None = None,
     ) -> GroundedAnswer:
-        context = construct_context(chunks, self.max_context)
+        with span("rag.context_build") as context_span:
+            context = construct_context(chunks, self.max_context)
+            context_span.set_attribute("rag.final_context_chunks", len(context))
         if not context:
             return GroundedAnswer(
                 answer=(

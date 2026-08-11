@@ -24,6 +24,15 @@ def _error_message(category: AgentErrorCategory | None) -> str:
         AgentErrorCategory.LLM_ERROR: (
             "I couldn't understand that request reliably. Please rephrase it."
         ),
+        AgentErrorCategory.RETRIEVAL_ERROR: (
+            "The knowledge service is temporarily unavailable. Please try again."
+        ),
+        AgentErrorCategory.RERANKER_ERROR: (
+            "The knowledge service could not rank results reliably. Please try again."
+        ),
+        AgentErrorCategory.CONFIRMATION_EXPIRED: (
+            "That confirmation expired. Please request the action again."
+        ),
     }[category]
 
 

@@ -17,7 +17,7 @@ def make_retrieve_node(
         except Exception:
             return {
                 "last_error": "The knowledge service was unavailable.",
-                "error_category": AgentErrorCategory.LLM_ERROR,
+                "error_category": AgentErrorCategory.RETRIEVAL_ERROR,
             }
         grounded = generator.answer(query, chunks, state.get("tool_result"))
         return {

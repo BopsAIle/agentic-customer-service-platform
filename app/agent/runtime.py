@@ -10,6 +10,8 @@ from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import AgentRequestType, AgentResponse, AgentToolCall, Intent
 from app.agent.state import AgentState
 from app.core.config import get_settings
+from app.observability.metrics import get_metrics
+from app.observability.tracing import span
 from app.policies.confirmation import Clock, SystemClock
 from app.policies.engine import PolicyEngine
 from app.policies.registry import InMemoryPolicyAuditLog
@@ -47,30 +49,62 @@ class AgentRuntime:
         self, *, conversation_id: str, customer_id: int, message: str, session: Session
     ) -> AgentResponse:
         agent_run_id = str(uuid4())
-        graph = build_graph(
-            self.provider,
-            session,
-            self.checkpointer,
-            policy_engine=self.policy_engine,
-            clock=self.clock,
-            ttl_seconds=self.confirmation_ttl_seconds,
-            audit_log=self.audit_log,
-            knowledge_retriever=self.knowledge_retriever,
-            grounded_generator=self.grounded_generator,
-        )
-        state = cast(
-            AgentState,
-            graph.invoke(
-                {
-                    "conversation_id": conversation_id,
-                    "customer_id": customer_id,
-                    "agent_run_id": agent_run_id,
-                    "messages": [{"role": "user", "content": message}],
-                },
-                config={"configurable": {"thread_id": conversation_id}},
-            ),
-        )
-        return _response_from_state(state)
+        metric = get_metrics()
+        labels = {"status": "ok"}
+        metric.agent_runs_total.add(1)
+        with span(
+            "agent.run",
+            attributes={
+                "agent.run_id": agent_run_id,
+                "conversation.id": conversation_id,
+                "customer.present": customer_id > 0,
+            },
+        ) as root_span:
+            import time
+
+            started = time.perf_counter()
+            try:
+                graph = build_graph(
+                    self.provider,
+                    session,
+                    self.checkpointer,
+                    policy_engine=self.policy_engine,
+                    clock=self.clock,
+                    ttl_seconds=self.confirmation_ttl_seconds,
+                    audit_log=self.audit_log,
+                    knowledge_retriever=self.knowledge_retriever,
+                    grounded_generator=self.grounded_generator,
+                )
+                state = cast(
+                    AgentState,
+                    graph.invoke(
+                        {
+                            "conversation_id": conversation_id,
+                            "customer_id": customer_id,
+                            "agent_run_id": agent_run_id,
+                            "messages": [{"role": "user", "content": message}],
+                        },
+                        config={"configurable": {"thread_id": conversation_id}},
+                    ),
+                )
+                response = _response_from_state(state)
+                root_span.set_attribute("agent.intent", response.intent.value)
+                root_span.set_attribute("agent.request_type", response.request_type.value)
+                if response.error_category is not None:
+                    labels["status"] = "error"
+                    root_span.set_attribute("agent.status", "error")
+                    root_span.set_attribute("error.category", response.error_category.value)
+                else:
+                    root_span.set_attribute("agent.status", "ok")
+                return response
+            except Exception:
+                labels["status"] = "error"
+                root_span.set_attribute("agent.status", "error")
+                raise
+            finally:
+                metric.agent_run_duration_seconds.record(time.perf_counter() - started, labels)
+                if labels["status"] == "error":
+                    metric.agent_errors_total.add(1, labels)
 
 
 def _response_from_state(state: AgentState) -> AgentResponse:

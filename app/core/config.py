@@ -24,6 +24,9 @@ class Settings(BaseSettings):
     rag_rerank_candidates: int = Field(default=12, gt=0)
     rag_final_context_count: int = Field(default=4, gt=0)
     rag_chunk_size: int = Field(default=800, gt=100)
+    otel_enabled: bool = False
+    otel_exporter_otlp_endpoint: str = "http://localhost:4317"
+    otel_service_name: str = "agentic-customer-service-platform"
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -102,6 +102,22 @@ The default CI gate is offline and deterministic. It exits non-zero for any unau
 
 Known limitations: the fake provider does not model real LLM nondeterminism, RAG grounding checks are rule-based rather than a perfect semantic judge, the synthetic dataset is portfolio-scale rather than production traffic, and fake-provider latency is not representative of a live model.
 
+## Observability
+
+Sprint 6 adds provider-agnostic OpenTelemetry tracing and metrics. An enabled agent request creates an `agent.run` root span with bounded identifiers and safe outcome attributes. Meaningful graph nodes appear below it, with nested spans for `llm.structured_decision`, `policy.evaluate`, `policy.revalidate`, `confirmation.evaluate`, `tool.execute`, escalation, and the RAG stages (`rag.retrieve`, embedding, dense search, sparse search, fusion, rerank, and context construction).
+
+The application records `agent_runs_total`, agent duration, tool calls/duration/errors, RAG requests/duration, policy decisions, confirmation results, escalations, and agent errors. Labels are limited to bounded categories such as intent, request type, tool, risk, status, and policy outcome; customer IDs, conversation IDs, order IDs, and free-form errors are never metric labels.
+
+Tracing is disabled by default for local tests. Compose enables OTLP export to Jaeger:
+
+```bash
+make observability-up
+# Jaeger UI: http://localhost:16686
+make observability-down
+```
+
+The local settings are `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_SERVICE_NAME`. OTLP uses Jaeger’s gRPC port `4317`. The trace data intentionally excludes raw user messages, prompts, model responses, retrieved document content, customer names/emails, free-form tool arguments, and hidden model reasoning. Trace attributes use only bounded IDs/statuses/categories needed to correlate an agent run safely.
+
 ## Roadmap
 
 1. Business tools — implemented

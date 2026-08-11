@@ -3,6 +3,8 @@ from uuid import uuid4
 
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
+from app.observability.metrics import get_metrics
+from app.observability.tracing import span
 from app.policies.confirmation import Clock
 from app.policies.engine import PolicyEngine
 from app.policies.models import PolicyAuditEvent, PolicyOutcome
@@ -19,10 +21,21 @@ def make_evaluate_policy_node(
                 "error_category": AgentErrorCategory.POLICY_DENIED,
                 "last_error": "Policy evaluation requires a selected tool.",
             }
-        decision = engine.evaluate(
-            tool_name=tool_name,
-            customer_id=state.get("customer_id"),
-            arguments=state.get("tool_arguments", {}),
+        with span(
+            "policy.evaluate",
+            attributes={"tool.name": tool_name},
+        ) as policy_span:
+            decision = engine.evaluate(
+                tool_name=tool_name,
+                customer_id=state.get("customer_id"),
+                arguments=state.get("tool_arguments", {}),
+            )
+            policy_span.set_attribute("policy.outcome", decision.outcome.value)
+            policy_span.set_attribute("tool.risk_level", decision.risk_level)
+            policy_span.set_attribute("policy.reason_codes", decision.reasons[:10])
+        get_metrics().policy_decisions_total.add(
+            1,
+            {"policy_outcome": decision.outcome.value, "risk_level": str(decision.risk_level)},
         )
         action_id = state.get("action_id") or f"act_{uuid4().hex}"
         audit_log.append(
