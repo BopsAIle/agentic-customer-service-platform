@@ -14,6 +14,11 @@ class AuthenticationMode(StrEnum):
     STATIC = "static"
 
 
+class LLMProvider(StrEnum):
+    OPENAI_COMPATIBLE = "openai_compatible"
+    DETERMINISTIC_INTEGRATION = "deterministic_integration"
+
+
 class Settings(BaseSettings):
     app_name: str = Field(default="Agentic Customer Service Platform")
     app_env: str = Field(default="development")
@@ -22,6 +27,7 @@ class Settings(BaseSettings):
         default="postgresql+psycopg://app:app@localhost:5432/customer_service"
     )
     llm_model: str = "llama3.1"
+    llm_provider: LLMProvider = LLMProvider.OPENAI_COMPATIBLE
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str | None = None
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
@@ -74,8 +80,10 @@ class Settings(BaseSettings):
     def validate_authentication_mode(self) -> "Settings":
         environment = self.app_env.casefold()
         if self.auth_mode == AuthenticationMode.LOCAL_DEMO:
-            if environment not in {"development", "demo", "test"}:
-                raise ValueError("local_demo authentication is restricted to development/demo")
+            if environment not in {"development", "demo", "test", "integration"}:
+                raise ValueError(
+                    "local_demo authentication is restricted to development/demo/integration"
+                )
             if (
                 self.local_demo_auth_token is None
                 or not self.local_demo_auth_token.get_secret_value()
@@ -98,6 +106,13 @@ class Settings(BaseSettings):
                 ) from None
         if environment == "production" and self.auth_mode != AuthenticationMode.STATIC:
             raise ValueError("production requires an explicitly configured authentication backend")
+        if self.llm_provider == LLMProvider.DETERMINISTIC_INTEGRATION and (
+            environment != "integration" or self.auth_mode != AuthenticationMode.LOCAL_DEMO
+        ):
+            raise ValueError(
+                "deterministic_integration LLM provider requires "
+                "APP_ENV=integration and AUTH_MODE=local_demo"
+            )
         return self
 
 

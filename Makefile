@@ -1,4 +1,4 @@
-.PHONY: sync dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-report eval-baseline observability-up observability-down frontend-install frontend-dev frontend-build frontend-test frontend-typecheck frontend-lint ci-backend ci-frontend security-audit docker-validate
+.PHONY: sync dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-report eval-baseline observability-up observability-down frontend-install frontend-dev frontend-build frontend-test frontend-typecheck frontend-lint ci-backend ci-frontend security-audit docker-validate e2e-smoke
 
 sync:
 	uv sync --frozen
@@ -84,3 +84,6 @@ docker-validate:
 	docker compose config --quiet
 	docker build --tag customer-service-backend:local .
 	docker build --tag customer-service-frontend:local frontend
+
+e2e-smoke:
+	python3 scripts/e2e_authenticated_smoke.py

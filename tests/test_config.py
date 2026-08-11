@@ -1,7 +1,7 @@
 import pytest
 from pydantic import ValidationError
 
-from app.core.config import AuthenticationMode, Settings
+from app.core.config import AuthenticationMode, LLMProvider, Settings
 
 
 def test_production_rejects_local_demo_authentication() -> None:
@@ -22,3 +22,38 @@ def test_production_rejects_missing_authentication() -> None:
 def test_production_static_authentication_requires_configured_principals() -> None:
     with pytest.raises(ValidationError, match="non-empty AUTH_TOKENS_JSON"):
         Settings(_env_file=None, app_env="production", auth_mode=AuthenticationMode.STATIC)
+
+
+def test_deterministic_integration_provider_is_restricted_to_integration_demo() -> None:
+    with pytest.raises(ValidationError, match="APP_ENV=integration and AUTH_MODE=local_demo"):
+        Settings(
+            _env_file=None,
+            app_env="development",
+            llm_provider=LLMProvider.DETERMINISTIC_INTEGRATION,
+        )
+
+
+def test_deterministic_integration_provider_rejects_static_authentication() -> None:
+    with pytest.raises(ValidationError, match="AUTH_MODE=local_demo"):
+        Settings(
+            _env_file=None,
+            app_env="integration",
+            auth_mode=AuthenticationMode.STATIC,
+            auth_tokens_json=(
+                '{"integration-token":{"actor_id":"operator",'
+                '"actor_type":"support_operator","roles":["support_operator"]}}'
+            ),
+            llm_provider=LLMProvider.DETERMINISTIC_INTEGRATION,
+        )
+
+
+def test_integration_environment_explicitly_accepts_test_provider_and_demo_auth() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="integration",
+        auth_mode=AuthenticationMode.LOCAL_DEMO,
+        local_demo_auth_token="integration-only-token",
+        llm_provider=LLMProvider.DETERMINISTIC_INTEGRATION,
+    )
+
+    assert settings.llm_provider == LLMProvider.DETERMINISTIC_INTEGRATION

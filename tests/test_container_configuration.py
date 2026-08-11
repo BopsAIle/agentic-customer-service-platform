@@ -62,5 +62,18 @@ def test_compose_wires_demo_authentication_and_bootstrap_without_production_inhe
     )
     assert compose["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"]
     assert production["services"]["backend"]["environment"]["AUTH_MODE"] == "static"
+    assert production["services"]["backend"]["environment"]["LLM_PROVIDER"] == ("openai_compatible")
     assert production["services"]["backend"]["environment"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
     assert production["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
+
+
+def test_integration_llm_provider_is_explicit_and_excluded_from_production_overlay() -> None:
+    integration = yaml.safe_load((ROOT / "docker-compose.integration.yml").read_text())
+    production_text = (ROOT / "docker-compose.prod.yml").read_text()
+
+    assert integration["services"]["backend"]["environment"] == {
+        "APP_ENV": "integration",
+        "LLM_PROVIDER": "deterministic_integration",
+    }
+    assert integration["services"]["demo-setup"]["environment"]["APP_ENV"] == "integration"
+    assert "deterministic_integration" not in production_text

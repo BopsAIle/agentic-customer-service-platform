@@ -93,7 +93,7 @@ The current implementation includes the following production-oriented controls:
 | Idempotent writes | Request-scoped keys and database uniqueness prevent duplicate refunds, cancellations, tickets, and escalations across workers |
 | Timeout-aware resilience | Explicit LLM, retrieval, reranker, database, and HTTP timeouts; unknown write outcomes are not automatically replayed |
 | Production RAG runtime | Configurable local or Qdrant retrieval, provider-neutral embeddings, optional reranking, citation preservation, and safe fallback metadata |
-| CI/CD gates | Frozen backend and frontend installs, lint, types, tests, deterministic evaluations, vulnerability and secret scanning, image builds, Compose validation, and main-branch smoke checks |
+| CI/CD gates | Frozen backend and frontend installs, lint, types, tests, deterministic evaluations, vulnerability and secret scanning, image builds, Compose validation, and authenticated full-stack lifecycle smoke checks |
 | Hardened containers | Multi-stage builds, non-root runtime users, graceful SIGTERM handling, bounded telemetry flush, readiness checks, security headers, and a production-oriented Compose overlay |
 
 Together these controls make the repository a production-oriented deployment reference, but they
@@ -334,6 +334,28 @@ model on the host (the defaults expect Ollama model `llama3.1` at port 11434), o
 health, readiness, authentication, operator reads, PostgreSQL, and Qdrant remain testable, but a
 successful real-agent conversation is not available.
 
+### Deterministic authenticated integration smoke
+
+CI and local integration verification do not depend on Ollama, OpenAI, API keys, or a developer
+machine. Run the hermetic full-stack lifecycle smoke with:
+
+```bash
+make e2e-smoke
+```
+
+The script creates a unique Compose project with fresh PostgreSQL and Qdrant volumes and applies
+`docker-compose.integration.yml`. That explicit override selects a narrowly scoped deterministic
+decision provider under `APP_ENV=integration`; application configuration rejects that provider in
+every other environment. The request still traverses nginx and FastAPI authentication, invokes the
+real LangGraph, creates a Risk-2 cancellation proposal, persists it to PostgreSQL, restarts the
+backend, resumes confirmation, executes one idempotent mutation, and verifies safe Operator Console
+projections. The script always removes its isolated containers, network, and volumes unless
+explicitly asked to leave a failed stack for CI diagnostics.
+
+This smoke validates platform integration and deterministic control flow. It does not measure
+real-model intent recognition, response quality, or semantic robustness; the optional local model
+configuration above remains a separate development workflow.
+
 For a dependency-free host-based RAG loop, set `RAG_BACKEND=local`; no Qdrant or external embedding
 service is then required. Keep the embedding provider consistent between Qdrant ingestion and
 runtime queries.
@@ -465,7 +487,8 @@ make security-audit
 make docker-validate
 ```
 
-See [docs/ci.md](docs/ci.md) for the gate graph, scanner behavior, and integration-smoke details.
+See [docs/ci.md](docs/ci.md) for the gate graph, scanner behavior, and authenticated lifecycle-smoke
+details.
 
 ## Project Structure
 
@@ -494,6 +517,7 @@ See [docs/ci.md](docs/ci.md) for the gate graph, scanner behavior, and integrati
 ├── alembic/                # Database migrations
 ├── scripts/                # Seed and RAG ingestion commands
 ├── docker-compose.yml      # Local PostgreSQL, Qdrant, Jaeger, API, and frontend stack
+├── docker-compose.integration.yml # Hermetic authenticated lifecycle smoke override
 ├── docker-compose.prod.yml # Production-oriented Compose policy overlay
 └── Makefile                # Development and verification commands
 ```

@@ -1,0 +1,12 @@
+# Explicitly integration-only override for the hermetic authenticated lifecycle smoke.
+# Never layer this file into a production deployment.
+services:
+  demo-setup:
+    environment:
+      APP_ENV: integration
+      LLM_PROVIDER: deterministic_integration
+
+  backend:
+    environment:
+      APP_ENV: integration
+      LLM_PROVIDER: deterministic_integration

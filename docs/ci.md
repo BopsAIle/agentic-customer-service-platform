@@ -7,7 +7,7 @@ It validates delivery artifacts but does not deploy them.
 Backend Quality ─┐
                  ├─> Security Checks -> Deterministic Evaluation -> Docker Build and Scan
 Frontend Quality ┘                                              |
-                                                                └─> Integration Smoke (main only)
+                                                                └─> Authenticated Lifecycle Smoke
 ```
 
 ## Reproducible installation
@@ -46,7 +46,8 @@ with an updating command in CI.
 - actionlint validation of workflow semantics
 
 Scanners fail the job and do not upload reports. CI grants only read access to repository contents
-and does not require application credentials.
+and requires no secret or external credentials; the lifecycle smoke uses an explicitly public,
+integration-only demo Bearer value.
 
 ### Deterministic Evaluation
 
@@ -59,11 +60,32 @@ deterministic harness and do not claim live-model accuracy.
 CI validates `docker compose config`, builds both application images, and scans each image for
 unfixed-excluded critical vulnerabilities. No image is pushed by this workflow.
 
-### Integration Smoke
+### Authenticated full-stack lifecycle smoke
 
-After all other gates pass on `main`, Compose starts PostgreSQL, Qdrant, Jaeger, the backend, and
-the frontend. CI waits for `/ready` and the frontend root page, then always removes containers and
-volumes. Pull requests do not start the stack.
+Pull requests and pushes to `main` run `scripts/e2e_authenticated_smoke.py` after all other gates.
+The script uses a per-run Compose project and fresh volumes, layers
+`docker-compose.integration.yml`, and publishes services on Docker-assigned ports. It verifies:
+
+- migrations, deterministic demo seed data, Qdrant ingestion, readiness, and frontend reachability;
+- anonymous and invalid Bearer requests remain 401 while the demo support operator authenticates;
+- an authenticated request through frontend/nginx creates a Risk-2 order cancellation proposal;
+- the pending action is actor-, customer-, and conversation-bound and no early mutation occurs;
+- a backend restart preserves the PostgreSQL checkpoint and confirmation resumes the real graph;
+- the cancellation commits once, stores one idempotency receipt, and confirmation replay is safe;
+- initial and resumed Operator Console projections expose bounded policy/tool metadata without the
+  credential or hidden reasoning.
+
+`LLM_PROVIDER=deterministic_integration` is available only with `APP_ENV=integration`. It supports
+only this canonical seeded scenario and is rejected by configuration elsewhere. The production
+Compose model excludes the integration override and CI checks the rendered model for leakage.
+
+On failure, CI emits only bounded container logs with the demo credential redacted. Cleanup always
+removes the CI-only containers, network, and volumes. Developer Compose volumes use a different
+project namespace and are not affected.
+
+This is an integration/control-plane proof, not a real-model quality evaluation. It validates
+authentication, orchestration, policy confirmation, checkpoint durability, business execution,
+idempotency, and safe projections. Live-model semantic quality remains outside this gate.
 
 ## Local verification
 
@@ -75,11 +97,7 @@ make eval-safety
 make eval-resilience
 make security-audit
 make docker-validate
-docker compose up --build --detach
-curl --fail http://127.0.0.1:8000/health
-curl --fail http://127.0.0.1:8000/ready
-curl --fail http://127.0.0.1:5173/
-docker compose down --volumes --remove-orphans
+make e2e-smoke
 ```
 
 Local Gitleaks, Trivy, and actionlint checks use the exact container versions declared in

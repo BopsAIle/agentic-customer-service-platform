@@ -7,11 +7,12 @@ from sqlalchemy.orm import Session
 
 from app.agent.graph import build_graph
 from app.agent.llm.base import StructuredDecisionProvider
+from app.agent.llm.integration import DeterministicIntegrationDecisionProvider
 from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import AgentRequestType, AgentResponse, AgentToolCall, Intent
 from app.agent.state import AgentState
 from app.auth.models import ActorType, Principal
-from app.core.config import get_settings
+from app.core.config import LLMProvider, Settings, get_settings
 from app.core.context import ExecutionContext
 from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
@@ -52,7 +53,7 @@ class AgentRuntime:
         resilience_config: ResilienceConfig | None = None,
     ) -> None:
         settings = get_settings()
-        self.provider = provider or OpenAICompatibleProvider(get_settings())
+        self.provider = provider or _build_decision_provider(settings)
         self.checkpointer = checkpointer or MemoryCheckpointProvider().checkpointer
         self.checkpoint_backend = checkpoint_backend
         self.policy_engine = policy_engine or PolicyEngine()
@@ -212,6 +213,12 @@ def _legacy_execution_context(
         ),
         effective_customer_id=customer_id,
     )
+
+
+def _build_decision_provider(settings: Settings) -> StructuredDecisionProvider:
+    if settings.llm_provider == LLMProvider.DETERMINISTIC_INTEGRATION:
+        return DeterministicIntegrationDecisionProvider()
+    return OpenAICompatibleProvider(settings)
 
 
 def _response_from_state(state: AgentState) -> AgentResponse:

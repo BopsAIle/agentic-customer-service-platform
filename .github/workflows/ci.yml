@@ -149,6 +149,24 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Validate Compose model
         run: docker compose config --quiet
+      - name: Validate integration Compose model
+        run: >-
+          LOCAL_DEMO_AUTH_TOKEN=integration-ci-credential
+          LOCAL_DEMO_ACTOR_ID=e2e-support-operator
+          docker compose -f docker-compose.yml -f docker-compose.integration.yml
+          --env-file .env.example config --quiet
+      - name: Validate production Compose model excludes integration provider
+        env:
+          POSTGRES_PASSWORD: validation-only
+          DATABASE_URL: postgresql+psycopg://app:validation-only@db:5432/customer_service
+          PRODUCTION_AUTH_TOKENS_JSON: >-
+            {"validation-only-token":{"actor_id":"operator-validation","actor_type":"support_operator","roles":["support_operator"]}}
+        run: |
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml config > /tmp/production-compose.yml
+          if grep -q deterministic_integration /tmp/production-compose.yml; then
+            echo "Integration-only LLM provider leaked into production Compose configuration."
+            exit 1
+          fi
       - name: Build backend image
         run: docker build --tag customer-service-backend:ci .
       - name: Build frontend image
@@ -169,27 +187,41 @@ jobs:
           --skip-version-check customer-service-frontend:ci
 
   integration-smoke:
-    name: Integration Smoke
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    name: Authenticated Full-Stack Lifecycle Smoke
     needs: docker-validation
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
+    env:
+      E2E_COMPOSE_PROJECT_NAME: customer-service-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+      E2E_DEMO_AUTH_TOKEN: integration-ci-credential
+      LOCAL_DEMO_AUTH_TOKEN: integration-ci-credential
+      LOCAL_DEMO_ACTOR_ID: e2e-support-operator
+      BACKEND_PORT: "0"
+      FRONTEND_PORT: "0"
+      POSTGRES_PORT: "0"
+      QDRANT_HTTP_PORT: "0"
+      QDRANT_GRPC_PORT: "0"
+      JAEGER_UI_PORT: "0"
+      OTEL_GRPC_PORT: "0"
+      OTEL_HTTP_PORT: "0"
     steps:
       - name: Check out source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
-      - name: Start Compose stack
-        run: docker compose up --build --detach
-      - name: Verify backend and frontend health
+      - name: Run authenticated agent lifecycle smoke
+        run: python3 scripts/e2e_authenticated_smoke.py --leave-on-failure
+      - name: Collect bounded redacted container logs
+        if: failure()
         run: |
-          for _ in {1..45}; do
-            if curl --fail --silent http://127.0.0.1:8000/ready >/dev/null \
-              && curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then
-              exit 0
-            fi
-            sleep 2
-          done
-          docker compose ps
-          exit 1
-      - name: Stop Compose stack
+          docker compose --project-name "$E2E_COMPOSE_PROJECT_NAME" \
+            --file docker-compose.yml --file docker-compose.integration.yml \
+            --env-file .env.example ps --all
+          docker compose --project-name "$E2E_COMPOSE_PROJECT_NAME" \
+            --file docker-compose.yml --file docker-compose.integration.yml \
+            --env-file .env.example logs --no-color --tail 200 \
+            | sed "s/${LOCAL_DEMO_AUTH_TOKEN}/[REDACTED]/g"
+      - name: Remove isolated integration stack and volumes
         if: always()
-        run: docker compose down --volumes --remove-orphans
+        run: >-
+          docker compose --project-name "$E2E_COMPOSE_PROJECT_NAME"
+          --file docker-compose.yml --file docker-compose.integration.yml
+          --env-file .env.example down --volumes --remove-orphans --timeout 20
