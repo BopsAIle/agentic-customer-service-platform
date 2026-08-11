@@ -1,6 +1,6 @@
 from functools import lru_cache
 
-from pydantic import Field
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     resilience_max_backoff_ms: int = Field(default=500, ge=0, le=10000)
     retrieval_timeout_seconds: float = Field(default=5.0, gt=0.0)
     tool_timeout_seconds: float = Field(default=10.0, gt=0.0)
+    auth_enabled: bool = False
+    auth_tokens_json: SecretStr = SecretStr("{}")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
