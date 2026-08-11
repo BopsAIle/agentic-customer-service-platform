@@ -1,4 +1,7 @@
+import os
 from collections.abc import Generator
+
+os.environ.setdefault("CHECKPOINT_BACKEND", "memory")
 
 import pytest
 from fastapi.testclient import TestClient

@@ -68,7 +68,11 @@ load_context → retrieve_memory → check_pending_action
        → evaluate_policy → allow / confirm / human → execute / retrieve → respond
 ```
 
-Short-term conversation state is checkpointed per `conversation_id`. Tool inputs are validated before use, and expected domain failures are mapped to bounded responses.
+Short-term conversation state is durably checkpointed in PostgreSQL through the official
+LangGraph checkpointer. Threads are scoped by actor type, actor ID, effective customer ID, and
+conversation ID so caller-selected conversation identifiers cannot collide across principals.
+`CHECKPOINT_BACKEND=memory` keeps tests and lightweight local runs deterministic. Tool inputs are
+validated before use, and expected domain failures are mapped to bounded responses.
 
 ### Business Tools
 

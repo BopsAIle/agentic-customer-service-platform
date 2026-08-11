@@ -39,6 +39,7 @@ class Settings(BaseSettings):
     tool_timeout_seconds: float = Field(default=10.0, gt=0.0)
     auth_enabled: bool = False
     auth_tokens_json: SecretStr = SecretStr("{}")
+    checkpoint_backend: str = Field(default="postgres", pattern="^(postgres|memory)$")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

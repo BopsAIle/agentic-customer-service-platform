@@ -266,7 +266,7 @@ def test_pending_confirmation_rejects_different_customer_scope(db_session: Sessi
         session=db_session,
     )
 
-    assert attempted.error_category == "ownership_violation"
+    assert attempted.pending_action is None
     assert attempted.tool_call is None
     order = db_session.get(Order, 3)
     assert order is not None

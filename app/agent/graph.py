@@ -1,7 +1,7 @@
 from collections.abc import Callable
 from typing import Any, cast
 
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.orm import Session
@@ -249,7 +249,7 @@ def _instrument_tool_node(
 def build_graph(
     provider: StructuredDecisionProvider,
     session: Session,
-    checkpointer: MemorySaver,
+    checkpointer: BaseCheckpointSaver[str],
     *,
     policy_engine: PolicyEngine,
     clock: Clock,

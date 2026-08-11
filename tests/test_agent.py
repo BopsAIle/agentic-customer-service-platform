@@ -362,7 +362,8 @@ def test_pending_action_cannot_cross_customer_or_conversation(db_session: Sessio
         message="yes",
         session=db_session,
     )
-    assert wrong_customer.error_category == "ownership_violation"
+    assert wrong_customer.pending_action is None
+    assert wrong_customer.tool_call is None
     assert other_conversation.pending_action is None
     assert other_conversation.tool_call is None
     assert_order_status(db_session, 3, OrderStatus.PENDING)

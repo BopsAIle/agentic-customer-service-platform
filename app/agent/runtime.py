@@ -1,7 +1,7 @@
 from typing import cast
 from uuid import uuid4
 
-from langgraph.checkpoint.memory import MemorySaver
+from langgraph.checkpoint.base import BaseCheckpointSaver
 from opentelemetry import trace
 from sqlalchemy.orm import Session
 
@@ -16,6 +16,12 @@ from app.core.context import ExecutionContext
 from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
+from app.persistence.checkpoint import (
+    CheckpointBackend,
+    MemoryCheckpointProvider,
+    checkpoint_thread_id,
+    checkpoint_thread_id_hash,
+)
 from app.policies.confirmation import Clock, SystemClock
 from app.policies.engine import PolicyEngine
 from app.policies.registry import InMemoryPolicyAuditLog
@@ -29,7 +35,8 @@ class AgentRuntime:
     def __init__(
         self,
         provider: StructuredDecisionProvider | None = None,
-        checkpointer: MemorySaver | None = None,
+        checkpointer: BaseCheckpointSaver[str] | None = None,
+        checkpoint_backend: CheckpointBackend = CheckpointBackend.MEMORY,
         policy_engine: PolicyEngine | None = None,
         clock: Clock | None = None,
         audit_log: InMemoryPolicyAuditLog | None = None,
@@ -41,7 +48,8 @@ class AgentRuntime:
     ) -> None:
         settings = get_settings()
         self.provider = provider or OpenAICompatibleProvider(get_settings())
-        self.checkpointer = checkpointer or MemorySaver()
+        self.checkpointer = checkpointer or MemoryCheckpointProvider().checkpointer
+        self.checkpoint_backend = checkpoint_backend
         self.policy_engine = policy_engine or PolicyEngine()
         self.clock = clock or SystemClock()
         self.audit_log = audit_log or InMemoryPolicyAuditLog()
@@ -72,6 +80,8 @@ class AgentRuntime:
         execution_context = context or _legacy_execution_context(conversation_id, customer_id)
         conversation_id = execution_context.conversation_id
         customer_id = execution_context.effective_customer_id
+        thread_id = checkpoint_thread_id(execution_context)
+        thread_id_hash = checkpoint_thread_id_hash(execution_context)
         agent_run_id = str(uuid4())
         metric = get_metrics()
         labels = {"status": "ok"}
@@ -86,6 +96,8 @@ class AgentRuntime:
                 "actor.type": execution_context.principal.actor_type.value,
                 "actor.roles": execution_context.principal.roles,
                 "customer.id": customer_id,
+                "checkpoint.backend": self.checkpoint_backend.value,
+                "checkpoint.thread_id": thread_id_hash,
             },
         ) as root_span:
             import time
@@ -124,8 +136,15 @@ class AgentRuntime:
                             },
                             config={
                                 "configurable": {
-                                    "thread_id": _thread_id(execution_context),
-                                }
+                                    "thread_id": thread_id,
+                                },
+                                "metadata": {
+                                    "checkpoint_backend": self.checkpoint_backend.value,
+                                    "thread_id_hash": thread_id_hash,
+                                    "actor_id": execution_context.principal.actor_id,
+                                    "actor_type": execution_context.principal.actor_type.value,
+                                    "effective_customer_id": customer_id,
+                                },
                             },
                         ),
                     )
@@ -146,9 +165,17 @@ class AgentRuntime:
                 else:
                     root_span.set_attribute("agent.status", "ok")
                 return response
-            except Exception:
+            except Exception as error:
                 labels["status"] = "error"
                 root_span.set_attribute("agent.status", "error")
+                root_span.add_event(
+                    "agent.persistence_or_execution_error",
+                    attributes={
+                        "checkpoint.backend": self.checkpoint_backend.value,
+                        "checkpoint.thread_id": thread_id_hash,
+                        "error.type": type(error).__name__,
+                    },
+                )
                 raise
             finally:
                 metric.agent_run_duration_seconds.record(time.perf_counter() - started, labels)
@@ -171,11 +198,6 @@ def _legacy_execution_context(
         ),
         effective_customer_id=customer_id,
     )
-
-
-def _thread_id(context: ExecutionContext) -> str:
-    principal = context.principal
-    return f"{principal.actor_type.value}:{principal.actor_id}:{context.conversation_id}"
 
 
 def _response_from_state(state: AgentState) -> AgentResponse:

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.agent.runtime import AgentRuntime
@@ -10,11 +10,11 @@ from app.core.database import get_db
 from app.tools.base import ToolError
 
 router = APIRouter(prefix="/agent", tags=["agent"])
-_runtime = AgentRuntime()
 
 
-def get_agent_runtime() -> AgentRuntime:
-    return _runtime
+def get_agent_runtime(request: Request) -> AgentRuntime:
+    runtime: AgentRuntime = request.app.state.agent_runtime
+    return runtime
 
 
 @router.post("/chat", response_model=AgentResponse)
