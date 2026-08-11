@@ -8,6 +8,7 @@ from app.observability.tracing import span
 from app.resilience.config import ResilienceConfig
 from app.resilience.errors import RetryExhaustedError
 from app.resilience.retry import run_with_retry
+from app.resilience.timeout import run_with_timeout
 
 
 def make_understand_request_node(
@@ -16,6 +17,7 @@ def make_understand_request_node(
 ) -> Callable[[AgentState], AgentState]:
     def understand_request(state: AgentState) -> AgentState:
         context = state["execution_context"]
+        timeout_seconds = (resilience_config or ResilienceConfig()).llm_timeout_seconds
         with span(
             "llm.structured_decision",
             attributes={
@@ -25,10 +27,13 @@ def make_understand_request_node(
         ) as llm_span:
             try:
                 decision = run_with_retry(
-                    lambda: provider.decide(
-                        messages=state.get("messages", []),
-                        customer_id=context.effective_customer_id,
-                        memory_context=state.get("memory_context", []),
+                    lambda: run_with_timeout(
+                        lambda: provider.decide(
+                            messages=state.get("messages", []),
+                            customer_id=context.effective_customer_id,
+                            memory_context=state.get("memory_context", []),
+                        ),
+                        timeout_seconds=timeout_seconds,
                     ),
                     dependency="llm",
                     config=resilience_config,
@@ -41,6 +46,16 @@ def make_understand_request_node(
                     "last_error": "The request could not be classified.",
                     "error_category": AgentErrorCategory.LLM_ERROR,
                     "failure_category": error.category.value,
+                    "recovery_action": "clarify",
+                }
+            except (TypeError, ValueError):
+                llm_span.set_attribute("llm.status", "error")
+                return {
+                    "intent": Intent.UNKNOWN,
+                    "request_type": AgentRequestType.UNCLEAR,
+                    "last_error": "The model response did not match the required schema.",
+                    "error_category": AgentErrorCategory.LLM_ERROR,
+                    "failure_category": "llm_malformed_output",
                     "recovery_action": "clarify",
                 }
             llm_span.set_attribute("llm.status", "ok")

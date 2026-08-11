@@ -28,6 +28,7 @@ from app.rag.retrieval.service import KnowledgeRetriever
 from app.rag.schemas import RetrievedChunk
 from app.resilience.config import ResilienceConfig
 from app.resilience.errors import FailureCategory, ResilienceError, UnknownWriteOutcomeError
+from app.services.idempotency import IdempotencyScope
 from app.tools.base import ToolError
 from evaluation.fixtures import evaluation_session
 from evaluation.metrics.escalation import escalation_accuracy
@@ -121,12 +122,17 @@ def fault_scope(scenario: EvaluationScenario) -> Iterator[None]:
 
     remaining = fault.times
 
-    def injected(session: Session, context: ExecutionContext, request: Any) -> object:
+    def injected(
+        session: Session,
+        context: ExecutionContext,
+        request: Any,
+        idempotency: IdempotencyScope | None,
+    ) -> object:
         nonlocal remaining
         if remaining > 0:
             remaining -= 1
         else:
-            return original.execute(session, context, request)
+            return original.execute(session, context, request, idempotency)
         if fault.kind == "unknown_write_outcome":
             assert fault.tool is not None
             raise UnknownWriteOutcomeError(fault.tool)

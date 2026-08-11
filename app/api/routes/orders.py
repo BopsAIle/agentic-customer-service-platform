@@ -2,7 +2,8 @@ from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.api.errors import raise_http_for_tool_error
+from app.api.errors import raise_http_for_tool_error, raise_http_for_unknown_write
+from app.api.idempotency import get_idempotency_key
 from app.auth.dependencies import (
     get_current_principal,
     require_support_operator,
@@ -10,7 +11,9 @@ from app.auth.dependencies import (
 )
 from app.auth.models import Principal
 from app.core.database import get_db
+from app.resilience.errors import UnknownWriteOutcomeError
 from app.schemas.domain import OrderResponse, RefundRequestResponse
+from app.services.idempotency import IdempotencyScope, commit_business_write
 from app.tools.base import ToolError
 from app.tools.orders import (
     CancelOrderInput,
@@ -53,6 +56,7 @@ def get_order_by_id(
 def cancel_order_by_id(
     order_id: int,
     request: OrderActionRequest,
+    idempotency_key: str = Depends(get_idempotency_key),
     principal: Principal = Depends(require_support_operator),
     session: Session = Depends(get_db),
 ) -> CancelOrderOutput:
@@ -61,9 +65,12 @@ def cancel_order_by_id(
         result = cancel_order(
             session,
             CancelOrderInput(customer_id=customer_scope.customer_id, order_id=order_id),
+            idempotency=IdempotencyScope(actor_id=principal.actor_id, key=idempotency_key),
         )
-        session.commit()
+        commit_business_write(session, "cancel_order")
         return result
+    except UnknownWriteOutcomeError as error:
+        raise_http_for_unknown_write(error)
     except ToolError as error:
         session.rollback()
         raise_http_for_tool_error(error)
@@ -73,6 +80,7 @@ def cancel_order_by_id(
 def request_order_refund(
     order_id: int,
     request: RefundActionRequest,
+    idempotency_key: str = Depends(get_idempotency_key),
     principal: Principal = Depends(require_support_operator),
     session: Session = Depends(get_db),
 ) -> RefundRequestResponse:
@@ -85,9 +93,12 @@ def request_order_refund(
                 order_id=order_id,
                 reason=request.reason,
             ),
+            idempotency=IdempotencyScope(actor_id=principal.actor_id, key=idempotency_key),
         )
-        session.commit()
+        commit_business_write(session, "request_refund")
         return result
+    except UnknownWriteOutcomeError as error:
+        raise_http_for_unknown_write(error)
     except ToolError as error:
         session.rollback()
         raise_http_for_tool_error(error)

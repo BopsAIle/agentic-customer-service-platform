@@ -45,6 +45,7 @@ def test_missing_ticket(client: TestClient) -> None:
 def test_create_ticket_endpoint(client: TestClient) -> None:
     response = client.post(
         "/tickets",
+        headers={"Idempotency-Key": "api-create-ticket-1"},
         json={
             "customer_id": 1,
             "order_id": 3,
@@ -57,9 +58,14 @@ def test_create_ticket_endpoint(client: TestClient) -> None:
 
 
 def test_cancel_and_refund_endpoints(client: TestClient) -> None:
-    cancel_response = client.post("/orders/3/cancel", json={"customer_id": 1})
+    cancel_response = client.post(
+        "/orders/3/cancel",
+        json={"customer_id": 1},
+        headers={"Idempotency-Key": "api-cancel-order-3"},
+    )
     refund_response = client.post(
         "/orders/2/refunds",
+        headers={"Idempotency-Key": "api-refund-order-2"},
         json={"customer_id": 1, "reason": "Item arrived damaged."},
     )
     assert cancel_response.status_code == 200
@@ -71,6 +77,7 @@ def test_cancel_and_refund_endpoints(client: TestClient) -> None:
 def test_escalation_endpoint(client: TestClient) -> None:
     response = client.post(
         "/escalations",
+        headers={"Idempotency-Key": "api-escalation-1"},
         json={
             "customer_id": 1,
             "ticket_id": 1,

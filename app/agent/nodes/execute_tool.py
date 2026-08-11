@@ -9,6 +9,7 @@ from app.agent.tool_catalog import get_agent_tool_definition
 from app.resilience.config import ResilienceConfig
 from app.resilience.errors import ResilienceError, RetryExhaustedError, UnknownWriteOutcomeError
 from app.resilience.retry import run_with_retry
+from app.services.idempotency import IdempotencyScope, commit_business_write
 from app.tools import registry
 from app.tools.base import ToolError
 
@@ -48,12 +49,25 @@ def make_execute_tool_node(
                     "tool_execution_status": "failed",
                 }
             operation_type = registry.get_tool(tool_name).operation_type.value
+            idempotency = None
+            if operation_type == "write":
+                action_id = state.get("action_id")
+                if not action_id:
+                    return {
+                        "last_error": "Business write is missing its idempotency key.",
+                        "error_category": AgentErrorCategory.POLICY_DENIED,
+                        "tool_execution_status": "failed",
+                    }
+                idempotency = IdempotencyScope(
+                    actor_id=context.principal.actor_id,
+                    key=action_id,
+                )
 
             def attempt() -> object:
                 try:
-                    result = definition.execute(session, context, arguments)
+                    result = definition.execute(session, context, arguments, idempotency)
                     if operation_type == "write":
-                        session.commit()
+                        commit_business_write(session, tool_name)
                     return result
                 except Exception:
                     session.rollback()

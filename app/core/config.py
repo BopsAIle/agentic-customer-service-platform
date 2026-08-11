@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str | None = None
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    llm_connect_timeout_seconds: float = Field(default=5.0, gt=0.0)
     llm_timeout_seconds: float = Field(default=30.0, gt=0.0)
     confirmation_ttl_seconds: int = Field(default=300, gt=0)
     qdrant_url: str = "http://localhost:6333"
@@ -24,6 +25,8 @@ class Settings(BaseSettings):
     rag_rerank_candidates: int = Field(default=12, gt=0)
     rag_final_context_count: int = Field(default=4, gt=0)
     rag_chunk_size: int = Field(default=800, gt=100)
+    rag_reranker_timeout_seconds: float = Field(default=3.0, gt=0.0)
+    qdrant_timeout_seconds: float = Field(default=10.0, gt=0.0)
     otel_enabled: bool = False
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     otel_service_name: str = "agentic-customer-service-platform"
@@ -37,6 +40,9 @@ class Settings(BaseSettings):
     resilience_max_backoff_ms: int = Field(default=500, ge=0, le=10000)
     retrieval_timeout_seconds: float = Field(default=5.0, gt=0.0)
     tool_timeout_seconds: float = Field(default=10.0, gt=0.0)
+    database_connect_timeout_seconds: float = Field(default=5.0, gt=0.0)
+    database_query_timeout_seconds: float = Field(default=10.0, gt=0.0)
+    database_pool_timeout_seconds: float = Field(default=5.0, gt=0.0)
     auth_enabled: bool = False
     auth_tokens_json: SecretStr = SecretStr("{}")
     checkpoint_backend: str = Field(default="postgres", pattern="^(postgres|memory)$")

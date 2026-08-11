@@ -1,6 +1,7 @@
 from collections.abc import Sequence
 from pathlib import Path
 
+import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -20,7 +21,13 @@ class OpenAICompatibleProvider(StructuredDecisionProvider):
             base_url=settings.llm_base_url,
             api_key=settings.llm_api_key or "not-needed",
             temperature=settings.llm_temperature,
-            timeout=settings.llm_timeout_seconds,
+            timeout=httpx.Timeout(
+                connect=settings.llm_connect_timeout_seconds,
+                read=settings.llm_timeout_seconds,
+                write=settings.llm_timeout_seconds,
+                pool=settings.llm_connect_timeout_seconds,
+            ),
+            max_retries=0,
         ).with_structured_output(StructuredDecision)
 
     def decide(

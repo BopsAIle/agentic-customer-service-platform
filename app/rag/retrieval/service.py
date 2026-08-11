@@ -44,6 +44,7 @@ def build_default_knowledge_service(settings: Settings) -> KnowledgeService:
         sparse_top_k=settings.rag_sparse_top_k,
         rerank_candidates=settings.rag_rerank_candidates,
         final_context_count=settings.rag_final_context_count,
+        reranker_timeout_seconds=settings.rag_reranker_timeout_seconds,
     )
     service = KnowledgeService(retriever)
     service.ingest_directory(Path(__file__).parents[2] / "knowledge", settings.rag_chunk_size)

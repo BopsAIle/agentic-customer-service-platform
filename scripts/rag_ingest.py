@@ -16,7 +16,10 @@ def main() -> None:
         for chunk in chunk_document(document, settings.rag_chunk_size)
     ]
     store = QdrantKnowledgeStore(
-        settings.qdrant_url, settings.qdrant_collection, DeterministicEmbeddingProvider()
+        settings.qdrant_url,
+        settings.qdrant_collection,
+        DeterministicEmbeddingProvider(),
+        timeout_seconds=settings.qdrant_timeout_seconds,
     )
     count = store.upsert(chunks)
     print(f"Ingested {count} deterministic chunks into {settings.qdrant_collection}.")

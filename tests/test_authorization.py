@@ -103,9 +103,14 @@ def test_customer_cannot_use_direct_business_write_routes(client: TestClient) ->
 
 
 def test_operator_can_use_direct_business_write_routes(client: TestClient) -> None:
-    cancellation = client.post("/orders/3/cancel", json={"customer_id": 1})
+    cancellation = client.post(
+        "/orders/3/cancel",
+        json={"customer_id": 1},
+        headers={"Idempotency-Key": "auth-cancel-order-3"},
+    )
     refund = client.post(
         "/orders/2/refunds",
+        headers={"Idempotency-Key": "auth-refund-order-2"},
         json={"customer_id": 1, "reason": "Item arrived damaged."},
     )
 

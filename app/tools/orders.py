@@ -1,11 +1,15 @@
 from pydantic import BaseModel, Field
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Order, OrderStatus
 from app.schemas.domain import OrderResponse
+from app.services.idempotency import IdempotencyScope, execute_idempotent
 from app.services.order_service import get_order as get_order_record
 from app.services.order_service import get_order_for_customer
 from app.tools.base import (
+    DuplicateActionError,
     InvalidStateTransitionError,
     OwnershipError,
     ResourceNotFoundError,
@@ -37,10 +41,13 @@ def get_order(session: Session, request: GetOrderInput) -> OrderResponse:
     return OrderResponse.model_validate(order)
 
 
-def cancel_order(session: Session, request: CancelOrderInput) -> CancelOrderOutput:
-    order = validate_cancel_order(session, request)
-    order_status = OrderStatus(order.status)
-    if order_status == OrderStatus.CANCELLED:
+def cancel_order(
+    session: Session, request: CancelOrderInput, *, idempotency: IdempotencyScope
+) -> CancelOrderOutput:
+    def load_result(order_id: int) -> CancelOrderOutput:
+        order = session.get(Order, order_id)
+        if order is None:
+            raise ResourceNotFoundError("Order", order_id)
         return CancelOrderOutput(
             order_id=order.id,
             customer_id=order.customer_id,
@@ -48,19 +55,48 @@ def cancel_order(session: Session, request: CancelOrderInput) -> CancelOrderOutp
             changed=False,
             message="Order was already cancelled",
         )
-    order.status = OrderStatus.CANCELLED
-    session.flush()
-    return CancelOrderOutput(
-        order_id=order.id,
-        customer_id=order.customer_id,
-        status=order.status,
-        changed=True,
-        message="Order cancelled",
-    )
+
+    def perform() -> tuple[CancelOrderOutput, int]:
+        order = validate_cancel_order(session, request, lock=True)
+        order_status = OrderStatus(order.status)
+        if order_status == OrderStatus.CANCELLED:
+            return load_result(order.id), order.id
+        order.status = OrderStatus.CANCELLED
+        session.flush()
+        return (
+            CancelOrderOutput(
+                order_id=order.id,
+                customer_id=order.customer_id,
+                status=order.status,
+                changed=True,
+                message="Order cancelled",
+            ),
+            order.id,
+        )
+
+    try:
+        return execute_idempotent(
+            session,
+            scope=idempotency,
+            operation="cancel_order",
+            customer_id=request.customer_id,
+            request_payload=request.model_dump(mode="json"),
+            perform=perform,
+            load_result=load_result,
+        )
+    except IntegrityError as error:
+        raise DuplicateActionError(
+            "Cancellation request conflicts with an existing action"
+        ) from error
 
 
-def validate_cancel_order(session: Session, request: CancelOrderInput) -> Order:
-    order = get_order_record(session, request.order_id)
+def validate_cancel_order(
+    session: Session, request: CancelOrderInput, *, lock: bool = False
+) -> Order:
+    if lock:
+        order = session.scalar(select(Order).where(Order.id == request.order_id).with_for_update())
+    else:
+        order = get_order_record(session, request.order_id)
     if order is None:
         raise ResourceNotFoundError("Order", request.order_id)
     if order.customer_id != request.customer_id:

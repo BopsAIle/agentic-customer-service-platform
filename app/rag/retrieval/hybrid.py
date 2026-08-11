@@ -9,6 +9,7 @@ from app.observability.tracing import span
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.reranking.service import DeterministicReranker, Reranker
 from app.rag.schemas import DocumentChunk, RetrievedChunk
+from app.resilience.timeout import run_with_timeout
 
 
 class HybridRetriever:
@@ -21,6 +22,7 @@ class HybridRetriever:
         sparse_top_k: int = 8,
         rerank_candidates: int = 12,
         final_context_count: int = 4,
+        reranker_timeout_seconds: float = 3.0,
     ) -> None:
         self.embedding_provider = embedding_provider
         self.reranker = reranker or DeterministicReranker()
@@ -28,6 +30,7 @@ class HybridRetriever:
         self.sparse_top_k = sparse_top_k
         self.rerank_candidates = rerank_candidates
         self.final_context_count = final_context_count
+        self.reranker_timeout_seconds = reranker_timeout_seconds
         self._chunks: dict[str, DocumentChunk] = {}
         self._vectors: dict[str, list[float]] = {}
         self.last_degraded_components: list[str] = []
@@ -89,7 +92,10 @@ class HybridRetriever:
                         fusion_span.set_attribute("rag.fused_candidates", len(results))
                     with span("rag.rerank") as rerank_span:
                         try:
-                            rerank_scores = self.reranker.score(query, results)
+                            rerank_scores = run_with_timeout(
+                                lambda: self.reranker.score(query, results),
+                                timeout_seconds=self.reranker_timeout_seconds,
+                            )
                             for result, rerank_score in zip(results, rerank_scores, strict=True):
                                 result.rerank_score = rerank_score
                             results.sort(

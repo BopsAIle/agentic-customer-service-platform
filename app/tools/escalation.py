@@ -10,6 +10,7 @@ from app.models import (
     SupportTicket,
 )
 from app.schemas.domain import EscalationResponse
+from app.services.idempotency import IdempotencyScope, execute_idempotent
 from app.tools.base import OwnershipError, ResourceNotFoundError
 
 
@@ -22,30 +23,52 @@ class EscalateToHumanInput(BaseModel):
     summary: str = Field(min_length=1, max_length=5000)
 
 
-def escalate_to_human(session: Session, request: EscalateToHumanInput) -> EscalationResponse:
-    if session.get(Customer, request.customer_id) is None:
-        raise ResourceNotFoundError("Customer", request.customer_id)
-    if request.ticket_id is not None:
-        ticket = session.get(SupportTicket, request.ticket_id)
-        if ticket is None:
-            raise ResourceNotFoundError("Support ticket", request.ticket_id)
-        if ticket.customer_id != request.customer_id:
-            raise OwnershipError("Support ticket", request.ticket_id, request.customer_id)
-    if request.order_id is not None:
-        order = session.get(Order, request.order_id)
-        if order is None:
-            raise ResourceNotFoundError("Order", request.order_id)
-        if order.customer_id != request.customer_id:
-            raise OwnershipError("Order", request.order_id, request.customer_id)
-    escalation = Escalation(
+def escalate_to_human(
+    session: Session,
+    request: EscalateToHumanInput,
+    *,
+    idempotency: IdempotencyScope,
+) -> EscalationResponse:
+    def load_result(escalation_id: int) -> EscalationResponse:
+        escalation = session.get(Escalation, escalation_id)
+        if escalation is None:
+            raise ResourceNotFoundError("Escalation", escalation_id)
+        return EscalationResponse.model_validate(escalation)
+
+    def perform() -> tuple[EscalationResponse, int]:
+        if session.get(Customer, request.customer_id) is None:
+            raise ResourceNotFoundError("Customer", request.customer_id)
+        if request.ticket_id is not None:
+            ticket = session.get(SupportTicket, request.ticket_id)
+            if ticket is None:
+                raise ResourceNotFoundError("Support ticket", request.ticket_id)
+            if ticket.customer_id != request.customer_id:
+                raise OwnershipError("Support ticket", request.ticket_id, request.customer_id)
+        if request.order_id is not None:
+            order = session.get(Order, request.order_id)
+            if order is None:
+                raise ResourceNotFoundError("Order", request.order_id)
+            if order.customer_id != request.customer_id:
+                raise OwnershipError("Order", request.order_id, request.customer_id)
+        escalation = Escalation(
+            customer_id=request.customer_id,
+            ticket_id=request.ticket_id,
+            order_id=request.order_id,
+            reason=request.reason,
+            priority=request.priority,
+            summary=request.summary,
+            status=EscalationStatus.QUEUED,
+        )
+        session.add(escalation)
+        session.flush()
+        return EscalationResponse.model_validate(escalation), escalation.id
+
+    return execute_idempotent(
+        session,
+        scope=idempotency,
+        operation="escalate_to_human",
         customer_id=request.customer_id,
-        ticket_id=request.ticket_id,
-        order_id=request.order_id,
-        reason=request.reason,
-        priority=request.priority,
-        summary=request.summary,
-        status=EscalationStatus.QUEUED,
+        request_payload=request.model_dump(mode="json"),
+        perform=perform,
+        load_result=load_result,
     )
-    session.add(escalation)
-    session.flush()
-    return EscalationResponse.model_validate(escalation)

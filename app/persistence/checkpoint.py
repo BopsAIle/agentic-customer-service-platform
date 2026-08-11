@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 from enum import StrEnum
+from math import ceil
 from typing import Protocol
 from urllib.parse import quote
 
@@ -67,15 +68,25 @@ class MemoryCheckpointProvider:
 class PostgresCheckpointProvider:
     """Managed official LangGraph PostgreSQL checkpoint provider."""
 
-    def __init__(self, database_url: str) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        *,
+        connect_timeout_seconds: float = 5.0,
+        statement_timeout_seconds: float = 10.0,
+        pool_timeout_seconds: float = 5.0,
+    ) -> None:
         conninfo = _psycopg_conninfo(database_url)
         self._pool: ConnectionPool[Connection[DictRow]] = ConnectionPool(
             conninfo=conninfo,
             min_size=1,
             max_size=10,
             open=False,
+            timeout=pool_timeout_seconds,
             kwargs={
                 "autocommit": True,
+                "connect_timeout": ceil(connect_timeout_seconds),
+                "options": f"-c statement_timeout={ceil(statement_timeout_seconds * 1000)}",
                 "prepare_threshold": 0,
                 "row_factory": dict_row,
             },
@@ -120,7 +131,12 @@ def build_checkpoint_provider(settings: Settings) -> CheckpointProvider:
     backend = CheckpointBackend(settings.checkpoint_backend)
     if backend == CheckpointBackend.MEMORY:
         return MemoryCheckpointProvider()
-    return PostgresCheckpointProvider(settings.database_url)
+    return PostgresCheckpointProvider(
+        settings.database_url,
+        connect_timeout_seconds=settings.database_connect_timeout_seconds,
+        statement_timeout_seconds=settings.database_query_timeout_seconds,
+        pool_timeout_seconds=settings.database_pool_timeout_seconds,
+    )
 
 
 def checkpoint_thread_id(context: ExecutionContext) -> str:

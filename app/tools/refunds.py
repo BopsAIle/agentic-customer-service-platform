@@ -1,9 +1,11 @@
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models import Order, OrderStatus, RefundRequest, RefundStatus
 from app.schemas.domain import RefundRequestResponse
+from app.services.idempotency import IdempotencyScope, execute_idempotent
 from app.tools.base import (
     DuplicateActionError,
     InvalidStateTransitionError,
@@ -18,17 +20,41 @@ class RequestRefundInput(BaseModel):
     reason: str = Field(min_length=1, max_length=2000)
 
 
-def request_refund(session: Session, request: RequestRefundInput) -> RefundRequestResponse:
-    validate_refund_request(session, request)
-    refund = RefundRequest(
-        customer_id=request.customer_id,
-        order_id=request.order_id,
-        reason=request.reason,
-        status=RefundStatus.REQUESTED,
-    )
-    session.add(refund)
-    session.flush()
-    return RefundRequestResponse.model_validate(refund)
+def request_refund(
+    session: Session, request: RequestRefundInput, *, idempotency: IdempotencyScope
+) -> RefundRequestResponse:
+    def load_result(refund_id: int) -> RefundRequestResponse:
+        refund = session.get(RefundRequest, refund_id)
+        if refund is None:
+            raise ResourceNotFoundError("Refund request", refund_id)
+        return RefundRequestResponse.model_validate(refund)
+
+    def perform() -> tuple[RefundRequestResponse, int]:
+        validate_refund_request(session, request)
+        refund = RefundRequest(
+            customer_id=request.customer_id,
+            order_id=request.order_id,
+            reason=request.reason,
+            status=RefundStatus.REQUESTED,
+        )
+        session.add(refund)
+        session.flush()
+        return RefundRequestResponse.model_validate(refund), refund.id
+
+    try:
+        return execute_idempotent(
+            session,
+            scope=idempotency,
+            operation="request_refund",
+            customer_id=request.customer_id,
+            request_payload=request.model_dump(mode="json"),
+            perform=perform,
+            load_result=load_result,
+        )
+    except IntegrityError as error:
+        raise DuplicateActionError(
+            f"An active refund request already exists for order {request.order_id}"
+        ) from error
 
 
 def validate_refund_request(session: Session, request: RequestRefundInput) -> None:

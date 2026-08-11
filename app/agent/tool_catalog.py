@@ -13,6 +13,7 @@ from app.schemas.domain import (
     RefundRequestResponse,
     TicketResponse,
 )
+from app.services.idempotency import IdempotencyScope
 from app.tools import registry
 from app.tools.base import OwnershipError
 from app.tools.customers import (
@@ -35,55 +36,109 @@ from app.tools.tickets import (
 @dataclass(frozen=True, slots=True)
 class AgentToolDefinition:
     input_model: type[BaseModel]
-    execute: Callable[[Session, ExecutionContext, BaseModel], object]
+    execute: Callable[[Session, ExecutionContext, BaseModel, IdempotencyScope | None], object]
 
 
 def _get_customer(
-    session: Session, context: ExecutionContext, request: BaseModel
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
 ) -> CustomerResponse:
+    del idempotency
     return get_customer(session, cast(GetCustomerInput, _scoped(context, request)))
 
 
 def _get_customer_orders(
-    session: Session, context: ExecutionContext, request: BaseModel
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
 ) -> list[OrderResponse]:
+    del idempotency
     return get_customer_orders(session, cast(GetCustomerInput, _scoped(context, request)))
 
 
 def _get_customer_tickets(
-    session: Session, context: ExecutionContext, request: BaseModel
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
 ) -> list[TicketResponse]:
+    del idempotency
     return get_customer_tickets(session, cast(GetCustomerInput, _scoped(context, request)))
 
 
-def _get_order(session: Session, context: ExecutionContext, request: BaseModel) -> OrderResponse:
+def _get_order(
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
+) -> OrderResponse:
+    del idempotency
     return get_order(session, cast(GetOrderInput, _scoped(context, request)))
 
 
-def _get_ticket(session: Session, context: ExecutionContext, request: BaseModel) -> TicketResponse:
+def _get_ticket(
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
+) -> TicketResponse:
+    del idempotency
     return get_ticket(session, cast(GetTicketInput, _scoped(context, request)))
 
 
 def _create_ticket(
-    session: Session, context: ExecutionContext, request: BaseModel
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
 ) -> TicketResponse:
-    return create_support_ticket(session, cast(CreateSupportTicketInput, _scoped(context, request)))
+    return create_support_ticket(
+        session,
+        cast(CreateSupportTicketInput, _scoped(context, request)),
+        idempotency=_require_idempotency(idempotency),
+    )
 
 
-def _cancel_order(session: Session, context: ExecutionContext, request: BaseModel) -> object:
-    return cancel_order(session, cast(CancelOrderInput, _scoped(context, request)))
+def _cancel_order(
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
+) -> object:
+    return cancel_order(
+        session,
+        cast(CancelOrderInput, _scoped(context, request)),
+        idempotency=_require_idempotency(idempotency),
+    )
 
 
 def _request_refund(
-    session: Session, context: ExecutionContext, request: BaseModel
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
 ) -> RefundRequestResponse:
-    return request_refund(session, cast(RequestRefundInput, _scoped(context, request)))
+    return request_refund(
+        session,
+        cast(RequestRefundInput, _scoped(context, request)),
+        idempotency=_require_idempotency(idempotency),
+    )
 
 
 def _escalate_to_human(
-    session: Session, context: ExecutionContext, request: BaseModel
+    session: Session,
+    context: ExecutionContext,
+    request: BaseModel,
+    idempotency: IdempotencyScope | None,
 ) -> EscalationResponse:
-    return escalate_to_human(session, cast(EscalateToHumanInput, _scoped(context, request)))
+    return escalate_to_human(
+        session,
+        cast(EscalateToHumanInput, _scoped(context, request)),
+        idempotency=_require_idempotency(idempotency),
+    )
 
 
 def _scoped(context: ExecutionContext, request: BaseModel) -> BaseModel:
@@ -92,6 +147,12 @@ def _scoped(context: ExecutionContext, request: BaseModel) -> BaseModel:
         resource_id = requested_customer if isinstance(requested_customer, int) else 0
         raise OwnershipError("Customer scope", resource_id, context.effective_customer_id)
     return request.model_copy(update={"customer_id": context.effective_customer_id})
+
+
+def _require_idempotency(scope: IdempotencyScope | None) -> IdempotencyScope:
+    if scope is None:
+        raise ValueError("Business writes require an idempotency key.")
+    return scope
 
 
 TOOL_DEFINITIONS: dict[str, AgentToolDefinition] = {

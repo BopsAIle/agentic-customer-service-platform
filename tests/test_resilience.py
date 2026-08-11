@@ -1,5 +1,6 @@
 from collections.abc import Sequence
 
+import pytest
 from langgraph.checkpoint.memory import MemorySaver
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -25,6 +26,7 @@ from app.resilience.errors import (
     UnknownWriteOutcomeError,
 )
 from app.resilience.retry import run_with_retry
+from app.services.idempotency import IdempotencyScope
 
 
 def decision(
@@ -48,7 +50,7 @@ def config() -> ResilienceConfig:
 
 def test_failure_classification_does_not_retry_domain_errors() -> None:
     error = ValueError("invalid state")
-    assert classify_failure(error, dependency="tool") == FailureCategory.TOOL_TRANSIENT_FAILURE
+    assert classify_failure(error, dependency="tool") == FailureCategory.TOOL_PERMANENT_FAILURE
     assert is_retryable(FailureCategory.TOOL_PERMANENT_FAILURE) is False
 
 
@@ -75,16 +77,36 @@ def test_retry_is_bounded_and_does_not_sleep_for_tests() -> None:
     assert sleeps == [0.0, 0.0]
 
 
+def test_unknown_write_outcome_is_never_retried_even_if_mislabeled_as_read() -> None:
+    calls = 0
+
+    def operation() -> None:
+        nonlocal calls
+        calls += 1
+        raise UnknownWriteOutcomeError("request_refund")
+
+    with pytest.raises(UnknownWriteOutcomeError):
+        run_with_retry(operation, dependency="tool", operation_type="read", config=config())
+
+    assert calls == 1
+
+
 def test_read_tool_retries_once_then_executes(db_session: Session) -> None:
     original = TOOL_DEFINITIONS["get_customer_orders"]
     calls = 0
 
-    def flaky(session: Session, context: ExecutionContext, request: BaseModel) -> object:
+    def flaky(
+        session: Session,
+        context: ExecutionContext,
+        request: BaseModel,
+        idempotency: IdempotencyScope | None,
+    ) -> object:
+        del idempotency
         nonlocal calls
         calls += 1
         if calls == 1:
             raise TimeoutError("temporary read timeout")
-        return original.execute(session, context, request)
+        return original.execute(session, context, request, None)
 
     TOOL_DEFINITIONS["get_customer_orders"] = AgentToolDefinition(original.input_model, flaky)
     try:
@@ -190,8 +212,13 @@ def test_confirmation_executes_without_second_llm_call(db_session: Session) -> N
 def test_unknown_write_outcome_is_not_replayed(db_session: Session) -> None:
     original = TOOL_DEFINITIONS["cancel_order"]
 
-    def unknown(session: Session, context: ExecutionContext, request: BaseModel) -> object:
-        del session, context, request
+    def unknown(
+        session: Session,
+        context: ExecutionContext,
+        request: BaseModel,
+        idempotency: IdempotencyScope | None,
+    ) -> object:
+        del session, context, request, idempotency
         raise UnknownWriteOutcomeError("cancel_order")
 
     TOOL_DEFINITIONS["cancel_order"] = AgentToolDefinition(original.input_model, unknown)

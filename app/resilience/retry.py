@@ -4,7 +4,7 @@ from app.observability.metrics import get_metrics
 from app.observability.tracing import span
 from app.resilience.classification import classify_failure, is_retryable
 from app.resilience.config import ResilienceConfig, Sleeper, default_sleeper
-from app.resilience.errors import FailureCategory, RetryExhaustedError
+from app.resilience.errors import FailureCategory, RetryExhaustedError, UnknownWriteOutcomeError
 
 
 def run_with_retry[T](
@@ -21,6 +21,15 @@ def run_with_retry[T](
     for attempt in range(1, attempts_allowed + 1):
         try:
             return operation()
+        except UnknownWriteOutcomeError:
+            get_metrics().dependency_failures_total.add(
+                1,
+                {
+                    "dependency": dependency,
+                    "failure_category": FailureCategory.TOOL_TIMEOUT.value,
+                },
+            )
+            raise
         except Exception as error:
             category = classify_failure(error, dependency=dependency, operation=operation_type)
             last_category = category

@@ -8,6 +8,7 @@ from app.resilience.config import ResilienceConfig
 from app.resilience.errors import RetryExhaustedError
 from app.resilience.fallbacks import degraded_message
 from app.resilience.retry import run_with_retry
+from app.resilience.timeout import run_with_timeout
 
 
 def make_retrieve_node(
@@ -17,9 +18,12 @@ def make_retrieve_node(
 ) -> Callable[[AgentState], AgentState]:
     def retrieve_knowledge(state: AgentState) -> AgentState:
         query = state.get("knowledge_query") or _latest_user_message(state)
+        timeout_seconds = (resilience_config or ResilienceConfig()).retrieval_timeout_seconds
         try:
             chunks = run_with_retry(
-                lambda: retriever.retrieve(query),
+                lambda: run_with_timeout(
+                    lambda: retriever.retrieve(query), timeout_seconds=timeout_seconds
+                ),
                 dependency="retrieval",
                 config=resilience_config,
             )

@@ -90,6 +90,12 @@ The explicit tool registry currently includes:
 
 Tools receive database sessions explicitly. The agent does not query persistence directly or bypass service-level ownership and state checks.
 
+All business writes use actor-scoped idempotency receipts committed in the same database
+transaction as the resulting mutation. Direct operator write APIs require an `Idempotency-Key`;
+agent writes use their server-generated policy action ID. PostgreSQL also enforces one active
+refund per order. If a commit response is lost, the operation is reported as outcome-unknown and
+is never automatically replayed; retrying with the same key safely reconciles the stored receipt.
+
 ### Policy Engine
 
 Risk is metadata on each registered tool and is evaluated outside the model:

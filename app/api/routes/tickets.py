@@ -1,7 +1,8 @@
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.errors import raise_http_for_tool_error
+from app.api.errors import raise_http_for_tool_error, raise_http_for_unknown_write
+from app.api.idempotency import get_idempotency_key
 from app.auth.dependencies import (
     get_current_principal,
     require_support_operator,
@@ -9,7 +10,9 @@ from app.auth.dependencies import (
 )
 from app.auth.models import Principal
 from app.core.database import get_db
+from app.resilience.errors import UnknownWriteOutcomeError
 from app.schemas.domain import TicketResponse
+from app.services.idempotency import IdempotencyScope, commit_business_write
 from app.tools.base import ToolError
 from app.tools.tickets import (
     CreateSupportTicketInput,
@@ -41,6 +44,7 @@ def get_ticket_by_id(
 @router.post("", response_model=TicketResponse, status_code=201)
 def create_ticket(
     request: CreateSupportTicketInput,
+    idempotency_key: str = Depends(get_idempotency_key),
     principal: Principal = Depends(require_support_operator),
     session: Session = Depends(get_db),
 ) -> TicketResponse:
@@ -49,9 +53,12 @@ def create_ticket(
         result = create_support_ticket(
             session,
             request.model_copy(update={"customer_id": customer_scope.customer_id}),
+            idempotency=IdempotencyScope(actor_id=principal.actor_id, key=idempotency_key),
         )
-        session.commit()
+        commit_business_write(session, "create_support_ticket")
         return result
+    except UnknownWriteOutcomeError as error:
+        raise_http_for_unknown_write(error)
     except ToolError as error:
         session.rollback()
         raise_http_for_tool_error(error)

@@ -1,3 +1,4 @@
+import httpx
 from sqlalchemy.exc import DBAPIError, OperationalError
 
 from app.resilience.errors import FailureCategory, ResilienceError
@@ -9,7 +10,7 @@ def classify_failure(
 ) -> FailureCategory:
     if isinstance(error, ResilienceError):
         return error.category
-    if isinstance(error, TimeoutError):
+    if isinstance(error, (TimeoutError, httpx.TimeoutException)):
         return {
             "llm": FailureCategory.LLM_TIMEOUT,
             "retrieval": FailureCategory.RETRIEVAL_TIMEOUT,
@@ -17,6 +18,8 @@ def classify_failure(
         }.get(dependency, FailureCategory.UNKNOWN_DEPENDENCY_FAILURE)
     if dependency == "llm" and isinstance(error, (ValueError, TypeError)):
         return FailureCategory.LLM_MALFORMED_OUTPUT
+    if dependency == "tool" and isinstance(error, (ValueError, TypeError)):
+        return FailureCategory.TOOL_PERMANENT_FAILURE
     if isinstance(error, (OperationalError, DBAPIError)):
         return (
             FailureCategory.DATABASE_UNAVAILABLE
@@ -48,7 +51,6 @@ def is_retryable(category: FailureCategory, *, operation: str = "read") -> bool:
     return category in {
         FailureCategory.LLM_TIMEOUT,
         FailureCategory.LLM_UNAVAILABLE,
-        FailureCategory.LLM_MALFORMED_OUTPUT,
         FailureCategory.DATABASE_TRANSIENT,
         FailureCategory.DATABASE_UNAVAILABLE,
         FailureCategory.TOOL_TIMEOUT,

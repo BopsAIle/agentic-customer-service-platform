@@ -6,6 +6,8 @@ from app.agent.nodes.common import error_category, serialise_result
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.agent.tool_catalog import get_agent_tool_definition
+from app.resilience.errors import UnknownWriteOutcomeError
+from app.services.idempotency import IdempotencyScope, commit_business_write
 from app.tools.base import ToolError
 
 
@@ -40,13 +42,34 @@ def make_human_escalation_node(session: Session) -> Callable[[AgentState], Agent
                     "last_error": "Tool customer scope conflicts with execution context.",
                     "tool_execution_status": "failed",
                 }
-            result = definition.execute(session, context, arguments)
-            session.commit()
+            action_id = state.get("action_id")
+            if not action_id:
+                return {
+                    "error_category": AgentErrorCategory.POLICY_DENIED,
+                    "last_error": "Business write is missing its idempotency key.",
+                    "tool_execution_status": "failed",
+                }
+            result = definition.execute(
+                session,
+                context,
+                arguments,
+                IdempotencyScope(actor_id=context.principal.actor_id, key=action_id),
+            )
+            commit_business_write(session, "escalate_to_human")
             return {
                 "tool_result": serialise_result(result),
                 "tool_execution_status": "executed",
                 "error_category": None,
                 "last_error": None,
+            }
+        except UnknownWriteOutcomeError:
+            return {
+                "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                "last_error": "The escalation outcome could not be confirmed.",
+                "failure_category": "tool_timeout",
+                "recovery_action": "no_replay",
+                "write_outcome_unknown": True,
+                "tool_execution_status": "failed",
             }
         except ToolError as error:
             session.rollback()

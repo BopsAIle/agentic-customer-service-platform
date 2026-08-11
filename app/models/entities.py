@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Numeric, String, Text
+from sqlalchemy import ForeignKey, Index, Numeric, String, Text, UniqueConstraint, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -87,6 +87,15 @@ class SupportTicket(Base):
 
 class RefundRequest(Base):
     __tablename__ = "refund_requests"
+    __table_args__ = (
+        Index(
+            "uq_refund_requests_active_order",
+            "order_id",
+            unique=True,
+            postgresql_where=text("status IN ('requested', 'approved', 'processing')"),
+            sqlite_where=text("status IN ('requested', 'approved', 'processing')"),
+        ),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True, nullable=False)
@@ -113,3 +122,24 @@ class Escalation(Base):
     customer: Mapped[Customer] = relationship(back_populates="escalations")
     ticket: Mapped[SupportTicket | None] = relationship()
     order: Mapped[Order | None] = relationship(back_populates="escalations")
+
+
+class BusinessActionReceipt(Base):
+    __tablename__ = "business_action_receipts"
+    __table_args__ = (
+        UniqueConstraint(
+            "actor_id",
+            "operation",
+            "idempotency_key",
+            name="uq_business_action_receipt_scope",
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    actor_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    operation: Mapped[str] = mapped_column(String(80), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
+    customer_id: Mapped[int] = mapped_column(index=True, nullable=False)
+    request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
+    result_id: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
