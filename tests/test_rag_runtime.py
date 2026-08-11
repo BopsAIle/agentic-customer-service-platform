@@ -40,9 +40,16 @@ def payload(content: str = "Delivered orders may qualify for refund review.") ->
 
 
 class FakeQdrantClient:
-    def __init__(self, points: Sequence[object] = (), *, ready: bool = True) -> None:
+    def __init__(
+        self,
+        points: Sequence[object] = (),
+        *,
+        ready: bool = True,
+        collection: object | None = None,
+    ) -> None:
         self.points = list(points)
         self.ready = ready
+        self.collection = collection if collection is not None else collection_info()
         self.calls: list[dict[str, object]] = []
         self.readiness_calls = 0
         self.closed = False
@@ -54,11 +61,28 @@ class FakeQdrantClient:
     def close(self) -> None:
         self.closed = True
 
-    def get_collections(self) -> object:
+    def get_collection(self, name: str) -> object:
+        del name
         self.readiness_calls += 1
         if not self.ready:
             raise ConnectionError("qdrant unavailable")
-        return SimpleNamespace(collections=[])
+        return self.collection
+
+
+class MissingCollectionError(Exception):
+    status_code = 404
+
+
+def collection_info(
+    *, dimension: int = 32, distance: str = "Cosine", points_count: int = 1, named: bool = False
+) -> object:
+    vectors: object = SimpleNamespace(size=dimension, distance=distance)
+    if named:
+        vectors = {"default": vectors}
+    return SimpleNamespace(
+        config=SimpleNamespace(params=SimpleNamespace(vectors=vectors)),
+        points_count=points_count,
+    )
 
 
 class UnavailableQdrantClient(FakeQdrantClient):
@@ -116,14 +140,59 @@ def test_qdrant_backend_is_selected_from_configuration() -> None:
     assert client.calls == []
 
 
-def test_qdrant_readiness_checks_service_availability_without_requiring_ingestion() -> None:
+def test_qdrant_readiness_requires_a_usable_ingested_collection() -> None:
     ready_client = FakeQdrantClient(ready=True)
     unavailable_client = FakeQdrantClient(ready=False)
 
     assert qdrant_backend(ready_client).is_ready() is True
     assert ready_client.readiness_calls == 1
-    with pytest.raises(ConnectionError, match="qdrant unavailable"):
-        qdrant_backend(unavailable_client).is_ready()
+    assert ready_client.calls == []
+    unavailable_backend = qdrant_backend(unavailable_client)
+    assert unavailable_backend.is_ready() is False
+    assert unavailable_backend.last_readiness_category == "qdrant_unreachable"
+
+
+def test_qdrant_readiness_rejects_missing_collection_without_mutation() -> None:
+    class MissingCollectionClient(FakeQdrantClient):
+        def get_collection(self, name: str) -> object:
+            del name
+            self.readiness_calls += 1
+            raise MissingCollectionError("collection missing")
+
+    client = MissingCollectionClient()
+    backend = qdrant_backend(client)
+
+    assert backend.is_ready() is False
+    assert backend.last_readiness_category == "collection_missing"
+    assert client.calls == []
+
+
+@pytest.mark.parametrize(
+    ("collection", "category"),
+    [
+        (collection_info(dimension=16), "vector_dimension_mismatch"),
+        (collection_info(distance="Dot"), "vector_schema_mismatch"),
+        (collection_info(named=True), "vector_schema_mismatch"),
+        (collection_info(points_count=0), "knowledge_not_ingested"),
+    ],
+)
+def test_qdrant_readiness_rejects_incompatible_or_incomplete_collections(
+    collection: object, category: str
+) -> None:
+    client = FakeQdrantClient(collection=collection)
+    backend = qdrant_backend(client)
+
+    assert backend.is_ready() is False
+    assert backend.last_readiness_category == category
+    assert client.calls == []
+
+
+def test_local_backend_readiness_does_not_require_qdrant() -> None:
+    service = build_knowledge_service(
+        Settings(rag_backend="local", embedding_provider="deterministic")
+    )
+
+    assert service.is_ready() is True
 
 
 def test_embedding_provider_selection_preserves_offline_and_production_boundaries() -> None:

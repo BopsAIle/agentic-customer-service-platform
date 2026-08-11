@@ -31,6 +31,15 @@ Readiness failures return HTTP 503 without naming the failed dependency. Livenes
 stays healthy during dependency outages so an orchestrator does not restart an otherwise healthy
 process. The backend image healthcheck uses liveness; Compose uses readiness for service ordering.
 
+For `RAG_BACKEND=qdrant`, `/ready` is fail-closed until the configured collection exists and its
+metadata matches the runtime contract: one unnamed dense vector, `Distance.COSINE`, and
+`EMBEDDING_DIMENSION`. The collection must also contain at least one indexed knowledge point;
+this is the selected ingestion-completeness policy for the normal demo and production RAG path.
+Readiness only observes Qdrant metadata and never creates, recreates, upserts, or deletes a
+collection. `RAG_BACKEND=local` bypasses Qdrant readiness entirely. Matching dimensions are a
+structural check only; without persisted model identity they do not prove that historical vectors
+were produced by the currently configured embedding model.
+
 ## Graceful shutdown
 
 The backend receives `SIGTERM` directly. Uvicorn stops accepting connections and is allowed up to

@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import logging
 import time
 from collections.abc import Sequence
+from enum import StrEnum
 from typing import Any
 
 from pydantic import ValidationError
@@ -12,6 +14,18 @@ from app.rag.embeddings import EmbeddingProvider
 from app.rag.interfaces import KnowledgeFilter, RetrievalMetadata
 from app.rag.rerankers import Reranker
 from app.rag.schemas import RetrievedChunk
+from app.rag.storage.qdrant import QDRANT_DENSE_DISTANCE
+
+logger = logging.getLogger(__name__)
+
+
+class QdrantReadinessCategory(StrEnum):
+    READY = "ready"
+    QDRANT_UNREACHABLE = "qdrant_unreachable"
+    COLLECTION_MISSING = "collection_missing"
+    VECTOR_SCHEMA_MISMATCH = "vector_schema_mismatch"
+    VECTOR_DIMENSION_MISMATCH = "vector_dimension_mismatch"
+    KNOWLEDGE_NOT_INGESTED = "knowledge_not_ingested"
 
 
 class QdrantKnowledgeBackend:
@@ -31,6 +45,7 @@ class QdrantKnowledgeBackend:
         final_context_count: int,
         timeout_seconds: float,
         reranker_timeout_seconds: float,
+        embedding_dimension: int | None = None,
         filters: KnowledgeFilter | None = None,
         client: Any | None = None,
     ) -> None:
@@ -50,9 +65,13 @@ class QdrantKnowledgeBackend:
         self.final_context_count = final_context_count
         self.timeout_seconds = timeout_seconds
         self.reranker_timeout_seconds = reranker_timeout_seconds
+        self.embedding_dimension = embedding_dimension or getattr(
+            embedding_provider, "dimension", None
+        )
         self.filters = filters
         self.last_degraded_components: list[str] = []
         self.last_metadata: RetrievalMetadata | None = None
+        self.last_readiness_category = "not_checked"
 
     def retrieve(self, query: str) -> list[RetrievedChunk]:
         started = time.perf_counter()
@@ -131,8 +150,75 @@ class QdrantKnowledgeBackend:
             close()
 
     def is_ready(self) -> bool:
-        self.client.get_collections()
+        try:
+            collection = self.client.get_collection(self.collection_name)
+        except Exception as error:
+            category = (
+                QdrantReadinessCategory.COLLECTION_MISSING
+                if _is_collection_missing(error)
+                else QdrantReadinessCategory.QDRANT_UNREACHABLE
+            )
+            self._record_readiness_failure(category)
+            return False
+
+        config = getattr(collection, "config", None)
+        params = _field(config, "params")
+        vectors = _field(params, "vectors")
+        if isinstance(vectors, dict) or vectors is None:
+            self._record_readiness_failure(QdrantReadinessCategory.VECTOR_SCHEMA_MISMATCH)
+            return False
+
+        actual_dimension = _field(vectors, "size")
+        if actual_dimension != self.embedding_dimension:
+            self._record_readiness_failure(
+                QdrantReadinessCategory.VECTOR_DIMENSION_MISMATCH,
+                actual_dimension=actual_dimension,
+            )
+            return False
+
+        actual_distance = _enum_value(_field(vectors, "distance"))
+        if actual_distance != QDRANT_DENSE_DISTANCE:
+            self._record_readiness_failure(
+                QdrantReadinessCategory.VECTOR_SCHEMA_MISMATCH,
+                actual_dimension=actual_dimension,
+                actual_distance=actual_distance,
+            )
+            return False
+
+        points_count = _field(collection, "points_count")
+        if not isinstance(points_count, int) or points_count < 1:
+            self._record_readiness_failure(
+                QdrantReadinessCategory.KNOWLEDGE_NOT_INGESTED,
+                actual_dimension=actual_dimension,
+                actual_distance=actual_distance,
+                points_count=points_count,
+            )
+            return False
+
+        self.last_readiness_category = QdrantReadinessCategory.READY.value
         return True
+
+    def _record_readiness_failure(
+        self,
+        category: QdrantReadinessCategory,
+        *,
+        actual_dimension: object | None = None,
+        actual_distance: object | None = None,
+        points_count: object | None = None,
+    ) -> None:
+        self.last_readiness_category = category.value
+        logger.warning(
+            "Qdrant readiness check failed.",
+            extra={
+                "readiness_dependency": "qdrant",
+                "readiness_category": category.value,
+                "qdrant_collection": self.collection_name,
+                "expected_dimension": self.embedding_dimension,
+                "actual_dimension": actual_dimension,
+                "actual_distance": actual_distance,
+                "points_count": points_count,
+            },
+        )
 
     def _query_filter(self) -> Any | None:
         if self.filters is None:
@@ -163,3 +249,17 @@ def _native_timeout(seconds: float) -> int:
     """Qdrant's HTTP API accepts whole-second server deadlines only."""
 
     return max(1, int(seconds))
+
+
+def _field(value: object, name: str) -> object | None:
+    if isinstance(value, dict):
+        return value.get(name)
+    return getattr(value, name, None)
+
+
+def _enum_value(value: object) -> object:
+    return getattr(value, "value", value)
+
+
+def _is_collection_missing(error: BaseException) -> bool:
+    return getattr(error, "status_code", None) == 404 or "not found" in str(error).casefold()

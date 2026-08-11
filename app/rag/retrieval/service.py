@@ -108,6 +108,7 @@ def build_knowledge_service(
                 settings.qdrant_timeout_seconds, settings.retrieval_timeout_seconds
             ),
             reranker_timeout_seconds=settings.rag_reranker_timeout_seconds,
+            embedding_dimension=settings.embedding_dimension,
             client=qdrant_client,
         )
     service = KnowledgeService(retriever)

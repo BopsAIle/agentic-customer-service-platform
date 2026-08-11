@@ -1,8 +1,19 @@
 from collections.abc import Sequence
+from typing import Any
 from uuid import NAMESPACE_URL, uuid5
 
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.schemas import DocumentChunk
+
+QDRANT_DENSE_DISTANCE = "Cosine"
+
+
+def build_dense_vector_params(dimension: int) -> Any:
+    """Build the one unnamed dense-vector schema used by ingestion and readiness."""
+
+    from qdrant_client.http import models
+
+    return models.VectorParams(size=dimension, distance=models.Distance.COSINE)
 
 
 class QdrantKnowledgeStore:
@@ -24,13 +35,11 @@ class QdrantKnowledgeStore:
         self.timeout_seconds = timeout_seconds
 
     def ensure_collection(self, dimension: int) -> None:
-        from qdrant_client.http import models
-
         exists = self.client.collection_exists(self.collection_name)
         if not exists:
             self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config=models.VectorParams(size=dimension, distance=models.Distance.COSINE),
+                vectors_config=build_dense_vector_params(dimension),
                 timeout=_native_timeout(self.timeout_seconds),
             )
 
