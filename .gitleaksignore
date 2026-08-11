@@ -1,0 +1,2 @@
+# Empty EMBEDDING_API_KEY followed by RERANKER_ENABLED in the public example file.
+5871c52bdb8f7eaf9a6e4cf37137649a80409463:.env.example:generic-api-key:17

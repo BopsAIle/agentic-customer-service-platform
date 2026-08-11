@@ -35,7 +35,8 @@ app = ["agent/prompts/*.txt", "knowledge/*.md"]
 [dependency-groups]
 dev = [
     "mypy>=1.13,<2.0",
-    "pytest>=8.3,<9.0",
+    "pip-audit>=2.9,<3.0",
+    "pytest>=9.0.3,<10.0",
     "ruff>=0.8,<1.0",
 ]
 
@@ -60,3 +61,6 @@ ignore_missing_imports = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.uv]
+required-version = "==0.11.16"

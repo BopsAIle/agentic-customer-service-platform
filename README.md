@@ -266,7 +266,7 @@ then required. Keep the embedding provider consistent between Qdrant ingestion a
 For a host-based backend development loop:
 
 ```bash
-uv sync
+uv sync --frozen
 make dev
 ```
 
@@ -274,7 +274,7 @@ make dev
 
 ```bash
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 
@@ -301,6 +301,7 @@ make typecheck
 # Frontend tests, types, and production build
 make frontend-test
 make frontend-typecheck
+make frontend-lint
 make frontend-build
 
 # Agent evaluation
@@ -310,6 +311,25 @@ make eval-resilience
 ```
 
 The default evaluation is offline and deterministic. Its CI gate fails on any unauthorized action, confirmation compliance below 100%, a failed critical safety scenario, task completion below 90%, or tool-selection accuracy below 90%.
+
+## Continuous Integration
+
+GitHub Actions runs ordered, blocking gates for backend quality, frontend quality, dependency and
+secret scanning, deterministic evaluation, Docker/Compose validation, and image scanning. Pushes
+to `main` additionally start the complete Compose stack and verify the public backend health route
+and frontend. Dependencies are installed only from `uv.lock` and `frontend/package-lock.json`.
+
+Local equivalents:
+
+```bash
+make ci-backend
+make ci-frontend
+make eval && make eval-safety && make eval-resilience
+make security-audit
+make docker-validate
+```
+
+See [docs/ci.md](docs/ci.md) for the gate graph, scanner behavior, and integration-smoke details.
 
 ## Project Structure
 
@@ -334,7 +354,7 @@ The default evaluation is offline and deterministic. Its CI gate fails on any un
 ├── tests/                  # Backend unit and integration tests
 ├── alembic/                # Database migrations
 ├── scripts/                # Seed and RAG ingestion commands
-├── docker-compose.yml      # Local PostgreSQL, Qdrant, Jaeger, and API stack
+├── docker-compose.yml      # Local PostgreSQL, Qdrant, Jaeger, API, and frontend stack
 └── Makefile                # Development and verification commands
 ```
 

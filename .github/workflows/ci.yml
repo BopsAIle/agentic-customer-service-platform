@@ -1,20 +1,195 @@
 name: CI
 
 on:
-  push:
   pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  UV_VERSION: "0.11.16"
+  NODE_VERSION: "22.14.0"
 
 jobs:
-  validate:
-    runs-on: ubuntu-latest
+  backend-quality:
+    name: Backend Quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
-      - uses: astral-sh/setup-uv@v5
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
         with:
-          version: "latest"
-      - run: uv sync
-      - run: uv run ruff check .
-      - run: uv run ruff format --check .
-      - run: uv run mypy app evaluation tests
-      - run: uv run pytest
-      - run: uv run python -m evaluation.runner
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install locked backend dependencies
+        run: uv sync --frozen
+      - name: Ruff lint
+        run: uv run --frozen ruff check .
+      - name: Ruff format check
+        run: uv run --frozen ruff format --check .
+      - name: Mypy
+        run: uv run --frozen mypy app tests evaluation scripts
+      - name: Pytest
+        run: uv run --frozen pytest
+
+  frontend-quality:
+    name: Frontend Quality
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: TypeScript typecheck
+        run: npm run typecheck
+      - name: ESLint
+        run: npm run lint
+      - name: Vitest
+        run: npm test
+      - name: Production build
+        run: npm run build
+
+  security:
+    name: Security Checks
+    needs: [backend-quality, frontend-quality]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install locked backend dependencies
+        run: uv sync --frozen
+      - name: Audit Python dependencies
+        run: uv run --frozen pip-audit
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Audit frontend dependencies
+        run: npm audit --prefix frontend --audit-level=high
+      - name: Detect committed secrets
+        run: >-
+          docker run --rm -v "$PWD:/repo"
+          zricethezav/gitleaks:v8.27.2
+          detect --source=/repo --redact --no-banner --log-opts="--all"
+      - name: Scan repository vulnerabilities and misconfiguration
+        run: >-
+          docker run --rm -v "$PWD:/workspace" -v trivy-cache:/root/.cache/trivy
+          aquasec/trivy:0.70.0
+          fs --exit-code 1 --ignore-unfixed --severity HIGH,CRITICAL
+          --scanners vuln,misconfig,secret --skip-version-check /workspace
+      - name: Validate GitHub Actions workflow
+        run: >-
+          docker run --rm -v "$PWD:/repo" -w /repo
+          rhysd/actionlint:1.7.7 -color
+
+  evaluation:
+    name: Deterministic Evaluation
+    needs: security
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      CHECKPOINT_BACKEND: memory
+      RAG_BACKEND: local
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c771a70e6277c0a99b617c7a806ffedaca235ff9 # v9.0.0
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+      - name: Install locked backend dependencies
+        run: uv sync --frozen
+      - name: Full deterministic evaluation
+        run: uv run --frozen python -m evaluation.runner
+      - name: Safety evaluation
+        run: uv run --frozen python -m evaluation.runner --safety
+      - name: Resilience evaluation
+        run: uv run --frozen python -m evaluation.runner --resilience
+
+  docker-validation:
+    name: Docker Build and Scan
+    needs: evaluation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate Compose model
+        run: docker compose config --quiet
+      - name: Build backend image
+        run: docker build --tag customer-service-backend:ci .
+      - name: Build frontend image
+        run: docker build --tag customer-service-frontend:ci frontend
+      - name: Scan backend image
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+          -v trivy-cache:/root/.cache/trivy
+          aquasec/trivy:0.70.0
+          image --exit-code 1 --ignore-unfixed --severity CRITICAL
+          --skip-version-check customer-service-backend:ci
+      - name: Scan frontend image
+        run: >-
+          docker run --rm -v /var/run/docker.sock:/var/run/docker.sock
+          -v trivy-cache:/root/.cache/trivy
+          aquasec/trivy:0.70.0
+          image --exit-code 1 --ignore-unfixed --severity CRITICAL
+          --skip-version-check customer-service-frontend:ci
+
+  integration-smoke:
+    name: Integration Smoke
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: docker-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Start Compose stack
+        run: docker compose up --build --detach
+      - name: Verify backend and frontend health
+        run: |
+          for _ in {1..45}; do
+            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null \
+              && curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          docker compose ps
+          exit 1
+      - name: Stop Compose stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
