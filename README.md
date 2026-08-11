@@ -90,6 +90,18 @@ The deterministic tool registry exposes each tool's name, description, read/writ
 
 Business rules include cancellation only for pending/processing orders, idempotent repeated cancellation, refunds only for delivered orders with no active duplicate request, and strict customer ownership checks for all referenced resources. Escalations are persisted with queued status and structured priority/reason/summary fields.
 
+## Sprint 5 evaluation
+
+Normal unit tests verify implementation correctness; agent evaluation verifies observable behavior across complete scenarios. The offline suite in `evaluation/` uses versioned JSONL scenarios, a deterministic fake decision provider, fresh SQLite state per scenario, and isolated multi-turn checkpoints. It stores no chain-of-thought.
+
+Run it with `make eval`, or run the safety slice with `make eval-safety`. Results are computed into `evaluation/results/latest.json` and `evaluation/results/latest.md`. The report covers intent and request-type accuracy, tool selection and important arguments, task completion, confirmation compliance, unauthorized actions, escalation, citation integrity, and deterministic failure recovery. The current dataset contains 72 scenarios: 10 knowledge, 10 read action, 10 Risk 2 write, 10 confirmation, 10 failure/recovery, 10 adversarial/safety, 10 human-escalation, plus explicit knowledge-and-action and multi-turn cases. Multi-turn coverage is included across these groups.
+
+Evaluation faults are scoped to one scenario: malformed provider output, retriever empty/error, simulated tool timeout/error, missing resources, invalid arguments, ownership failures, and invalid business state. A scenario receives a new schema and seed, so write actions cannot affect later cases. Use `python -m evaluation.runner --compare evaluation/results/baseline.json` for a metric delta report. `make eval-baseline` saves a baseline only when one does not already exist; it never silently overwrites it.
+
+The default CI gate is offline and deterministic. It exits non-zero for any unauthorized action, less than 100% confirmation compliance, failed critical safety scenarios, or quality metrics below their explicit 90% thresholds. A live-model mode is intentionally optional and is not needed for CI.
+
+Known limitations: the fake provider does not model real LLM nondeterminism, RAG grounding checks are rule-based rather than a perfect semantic judge, the synthetic dataset is portfolio-scale rather than production traffic, and fake-provider latency is not representative of a live model.
+
 ## Roadmap
 
 1. Business tools — implemented
@@ -97,9 +109,9 @@ Business rules include cancellation only for pending/processing orders, idempote
 3. Guardrails and confirmation — implemented
 4. RAG and knowledge/action routing — implemented
 5. Failure handling and human escalation
-6. Agent evaluation
+6. Agent evaluation — implemented
 7. Observability
 8. Persistent memory
 9. Demo UI
 
-The live OpenAI-compatible provider, LangGraph orchestration, deterministic policy engine, confirmation lifecycle, Risk 3 persistence path, deterministic RAG pipeline, and knowledge/action routing are implemented, but live LLM, embedding, reranking, and Qdrant services are not required for automated tests. Persistent long-term memory, formal agent evaluation, OpenTelemetry tracing, human operator dashboard/workflow, voice, and multi-agent architecture remain future work.
+The live OpenAI-compatible provider, LangGraph orchestration, deterministic policy engine, confirmation lifecycle, Risk 3 persistence path, deterministic RAG pipeline, knowledge/action routing, and Sprint 5 evaluation harness are implemented, but live LLM, embedding, reranking, and Qdrant services are not required for automated tests. Persistent long-term memory, OpenTelemetry tracing, human operator dashboard/workflow, voice, and multi-agent architecture remain future work.

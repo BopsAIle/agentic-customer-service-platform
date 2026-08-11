@@ -1,5 +1,6 @@
 from collections.abc import Callable
 
+from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.rag.generation.grounded import GroundedAnswerGenerator
 from app.rag.retrieval.service import KnowledgeRetriever
@@ -11,7 +12,13 @@ def make_retrieve_node(
 ) -> Callable[[AgentState], AgentState]:
     def retrieve_knowledge(state: AgentState) -> AgentState:
         query = state.get("knowledge_query") or _latest_user_message(state)
-        chunks = retriever.retrieve(query)
+        try:
+            chunks = retriever.retrieve(query)
+        except Exception:
+            return {
+                "last_error": "The knowledge service was unavailable.",
+                "error_category": AgentErrorCategory.LLM_ERROR,
+            }
         grounded = generator.answer(query, chunks, state.get("tool_result"))
         return {
             "retrieved_chunks": [chunk.model_dump(mode="json") for chunk in chunks],

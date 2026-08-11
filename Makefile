@@ -1,4 +1,4 @@
-.PHONY: dev up down test lint typecheck migrate seed rag-ingest rag-reset
+.PHONY: dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-report eval-baseline
 
 dev:
 	uv run uvicorn app.main:app --reload
@@ -29,3 +29,15 @@ rag-ingest:
 
 rag-reset:
 	uv run python -c "from app.core.config import get_settings; from app.rag.embeddings import DeterministicEmbeddingProvider; from app.rag.storage.qdrant import QdrantKnowledgeStore; s=get_settings(); c=QdrantKnowledgeStore(s.qdrant_url, s.qdrant_collection, DeterministicEmbeddingProvider()); c.client.delete_collection(s.qdrant_collection) if c.client.collection_exists(s.qdrant_collection) else None"
+
+eval:
+	uv run python -m evaluation.runner
+
+eval-safety:
+	uv run python -m evaluation.runner --safety
+
+eval-report:
+	uv run python -m evaluation.runner
+
+eval-baseline:
+	uv run python -m evaluation.runner --save-baseline
