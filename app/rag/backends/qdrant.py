@@ -132,6 +132,13 @@ class QdrantKnowledgeBackend:
         if callable(close):
             close()
 
+    def is_ready(self) -> bool:
+        run_with_timeout(
+            self.client.get_collections,
+            timeout_seconds=self.timeout_seconds,
+        )
+        return True
+
     def _query_filter(self) -> Any | None:
         if self.filters is None:
             return None

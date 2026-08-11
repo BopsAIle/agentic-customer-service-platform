@@ -26,7 +26,11 @@ from app.policies.confirmation import Clock, SystemClock
 from app.policies.engine import PolicyEngine
 from app.policies.registry import InMemoryPolicyAuditLog
 from app.rag.generation.grounded import GroundedAnswerGenerator
-from app.rag.interfaces import KnowledgeRetriever, ManagedKnowledgeRetriever
+from app.rag.interfaces import (
+    KnowledgeRetriever,
+    ManagedKnowledgeRetriever,
+    ReadyKnowledgeRetriever,
+)
 from app.rag.retrieval.service import build_default_knowledge_service
 from app.resilience.config import ResilienceConfig
 from app.ui.projection import get_projection_store
@@ -72,6 +76,11 @@ class AgentRuntime:
     def close(self) -> None:
         if isinstance(self.knowledge_retriever, ManagedKnowledgeRetriever):
             self.knowledge_retriever.close()
+
+    def is_ready(self) -> bool:
+        if isinstance(self.knowledge_retriever, ReadyKnowledgeRetriever):
+            return self.knowledge_retriever.is_ready()
+        return True
 
     def run(
         self,

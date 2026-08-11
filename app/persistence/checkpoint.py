@@ -41,6 +41,8 @@ class CheckpointProvider(Protocol):
 
     def initialize(self) -> None: ...
 
+    def is_ready(self) -> bool: ...
+
     def close(self) -> None: ...
 
 
@@ -60,6 +62,9 @@ class MemoryCheckpointProvider:
 
     def initialize(self) -> None:
         return None
+
+    def is_ready(self) -> bool:
+        return True
 
     def close(self) -> None:
         return None
@@ -119,6 +124,23 @@ class PostgresCheckpointProvider:
             )
             raise RuntimeError("Checkpoint persistence initialization failed.") from None
         self._initialized = True
+
+    def is_ready(self) -> bool:
+        if not self._initialized:
+            return False
+        try:
+            with self._pool.connection() as connection:
+                connection.execute("SELECT 1").fetchone()
+        except Exception as error:
+            logger.warning(
+                "Checkpoint persistence readiness check failed.",
+                extra={
+                    "checkpoint_backend": self.backend.value,
+                    "persistence_error_type": type(error).__name__,
+                },
+            )
+            return False
+        return True
 
     def close(self) -> None:
         if not self._initialized:

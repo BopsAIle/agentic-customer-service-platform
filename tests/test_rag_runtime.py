@@ -3,6 +3,7 @@ from collections.abc import Sequence
 from types import SimpleNamespace
 from typing import Any, cast
 
+import pytest
 from sqlalchemy.orm import Session
 
 from app.agent.llm.fake import FakeDecisionProvider
@@ -40,9 +41,11 @@ def payload(content: str = "Delivered orders may qualify for refund review.") ->
 
 
 class FakeQdrantClient:
-    def __init__(self, points: Sequence[object] = ()) -> None:
+    def __init__(self, points: Sequence[object] = (), *, ready: bool = True) -> None:
         self.points = list(points)
+        self.ready = ready
         self.calls: list[dict[str, object]] = []
+        self.readiness_calls = 0
         self.closed = False
 
     def query_points(self, **kwargs: object) -> object:
@@ -51,6 +54,12 @@ class FakeQdrantClient:
 
     def close(self) -> None:
         self.closed = True
+
+    def get_collections(self) -> object:
+        self.readiness_calls += 1
+        if not self.ready:
+            raise ConnectionError("qdrant unavailable")
+        return SimpleNamespace(collections=[])
 
 
 class UnavailableQdrantClient(FakeQdrantClient):
@@ -107,6 +116,16 @@ def test_qdrant_backend_is_selected_from_configuration() -> None:
 
     assert isinstance(service.retriever, QdrantKnowledgeBackend)
     assert client.calls == []
+
+
+def test_qdrant_readiness_checks_service_availability_without_requiring_ingestion() -> None:
+    ready_client = FakeQdrantClient(ready=True)
+    unavailable_client = FakeQdrantClient(ready=False)
+
+    assert qdrant_backend(ready_client).is_ready() is True
+    assert ready_client.readiness_calls == 1
+    with pytest.raises(ConnectionError, match="qdrant unavailable"):
+        qdrant_backend(unavailable_client).is_ready()
 
 
 def test_embedding_provider_selection_preserves_offline_and_production_boundaries() -> None:

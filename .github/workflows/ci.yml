@@ -182,7 +182,7 @@ jobs:
       - name: Verify backend and frontend health
         run: |
           for _ in {1..45}; do
-            if curl --fail --silent http://127.0.0.1:8000/health >/dev/null \
+            if curl --fail --silent http://127.0.0.1:8000/ready >/dev/null \
               && curl --fail --silent http://127.0.0.1:5173/ >/dev/null; then
               exit 0
             fi

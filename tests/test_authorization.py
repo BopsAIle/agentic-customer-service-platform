@@ -9,14 +9,16 @@ def _customer_headers() -> dict[str, str]:
     return {"Authorization": f"Bearer {TEST_CUSTOMER_ONE_TOKEN}"}
 
 
-def test_health_is_public_while_protected_route_requires_authentication(
+def test_health_endpoints_are_public_while_business_routes_require_authentication(
     client: TestClient,
 ) -> None:
     with TestClient(app) as anonymous:
         health = anonymous.get("/health")
+        readiness = anonymous.get("/ready")
         protected = anonymous.get("/customers/1")
 
     assert health.status_code == 200
+    assert readiness.status_code == 200
     assert protected.status_code == 401
     assert protected.headers["www-authenticate"] == "Bearer"
 

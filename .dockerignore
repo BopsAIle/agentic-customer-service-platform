@@ -12,7 +12,11 @@
 artifacts
 build
 dist
+docker-compose*.yml
+docs
+evaluation
 frontend
 htmlcov
+Makefile
 node_modules
 tests

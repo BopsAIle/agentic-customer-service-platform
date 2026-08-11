@@ -13,6 +13,7 @@ from app.rag.interfaces import (
     KnowledgeIndexer,
     KnowledgeRetriever,
     ManagedKnowledgeRetriever,
+    ReadyKnowledgeRetriever,
 )
 from app.rag.rerankers import DeterministicReranker
 from app.rag.schemas import DocumentChunk, KnowledgeDocument, RetrievedChunk
@@ -47,6 +48,11 @@ class KnowledgeService:
     def close(self) -> None:
         if isinstance(self.retriever, ManagedKnowledgeRetriever):
             self.retriever.close()
+
+    def is_ready(self) -> bool:
+        if isinstance(self.retriever, ReadyKnowledgeRetriever):
+            return self.retriever.is_ready()
+        return True
 
     @property
     def last_degraded_components(self) -> list[str]:

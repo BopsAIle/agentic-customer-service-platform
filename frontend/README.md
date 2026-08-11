@@ -9,3 +9,7 @@ The console uses React, TypeScript, Vite, Tailwind CSS, and npm. Keep frontend r
 
 Install dependencies reproducibly with `npm ci`. Before submitting a change, run
 `npm run typecheck`, `npm run lint`, `npm test`, and `npm run build`.
+
+The production nginx image runs unprivileged on port 8080. It applies security headers, serves
+fingerprinted `/assets/` files with immutable caching, keeps HTML and proxied API responses
+revalidatable or non-cacheable, and routes unknown client paths through the SPA entry point.

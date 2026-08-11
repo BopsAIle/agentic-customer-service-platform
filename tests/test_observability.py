@@ -13,7 +13,9 @@ from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
 from app.memory.service import MemoryService
+from app.observability import tracing
 from app.observability.metrics import configure_metrics
+from app.observability.tracing import shutdown_observability
 from app.resilience.config import ResilienceConfig
 from app.resilience.retry import run_with_retry
 
@@ -65,6 +67,27 @@ def span_attributes(exporter: InMemorySpanExporter) -> list[object]:
         for span in exporter.get_finished_spans()
         for value in (span.attributes or {}).values()
     ]
+
+
+def test_shutdown_observability_flushes_and_closes_owned_provider(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    events: list[object] = []
+
+    class Provider:
+        def force_flush(self, timeout_millis: int) -> bool:
+            events.append(("flush", timeout_millis))
+            return True
+
+        def shutdown(self) -> None:
+            events.append("shutdown")
+
+    monkeypatch.setattr(tracing, "_tracer_provider", Provider())
+
+    shutdown_observability(timeout_millis=1234)
+
+    assert events == [("flush", 1234), "shutdown"]
+    assert tracing._tracer_provider is None
 
 
 def test_read_action_emits_root_and_tool_spans_without_sensitive_prompt(

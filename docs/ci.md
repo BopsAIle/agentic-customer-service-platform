@@ -62,7 +62,7 @@ unfixed-excluded critical vulnerabilities. No image is pushed by this workflow.
 ### Integration Smoke
 
 After all other gates pass on `main`, Compose starts PostgreSQL, Qdrant, Jaeger, the backend, and
-the frontend. CI waits for `/health` and the frontend root page, then always removes containers and
+the frontend. CI waits for `/ready` and the frontend root page, then always removes containers and
 volumes. Pull requests do not start the stack.
 
 ## Local verification
@@ -77,6 +77,7 @@ make security-audit
 make docker-validate
 docker compose up --build --detach
 curl --fail http://127.0.0.1:8000/health
+curl --fail http://127.0.0.1:8000/ready
 curl --fail http://127.0.0.1:5173/
 docker compose down --volumes --remove-orphans
 ```

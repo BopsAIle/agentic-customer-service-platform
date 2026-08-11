@@ -290,6 +290,20 @@ npm run dev
 
 Stop the Compose stack with `docker compose down` or `make down`.
 
+### Container health
+
+- `GET /health` is process liveness only and returns `{"status":"ok"}` while FastAPI can serve.
+- `GET /ready` verifies PostgreSQL, checkpoint persistence, and the configured knowledge backend.
+  It returns only `ready` or `not_ready`; dependency details are not exposed.
+
+The backend and frontend images run as non-root users. For a production-oriented local Compose
+model with read-only application filesystems, restart policies, and configurable CPU/memory
+limits, layer `docker-compose.prod.yml` over the development file. It requires externally supplied
+database credentials and does not provide secret management or deployment automation.
+
+See [docs/deployment.md](docs/deployment.md) for probe semantics, graceful shutdown, configuration,
+and container commands.
+
 ## Testing
 
 ```bash
@@ -316,7 +330,7 @@ The default evaluation is offline and deterministic. Its CI gate fails on any un
 
 GitHub Actions runs ordered, blocking gates for backend quality, frontend quality, dependency and
 secret scanning, deterministic evaluation, Docker/Compose validation, and image scanning. Pushes
-to `main` additionally start the complete Compose stack and verify the public backend health route
+to `main` additionally start the complete Compose stack and verify backend readiness
 and frontend. Dependencies are installed only from `uv.lock` and `frontend/package-lock.json`.
 
 Local equivalents:
@@ -355,6 +369,7 @@ See [docs/ci.md](docs/ci.md) for the gate graph, scanner behavior, and integrati
 ├── alembic/                # Database migrations
 ├── scripts/                # Seed and RAG ingestion commands
 ├── docker-compose.yml      # Local PostgreSQL, Qdrant, Jaeger, API, and frontend stack
+├── docker-compose.prod.yml # Production-oriented Compose policy overlay
 └── Makefile                # Development and verification commands
 ```
 

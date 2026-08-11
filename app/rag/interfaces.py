@@ -46,3 +46,8 @@ class KnowledgeIndexer(Protocol):
 @runtime_checkable
 class ManagedKnowledgeRetriever(Protocol):
     def close(self) -> None: ...
+
+
+@runtime_checkable
+class ReadyKnowledgeRetriever(Protocol):
+    def is_ready(self) -> bool: ...

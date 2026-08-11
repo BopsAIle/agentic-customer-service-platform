@@ -17,6 +17,8 @@ services:
 
   backend:
     build: .
+    init: true
+    stop_grace_period: 35s
     environment:
       DATABASE_URL: postgresql+psycopg://app:app@db:5432/customer_service
       APP_ENV: development
@@ -40,14 +42,17 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3)",
         ]
       interval: 5s
       timeout: 5s
+      start_period: 10s
       retries: 20
 
   frontend:
     build: ./frontend
+    init: true
+    stop_grace_period: 10s
     ports:
       - "${FRONTEND_PORT:-5173}:8080"
     depends_on:
@@ -55,7 +60,7 @@ services:
         condition: service_healthy
 
   qdrant:
-    image: qdrant/qdrant:v1.13.6@sha256:bd67306b6cc77c98122cada2321eb60b20d00b19d26cb61c86681e7bd5951498
+    image: qdrant/qdrant:v1.19.0@sha256:057ee3a8da769fe7310dd3537b4dc7583bf87a95ce8ac43c0af5a46bc580d1fc
     ports:
       - "${QDRANT_HTTP_PORT:-6333}:6333"
       - "${QDRANT_GRPC_PORT:-6334}:6334"
