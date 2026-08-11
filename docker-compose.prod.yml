@@ -11,6 +11,15 @@ services:
           cpus: ${POSTGRES_CPU_LIMIT:-1.0}
           memory: ${POSTGRES_MEMORY_LIMIT:-1G}
 
+  demo-setup:
+    environment:
+      APP_ENV: production
+      AUTH_MODE: static
+      AUTH_TOKENS_JSON: ${PRODUCTION_AUTH_TOKENS_JSON:?PRODUCTION_AUTH_TOKENS_JSON must be set}
+      LOCAL_DEMO_AUTH_TOKEN: ""
+      DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+    command: ["alembic", "upgrade", "head"]
+
   backend:
     restart: unless-stopped
     read_only: true
@@ -22,6 +31,9 @@ services:
       - no-new-privileges:true
     environment:
       APP_ENV: production
+      AUTH_MODE: static
+      AUTH_TOKENS_JSON: ${PRODUCTION_AUTH_TOKENS_JSON:?PRODUCTION_AUTH_TOKENS_JSON must be set}
+      LOCAL_DEMO_AUTH_TOKEN: ""
       DEBUG: "false"
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
     deploy:
@@ -31,6 +43,9 @@ services:
           memory: ${BACKEND_MEMORY_LIMIT:-1G}
 
   frontend:
+    build:
+      args:
+        LOCAL_DEMO_AUTH_TOKEN: ""
     restart: unless-stopped
     read_only: true
     tmpfs:

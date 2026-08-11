@@ -310,33 +310,64 @@ Verified deterministic evaluation guarantees:
 - Python 3.12 and [`uv`](https://docs.astral.sh/uv/)
 - Node.js and npm
 
-### Start the infrastructure and API
+### Start the complete local demo stack
 
 ```bash
 cp .env.example .env
-docker compose up -d
-make migrate
-make seed
-make rag-ingest
+docker compose up --build
 ```
 
-For a dependency-free RAG loop, set `RAG_BACKEND=local`; no Qdrant or external embedding service is
-then required. Keep the embedding provider consistent between Qdrant ingestion and runtime queries.
+Open <http://localhost:5173>. The base Compose stack migrates PostgreSQL, loads deterministic demo
+records, ingests the bundled knowledge into Qdrant, waits for backend readiness, and builds the
+console with the same explicitly non-secret local demo credential used by the backend. The setup
+step resets the demo business records each time it runs; it is not a production migration pattern.
+
+`AUTH_MODE=local_demo` still authenticates every protected request through a real support-operator
+`Principal`. `LOCAL_DEMO_AUTH_TOKEN=local-demo-support-token` is public localhost/demo
+configuration, not a secret and not production IAM. Anonymous protected calls continue to return
+401. The token is held only in frontend module memory and is neither logged nor persisted to
+localStorage.
+
+The default agent provider expects a real OpenAI-compatible LLM. For Compose, start an appropriate
+model on the host (the defaults expect Ollama model `llama3.1` at port 11434), or set
+`COMPOSE_LLM_BASE_URL`, `LLM_MODEL`, and `LLM_API_KEY` for your runtime. Without a reachable LLM,
+health, readiness, authentication, operator reads, PostgreSQL, and Qdrant remain testable, but a
+successful real-agent conversation is not available.
+
+For a dependency-free host-based RAG loop, set `RAG_BACKEND=local`; no Qdrant or external embedding
+service is then required. Keep the embedding provider consistent between Qdrant ingestion and
+runtime queries.
 
 For a host-based backend development loop:
 
 ```bash
 uv sync --frozen
+make migrate
+make seed
 make dev
 ```
 
-### Start the frontend
+In another terminal, the Vite server reads the root `.env`, keeps the demo token in memory, and
+proxies all backend API route families to `VITE_BACKEND_TARGET` (default
+`http://localhost:8000`):
 
 ```bash
 cd frontend
 npm ci
 npm run dev
 ```
+
+Quick authentication checks:
+
+```bash
+curl --fail http://127.0.0.1:8000/health
+curl --fail http://127.0.0.1:8000/ready
+curl --write-out '%{http_code}\n' http://127.0.0.1:8000/ui/system-health
+curl --fail -H 'Authorization: Bearer local-demo-support-token' \
+  http://127.0.0.1:8000/ui/system-health
+```
+
+The third command returns 401; the fourth authenticates as `operator-local-demo`.
 
 ### Local services
 
@@ -368,11 +399,17 @@ limits:
 ```bash
 export POSTGRES_PASSWORD='set-outside-source-control'
 export DATABASE_URL='postgresql+psycopg://app:encoded-password@db:5432/customer_service'
+export PRODUCTION_AUTH_TOKENS_JSON='{"replace-with-secret":{"actor_id":"operator","actor_type":"support_operator","roles":["support_operator"]}}'
 docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build --detach
 ```
 
 The overlay is a deployment reference rather than a high-availability production orchestrator.
+It forcibly disables the frontend demo credential and selects externally configured static bearer
+authentication. Application startup rejects disabled or `local_demo` authentication when
+`APP_ENV=production`, and rejects an empty static principal map. The static backend demonstrates
+the replaceable `Authenticator` boundary; it is not a substitute for an environment-specific IAM
+system or secret manager.
 Kubernetes, Helm, cloud infrastructure, and automated deployment are future scope.
 
 ### Health and readiness

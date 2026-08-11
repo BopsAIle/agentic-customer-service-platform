@@ -13,16 +13,31 @@ from app.auth.models import (
     Principal,
 )
 from app.auth.protocols import AuthenticationError, Authenticator
-from app.core.config import get_settings
+from app.core.config import AuthenticationMode, Settings, get_settings
 
 _bearer = HTTPBearer(auto_error=False)
 
 
 @lru_cache
 def get_authenticator() -> Authenticator:
-    settings = get_settings()
-    if not settings.auth_enabled:
+    return build_authenticator(get_settings())
+
+
+def build_authenticator(settings: Settings) -> Authenticator:
+    if settings.auth_mode == AuthenticationMode.DISABLED:
         return DisabledAuthenticator()
+    if settings.auth_mode == AuthenticationMode.LOCAL_DEMO:
+        assert settings.local_demo_auth_token is not None
+        return StaticBearerAuthenticator(
+            {
+                settings.local_demo_auth_token.get_secret_value(): Principal(
+                    actor_id=settings.local_demo_actor_id,
+                    actor_type=ActorType.SUPPORT_OPERATOR,
+                    roles=["support_operator"],
+                    credential_id="local-demo",
+                )
+            }
+        )
     return StaticBearerAuthenticator.from_json(settings.auth_tokens_json)
 
 

@@ -1,5 +1,6 @@
 from pathlib import Path
 
+import app as app_package
 from app.core.config import get_settings
 from app.rag.embeddings import build_embedding_provider
 from app.rag.ingestion.chunking import chunk_document
@@ -9,7 +10,10 @@ from app.rag.storage.qdrant import QdrantKnowledgeStore
 
 def main() -> None:
     settings = get_settings()
-    documents = load_markdown_documents(Path(__file__).parents[1] / "app" / "knowledge")
+    package_file = app_package.__file__
+    if package_file is None:
+        raise RuntimeError("Application package location is unavailable.")
+    documents = load_markdown_documents(Path(package_file).parent / "knowledge")
     chunks = [
         chunk
         for document in documents

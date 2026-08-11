@@ -1,7 +1,17 @@
+import json
+from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, ValidationError, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.auth.models import Principal
+
+
+class AuthenticationMode(StrEnum):
+    DISABLED = "disabled"
+    LOCAL_DEMO = "local_demo"
+    STATIC = "static"
 
 
 class Settings(BaseSettings):
@@ -52,11 +62,43 @@ class Settings(BaseSettings):
     database_connect_timeout_seconds: float = Field(default=5.0, gt=0.0)
     database_query_timeout_seconds: float = Field(default=10.0, gt=0.0)
     database_pool_timeout_seconds: float = Field(default=5.0, gt=0.0)
-    auth_enabled: bool = False
+    auth_mode: AuthenticationMode = AuthenticationMode.DISABLED
+    local_demo_auth_token: SecretStr | None = None
+    local_demo_actor_id: str = Field(default="operator-local-demo", min_length=1, max_length=200)
     auth_tokens_json: SecretStr = SecretStr("{}")
     checkpoint_backend: str = Field(default="postgres", pattern="^(postgres|memory)$")
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @model_validator(mode="after")
+    def validate_authentication_mode(self) -> "Settings":
+        environment = self.app_env.casefold()
+        if self.auth_mode == AuthenticationMode.LOCAL_DEMO:
+            if environment not in {"development", "demo", "test"}:
+                raise ValueError("local_demo authentication is restricted to development/demo")
+            if (
+                self.local_demo_auth_token is None
+                or not self.local_demo_auth_token.get_secret_value()
+            ):
+                raise ValueError("local_demo authentication requires LOCAL_DEMO_AUTH_TOKEN")
+        if self.auth_mode == AuthenticationMode.STATIC:
+            try:
+                configured_tokens = json.loads(self.auth_tokens_json.get_secret_value())
+                if (
+                    not isinstance(configured_tokens, dict)
+                    or not configured_tokens
+                    or any(not isinstance(token, str) or not token for token in configured_tokens)
+                ):
+                    raise TypeError
+                for configured_principal in configured_tokens.values():
+                    Principal.model_validate(configured_principal)
+            except (json.JSONDecodeError, TypeError, ValidationError):
+                raise ValueError(
+                    "static authentication requires a non-empty AUTH_TOKENS_JSON"
+                ) from None
+        if environment == "production" and self.auth_mode != AuthenticationMode.STATIC:
+            raise ValueError("production requires an explicitly configured authentication backend")
+        return self
 
 
 @lru_cache

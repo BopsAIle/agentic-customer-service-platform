@@ -15,8 +15,10 @@ Hashed assets under `/assets/` are cached for one year as immutable. HTML uses r
 responses are not cached, unknown application paths fall back to `index.html`, and security headers
 are applied to static and proxied responses.
 
-Both images receive configuration at runtime. No credentials, tokens, or environment files are
-copied into either image.
+Backend configuration is supplied at runtime. The local frontend build receives only the public,
+non-secret demo token so the static console can exercise authenticated routes; the production
+overlay explicitly builds without it. No real credentials or environment files are copied into
+either image.
 
 ## Health contract
 
@@ -44,15 +46,28 @@ bounded component names and statuses; they do not contain prompts, customer data
 
 ## Local development stack
 
-The base file keeps the simple local demo defaults:
+The base file keeps an explicitly development-only authenticated demo. It migrates the database,
+resets and loads demo records, ingests bundled knowledge into Qdrant, and starts the backend only
+after setup succeeds:
 
 ```bash
+cp .env.example .env
 docker compose up --build --detach
 curl --fail http://127.0.0.1:8000/health
 curl --fail http://127.0.0.1:8000/ready
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8000/ui/system-health)" = 401
+curl --fail -H 'Authorization: Bearer local-demo-support-token' http://127.0.0.1:8000/ui/system-health
 curl --fail http://127.0.0.1:5173/
 docker compose down
 ```
+
+`AUTH_MODE=local_demo` maps the configured non-secret demo token to a typed support-operator
+principal. It does not make protected routes anonymous. The frontend holds that token in memory
+and sends it through nginx, which explicitly preserves `Authorization` for `/agent` and `/ui`.
+
+A real `/agent/chat` result additionally requires a reachable OpenAI-compatible LLM. The Compose
+default uses `http://host.docker.internal:11434/v1`; change `COMPOSE_LLM_BASE_URL`, `LLM_MODEL`, and
+`LLM_API_KEY` as needed. Do not report the agent path as validated if that runtime is absent.
 
 ## Production-oriented Compose overlay
 
@@ -63,6 +78,7 @@ credentials externally; do not put them in a committed `.env` file.
 ```bash
 export POSTGRES_PASSWORD='set-outside-source-control'
 export DATABASE_URL='postgresql+psycopg://app:encoded-password@db:5432/customer_service'
+export PRODUCTION_AUTH_TOKENS_JSON='{"replace-with-secret":{"actor_id":"operator","actor_type":"support_operator","roles":["support_operator"]}}'
 docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build --detach
 ```
@@ -70,6 +86,13 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build --det
 CPU and memory defaults can be overridden with `BACKEND_CPU_LIMIT`, `BACKEND_MEMORY_LIMIT`,
 `FRONTEND_CPU_LIMIT`, `FRONTEND_MEMORY_LIMIT`, `POSTGRES_CPU_LIMIT`, `POSTGRES_MEMORY_LIMIT`,
 `QDRANT_CPU_LIMIT`, `QDRANT_MEMORY_LIMIT`, `JAEGER_CPU_LIMIT`, and `JAEGER_MEMORY_LIMIT`.
+
+The production overlay sets `APP_ENV=production`, forces `AUTH_MODE=static`, requires a non-empty
+externally supplied principal map, removes the demo token from backend/setup containers, and builds
+the frontend without a bundled demo credential. Backend startup rejects disabled or local-demo
+authentication in production. Static opaque bearers are only the repository's current integration
+adapter, not a claim of production IAM; deployers must provide secret rotation/storage and their
+environment-specific identity integration.
 
 For a real deployment, replace the local PostgreSQL and Qdrant services with managed or separately
 operated dependencies as appropriate, supply identity and observability configuration through the

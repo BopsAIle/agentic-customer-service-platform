@@ -48,3 +48,19 @@ def test_frontend_config_applies_security_and_cache_boundaries() -> None:
     assert 'Cache-Control "no-cache"' in nginx
     assert "try_files $uri $uri/ /index.html" in nginx
     assert "server_tokens off" in nginx
+    assert "proxy_set_header Authorization $http_authorization" in nginx
+    assert "(agent|customers|orders|tickets|memories|escalations|ui)" in nginx
+
+
+def test_compose_wires_demo_authentication_and_bootstrap_without_production_inheritance() -> None:
+    compose = yaml.safe_load((ROOT / "docker-compose.yml").read_text())
+    production = yaml.safe_load((ROOT / "docker-compose.prod.yml").read_text())
+
+    assert compose["services"]["backend"]["environment"]["AUTH_MODE"] == "local_demo"
+    assert compose["services"]["backend"]["depends_on"]["demo-setup"]["condition"] == (
+        "service_completed_successfully"
+    )
+    assert compose["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"]
+    assert production["services"]["backend"]["environment"]["AUTH_MODE"] == "static"
+    assert production["services"]["backend"]["environment"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
+    assert production["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"] == ""

@@ -15,14 +15,32 @@ services:
       timeout: 5s
       retries: 10
 
+  demo-setup:
+    build: .
+    environment: &backend-environment
+      DATABASE_URL: postgresql+psycopg://app:app@db:5432/customer_service
+      APP_ENV: development
+      AUTH_MODE: local_demo
+      LOCAL_DEMO_AUTH_TOKEN: ${LOCAL_DEMO_AUTH_TOKEN:-local-demo-support-token}
+      LOCAL_DEMO_ACTOR_ID: ${LOCAL_DEMO_ACTOR_ID:-operator-local-demo}
+      LLM_MODEL: ${LLM_MODEL:-llama3.1}
+      LLM_BASE_URL: ${COMPOSE_LLM_BASE_URL:-http://host.docker.internal:11434/v1}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      QDRANT_URL: http://qdrant:6333
+    depends_on:
+      db:
+        condition: service_healthy
+      qdrant:
+        condition: service_healthy
+    command:
+      ["sh", "-c", "alembic upgrade head && python -m scripts.seed && python -m scripts.rag_ingest"]
+
   backend:
     build: .
     init: true
     stop_grace_period: 35s
     environment:
-      DATABASE_URL: postgresql+psycopg://app:app@db:5432/customer_service
-      APP_ENV: development
-      QDRANT_URL: http://qdrant:6333
+      <<: *backend-environment
       OTEL_ENABLED: "true"
       OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger:4317
       OTEL_SERVICE_NAME: agentic-customer-service-platform
@@ -33,9 +51,25 @@ services:
         condition: service_healthy
       qdrant:
         condition: service_healthy
+      demo-setup:
+        condition: service_completed_successfully
       jaeger:
         condition: service_started
-    command: ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command:
+      [
+        "uvicorn",
+        "app.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--timeout-keep-alive",
+        "5",
+        "--timeout-graceful-shutdown",
+        "30",
+      ]
     healthcheck:
       test:
         [
@@ -50,7 +84,10 @@ services:
       retries: 20
 
   frontend:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        LOCAL_DEMO_AUTH_TOKEN: ${LOCAL_DEMO_AUTH_TOKEN:-local-demo-support-token}
     init: true
     stop_grace_period: 10s
     ports:

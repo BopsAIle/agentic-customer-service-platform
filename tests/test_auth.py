@@ -6,9 +6,15 @@ from fastapi.testclient import TestClient
 from pydantic import SecretStr
 
 from app.auth.backends import StaticBearerAuthenticator
-from app.auth.dependencies import get_authenticator, get_current_principal, require_role
+from app.auth.dependencies import (
+    build_authenticator,
+    get_authenticator,
+    get_current_principal,
+    require_role,
+)
 from app.auth.models import ActorType, AuthenticationCredentials, CredentialScheme, Principal
 from app.auth.protocols import AuthenticationConfigurationError, InvalidCredentialsError
+from app.core.config import AuthenticationMode, Settings
 
 RAW_TOKEN = "local-operator-token"
 
@@ -127,3 +133,33 @@ def test_invalid_configuration_does_not_echo_configuration() -> None:
 
     assert invalid_configuration not in str(captured.value)
     assert invalid_configuration not in repr(captured.value)
+
+
+def test_local_demo_authentication_resolves_support_operator_principal() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="development",
+        auth_mode=AuthenticationMode.LOCAL_DEMO,
+        local_demo_auth_token=RAW_TOKEN,
+        local_demo_actor_id="demo-support",
+    )
+
+    principal = build_authenticator(settings).authenticate(_credentials(RAW_TOKEN))
+
+    assert principal == Principal(
+        actor_id="demo-support",
+        actor_type=ActorType.SUPPORT_OPERATOR,
+        roles=["support_operator"],
+        credential_id="local-demo",
+    )
+
+
+def test_local_demo_authentication_still_rejects_invalid_credentials() -> None:
+    settings = Settings(
+        _env_file=None,
+        auth_mode=AuthenticationMode.LOCAL_DEMO,
+        local_demo_auth_token=RAW_TOKEN,
+    )
+
+    with pytest.raises(InvalidCredentialsError):
+        build_authenticator(settings).authenticate(_credentials("wrong-demo-token"))
