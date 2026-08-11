@@ -20,9 +20,13 @@ from app.agent.schemas import AgentResponse, StructuredDecision
 from app.agent.tool_catalog import TOOL_DEFINITIONS, AgentToolDefinition
 from app.memory.models import MemoryRecord
 from app.memory.schemas import MemorySource, MemoryStatus, MemoryType
+from app.memory.service import MemoryService
 from app.models import Escalation, Order
+from app.policies.engine import PolicyEngine
 from app.rag.retrieval.service import KnowledgeRetriever
 from app.rag.schemas import RetrievedChunk
+from app.resilience.config import ResilienceConfig
+from app.resilience.errors import FailureCategory, ResilienceError, UnknownWriteOutcomeError
 from app.tools.base import ToolError
 from evaluation.fixtures import evaluation_session
 from evaluation.metrics.escalation import escalation_accuracy
@@ -47,20 +51,33 @@ class EvaluationClock:
 
 
 class FixedRetriever:
-    def __init__(self, chunks: Sequence[RetrievedChunk], *, fail: bool = False) -> None:
+    def __init__(
+        self,
+        chunks: Sequence[RetrievedChunk],
+        *,
+        failure: FailureCategory | None = None,
+        times: int = 0,
+        degraded_components: Sequence[str] = (),
+    ) -> None:
         self.chunks = list(chunks)
-        self.fail = fail
+        self.failure = failure
+        self.remaining = times
+        self.last_degraded_components = list(degraded_components)
 
     def retrieve(self, query: str) -> list[RetrievedChunk]:
-        if self.fail:
-            raise RuntimeError("simulated retriever failure")
+        if self.failure is not None and self.remaining > 0:
+            self.remaining -= 1
+            raise ResilienceError(self.failure, "simulated retrieval fault")
         return list(self.chunks)
 
 
-class MalformedProvider:
-    def __init__(self, provider: StructuredDecisionProvider) -> None:
+class FaultingProvider:
+    def __init__(self, provider: StructuredDecisionProvider, scenario: EvaluationScenario) -> None:
         self.provider = provider
-        self.failed = False
+        self.kind = scenario.fault.kind if scenario.fault else ""
+        self.remaining = scenario.fault.times if scenario.fault else 0
+        self.start_after_turn = scenario.fault.start_after_turn if scenario.fault else 0
+        self.calls = 0
 
     def decide(
         self,
@@ -69,8 +86,13 @@ class MalformedProvider:
         customer_id: int,
         memory_context: Sequence[dict[str, object]] | None = None,
     ) -> StructuredDecision:
-        if not self.failed:
-            self.failed = True
+        self.calls += 1
+        if self.calls > self.start_after_turn and self.remaining > 0:
+            self.remaining -= 1
+            if self.kind == "llm_timeout":
+                raise TimeoutError("simulated LLM timeout")
+            if self.kind == "llm_unavailable":
+                raise ConnectionError("simulated LLM unavailable")
             raise ValueError("simulated malformed structured output")
         return self.provider.decide(
             messages=messages, customer_id=customer_id, memory_context=memory_context
@@ -80,14 +102,39 @@ class MalformedProvider:
 @contextmanager
 def fault_scope(scenario: EvaluationScenario) -> Iterator[None]:
     fault = scenario.fault
-    if fault is None or fault.kind not in {"tool_timeout", "tool_error"} or fault.tool is None:
+    if (
+        fault is None
+        or fault.tool is None
+        or fault.kind
+        not in {
+            "tool_timeout",
+            "tool_error",
+            "unknown_write_outcome",
+            "database_transient",
+            "database_unavailable",
+        }
+    ):
         yield
         return
     original = TOOL_DEFINITIONS[fault.tool]
 
+    remaining = fault.times
+
     def injected(session: Session, request: Any) -> object:
+        nonlocal remaining
+        if remaining > 0:
+            remaining -= 1
+        else:
+            return original.execute(session, request)
+        if fault.kind == "unknown_write_outcome":
+            assert fault.tool is not None
+            raise UnknownWriteOutcomeError(fault.tool)
         if fault.kind == "tool_timeout":
             raise TimeoutError(f"simulated timeout for {fault.tool}")
+        if fault.kind == "database_transient":
+            raise ResilienceError(FailureCategory.DATABASE_TRANSIENT, "simulated database fault")
+        if fault.kind == "database_unavailable":
+            raise ResilienceError(FailureCategory.DATABASE_UNAVAILABLE, "simulated database outage")
         raise ToolError(f"simulated tool error for {fault.tool}")
 
     TOOL_DEFINITIONS[fault.tool] = AgentToolDefinition(original.input_model, injected)
@@ -99,7 +146,7 @@ def fault_scope(scenario: EvaluationScenario) -> Iterator[None]:
 
 def load_scenarios(directory: Path, category: str | None = None) -> list[EvaluationScenario]:
     scenarios: list[EvaluationScenario] = []
-    paths = sorted(directory.glob("*.jsonl"))
+    paths = [directory] if directory.is_file() else sorted(directory.glob("*.jsonl"))
     for path in paths:
         for line_number, line in enumerate(path.read_text().splitlines(), 1):
             if line.strip():
@@ -115,14 +162,42 @@ def load_scenarios(directory: Path, category: str | None = None) -> list[Evaluat
 
 
 def _retriever(scenario: EvaluationScenario) -> KnowledgeRetriever | None:
+    fault = scenario.fault
+    failure = None
+    if fault is not None:
+        failure = {
+            "retriever_error": FailureCategory.RETRIEVAL_UNAVAILABLE,
+            "retriever_timeout": FailureCategory.RETRIEVAL_TIMEOUT,
+            "embedding_failure": FailureCategory.EMBEDDING_FAILURE,
+        }.get(fault.kind)
     if scenario.retrieved_chunks:
         chunks = [RetrievedChunk.model_validate(chunk) for chunk in scenario.retrieved_chunks]
         return FixedRetriever(
-            chunks, fail=scenario.fault is not None and scenario.fault.kind == "retriever_error"
+            chunks,
+            failure=failure,
+            times=fault.times if fault else 0,
+            degraded_components=(
+                ["reranker"] if fault is not None and fault.kind == "reranker_failure" else []
+            ),
         )
     if scenario.fault is not None and scenario.fault.kind == "retriever_empty":
         return FixedRetriever([])
+    if failure is not None:
+        return FixedRetriever([], failure=failure, times=fault.times if fault else 0)
     return None
+
+
+class FailingPolicyEngine(PolicyEngine):
+    def evaluate(self, **kwargs: object) -> Any:
+        raise RuntimeError("simulated policy failure")
+
+
+class FailingMemoryService(MemoryService):
+    def retrieve(self, *args: Any, **kwargs: Any) -> list[Any]:
+        raise ResilienceError(FailureCategory.MEMORY_FAILURE, "simulated memory failure")
+
+    def remember(self, *args: Any, **kwargs: Any) -> Any:
+        raise ResilienceError(FailureCategory.MEMORY_FAILURE, "simulated memory failure")
 
 
 def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
@@ -147,14 +222,32 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
     session.commit()
     base_provider = FakeDecisionProvider(scenario.decisions)
     provider: StructuredDecisionProvider = base_provider
-    if scenario.fault is not None and scenario.fault.kind == "malformed_decision":
-        provider = MalformedProvider(base_provider)
+    if scenario.fault is not None and scenario.fault.kind in {
+        "llm_timeout",
+        "llm_unavailable",
+        "malformed_decision",
+    }:
+        provider = FaultingProvider(base_provider, scenario)
+    memory_service: MemoryService | None = None
+    if scenario.fault is not None and scenario.fault.kind == "memory_error":
+        memory_service = FailingMemoryService()
+    policy_engine: PolicyEngine | None = None
+    if scenario.fault is not None and scenario.fault.kind == "policy_error":
+        policy_engine = FailingPolicyEngine()
     runtime = AgentRuntime(
         provider=provider,
         checkpointer=MemorySaver(),
         clock=clock,
         confirmation_ttl_seconds=300,
         knowledge_retriever=_retriever(scenario),
+        memory_service=memory_service,
+        policy_engine=policy_engine,
+        resilience_config=ResilienceConfig(
+            enabled=True,
+            max_retries=2,
+            initial_backoff_ms=0,
+            max_backoff_ms=0,
+        ),
     )
     responses: list[AgentResponse] = []
     try:
@@ -186,6 +279,12 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
     citations: list[dict[str, Any]] = []
     pending: str | None = None
     memory_statuses: list[str] = []
+    failure_categories = [
+        response.failure_category for response in responses if response.failure_category
+    ]
+    degraded_components = {
+        component for response in responses for component in response.degraded_components
+    }
     intents = []
     request_types = []
     for response in responses:
@@ -298,6 +397,24 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
             count_ok if memory_conflict_ok is None else memory_conflict_ok and count_ok
         )
     memory_checks = [memory_retrieval_ok, memory_write_ok, memory_conflict_ok]
+    failure_category_ok: bool | None = None
+    if expected.failure_category is not None:
+        failure_category_ok = expected.failure_category in failure_categories
+    degraded_ok: bool | None = None
+    if expected.degraded_components:
+        degraded_ok = set(expected.degraded_components).issubset(degraded_components)
+    recovery_ok: bool | None = None
+    if expected.recovery_action is not None:
+        recovery_ok = any(
+            response.recovery_action == expected.recovery_action for response in responses
+        )
+    duplicate_write_rate: float | None = None
+    if expected.duplicate_write_rate is not None:
+        duplicate_count = len(executed) - len(set(executed))
+        duplicate_write_rate = 1.0 if duplicate_count else 0.0
+    resilience_checks = [failure_category_ok, degraded_ok, recovery_ok]
+    if expected.duplicate_write_rate is not None:
+        resilience_checks.append(duplicate_write_rate == expected.duplicate_write_rate)
     checks = [
         item
         for item in (
@@ -313,6 +430,7 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
             citations_ok,
             completion,
             *memory_checks,
+            *resilience_checks,
         )
         if item is not None
     ]
@@ -331,6 +449,9 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
         ("memory retrieval", memory_retrieval_ok),
         ("memory write policy", memory_write_ok),
         ("memory conflict", memory_conflict_ok),
+        ("failure category", failure_category_ok),
+        ("degraded mode", degraded_ok),
+        ("recovery action", recovery_ok),
     ):
         if value is False:
             failure_reasons.append(f"{label} mismatch")
@@ -354,6 +475,10 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
         memory_retrieval_correct=memory_retrieval_ok,
         memory_write_policy_compliant=memory_write_ok,
         memory_conflict_correct=memory_conflict_ok,
+        failure_category=failure_categories[-1] if failure_categories else None,
+        degraded_mode_correct=degraded_ok,
+        retry_policy_compliant=recovery_ok,
+        duplicate_write_rate=duplicate_write_rate,
         latency_ms=(time.perf_counter() - started) * 1000,
         failure_reasons=failure_reasons,
     )
@@ -362,11 +487,11 @@ def run_scenario(scenario: EvaluationScenario) -> ScenarioResult:
 def build_report(
     scenarios: Sequence[EvaluationScenario], results: list[ScenarioResult], dataset: str, seed: int
 ) -> EvaluationReport:
-    def rate(values: list[bool | None]) -> float:
+    def rate(values: Sequence[bool | float | None]) -> float:
         usable = [value for value in values if value is not None]
         return sum(usable) / len(usable) if usable else 1.0
 
-    metric_fields: dict[str, list[bool | None]] = {
+    metric_fields: dict[str, list[bool | float | None]] = {
         "intent_accuracy": [r.intent_correct for r in results],
         "request_type_accuracy": [r.request_type_correct for r in results],
         "tool_selection_accuracy": [
@@ -391,6 +516,14 @@ def build_report(
         "memory_retrieval_accuracy": [r.memory_retrieval_correct for r in results],
         "memory_write_policy_compliance": [r.memory_write_policy_compliant for r in results],
         "memory_conflict_resolution_accuracy": [r.memory_conflict_correct for r in results],
+        "failure_recovery_accuracy": [
+            r.task_completed
+            for r, s in zip(results, scenarios, strict=True)
+            if s.fault is not None or s.expect.failure_behavior is not None
+        ],
+        "degraded_mode_accuracy": [r.degraded_mode_correct for r in results],
+        "retry_policy_compliance": [r.retry_policy_compliant for r in results],
+        "duplicate_write_rate": [r.duplicate_write_rate for r in results],
     }
     categories: dict[str, list[bool]] = defaultdict(list)
     for result in results:
@@ -438,6 +571,7 @@ def main() -> int:
     parser.add_argument("--dataset", type=Path, default=Path("evaluation/datasets"))
     parser.add_argument("--category")
     parser.add_argument("--safety", action="store_true")
+    parser.add_argument("--resilience", action="store_true")
     parser.add_argument("--compare", type=Path)
     parser.add_argument("--output", type=Path, default=Path("evaluation/results/latest.json"))
     parser.add_argument("--save-baseline", action="store_true")
@@ -455,6 +589,13 @@ def main() -> int:
         scenarios = [scenario for scenario in scenarios if scenario.category in safety_categories]
         if not scenarios:
             raise SystemExit("No safety scenarios found")
+    if args.resilience:
+        resilience_categories = {"failure_recovery", "degraded_mode", "policy"}
+        scenarios = [
+            scenario for scenario in scenarios if scenario.category in resilience_categories
+        ]
+        if not scenarios:
+            raise SystemExit("No resilience scenarios found")
     results = [run_scenario(scenario) for scenario in scenarios]
     report = build_report(scenarios, results, str(args.dataset), 0)
     markdown = args.output.with_suffix(".md")

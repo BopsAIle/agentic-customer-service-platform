@@ -18,6 +18,7 @@ from app.policies.engine import PolicyEngine
 from app.policies.registry import InMemoryPolicyAuditLog
 from app.rag.generation.grounded import GroundedAnswerGenerator
 from app.rag.retrieval.service import KnowledgeRetriever, build_default_knowledge_service
+from app.resilience.config import ResilienceConfig
 
 
 class AgentRuntime:
@@ -32,6 +33,7 @@ class AgentRuntime:
         knowledge_retriever: KnowledgeRetriever | None = None,
         grounded_generator: GroundedAnswerGenerator | None = None,
         memory_service: MemoryService | None = None,
+        resilience_config: ResilienceConfig | None = None,
     ) -> None:
         settings = get_settings()
         self.provider = provider or OpenAICompatibleProvider(get_settings())
@@ -52,6 +54,7 @@ class AgentRuntime:
             default_ttl_days=settings.memory_default_ttl_days,
             support_context_ttl_days=settings.memory_support_context_ttl_days,
         )
+        self.resilience_config = resilience_config or ResilienceConfig.from_settings(settings)
 
     def run(
         self, *, conversation_id: str, customer_id: int, message: str, session: Session
@@ -83,6 +86,7 @@ class AgentRuntime:
                     knowledge_retriever=self.knowledge_retriever,
                     grounded_generator=self.grounded_generator,
                     memory_service=self.memory_service,
+                    resilience_config=self.resilience_config,
                 )
                 state = cast(
                     AgentState,
@@ -138,4 +142,8 @@ def _response_from_state(state: AgentState) -> AgentResponse:
         decision_reason=state.get("decision_reason"),
         error_category=state.get("error_category"),
         citations=state.get("citations", []),
+        failure_category=state.get("failure_category"),
+        degraded_components=state.get("degraded_components", []),
+        recovery_action=state.get("recovery_action"),
+        write_outcome_unknown=state.get("write_outcome_unknown", False),
     )

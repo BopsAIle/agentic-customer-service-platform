@@ -120,6 +120,26 @@ make observability-down
 
 The local settings are `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_SERVICE_NAME`. OTLP uses Jaeger’s gRPC port `4317`. The trace data intentionally excludes raw user messages, prompts, model responses, retrieved document content, customer names/emails, free-form tool arguments, and hidden model reasoning. Trace attributes use only bounded IDs/statuses/categories needed to correlate an agent run safely.
 
+## Failure Hardening & Degraded Modes
+
+Sprint 8 adds a small centralized resilience layer. Failures are classified before a bounded retry or fallback is chosen; deterministic business-rule errors are never retried.
+
+| Failure | Behavior |
+| --- | --- |
+| LLM timeout/unavailable/malformed output | bounded structured-decision retry, then clarify safely |
+| Read tool or database transient failure | bounded retry, then safe failure |
+| Write failure with unknown outcome | no blind replay; report ambiguity |
+| Reranker unavailable | retain dense+sparse fused results |
+| RAG unavailable | no policy hallucination; preserve business result when available |
+| Empty retrieval | grounded insufficient-evidence response |
+| Memory unavailable | continue without memory; explicit writes report failure |
+| Policy failure | fail closed; no pending or executed write |
+| Retry exhaustion | bounded safe failure or degraded response |
+
+Retries use `RESILIENCE_MAX_RETRIES`, `RESILIENCE_INITIAL_BACKOFF_MS`, and `RESILIENCE_MAX_BACKOFF_MS`. Backoff is injectable in tests and does not replay writes. Existing pending `action_id` confirmation state remains deterministic, so `yes`/`no` confirmation turns do not require an LLM. Unknown write outcomes are marked non-replayable and are never automatically repeated.
+
+Resilience telemetry adds `resilience.retry`, `resilience.recovery`, and degraded-mode events plus `dependency_failures_total`, `retry_attempts_total`, `retry_exhausted_total`, and `degraded_requests_total`. Labels contain only bounded dependency, failure, and component values. The deterministic evaluation suite contains 110 scenarios, including 21 new failure/degraded-mode cases; run `make eval-resilience` for the focused 28-case slice.
+
 ## Persistent Agentic Memory
 
 Sprint 7 adds selective persistent memory backed by PostgreSQL. It is separate from short-term LangGraph conversation state, authoritative customer/order/ticket business state, RAG knowledge, and action authorization. Memory is contextual evidence for personalization; it cannot select tools, confirm Risk 2 actions, override business state, or bypass the policy engine.
@@ -142,6 +162,7 @@ Memory is enabled by `MEMORY_ENABLED=true` and configured with `MEMORY_MAX_CONTE
 6. Agent evaluation — implemented
 7. Observability — implemented
 8. Persistent memory — implemented
-9. Demo UI
+9. Failure hardening — implemented
+10. Demo UI
 
-The live OpenAI-compatible provider, LangGraph orchestration, deterministic policy engine, confirmation lifecycle, Risk 3 persistence path, deterministic RAG pipeline, knowledge/action routing, evaluation harness, OpenTelemetry tracing, and selective persistent memory are implemented, but live LLM, embedding, reranking, and Qdrant services are not required for automated tests. Human operator dashboard/workflow, voice, and multi-agent architecture remain future work.
+The live OpenAI-compatible provider, LangGraph orchestration, deterministic policy engine, confirmation lifecycle, Risk 3 persistence path, deterministic RAG pipeline, knowledge/action routing, evaluation harness, OpenTelemetry tracing, selective persistent memory, and failure hardening are implemented, but live LLM, embedding, reranking, and Qdrant services are not required for automated tests. Timeout enforcement for synchronous local adapters remains deployment-specific; unknown write outcomes require an adapter to report that ambiguity explicitly. Human operator dashboard/workflow, voice, and multi-agent architecture remain future work.

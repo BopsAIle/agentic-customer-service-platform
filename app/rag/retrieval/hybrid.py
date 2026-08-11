@@ -30,6 +30,7 @@ class HybridRetriever:
         self.final_context_count = final_context_count
         self._chunks: dict[str, DocumentChunk] = {}
         self._vectors: dict[str, list[float]] = {}
+        self.last_degraded_components: list[str] = []
 
     @property
     def chunk_count(self) -> int:
@@ -48,6 +49,7 @@ class HybridRetriever:
     def retrieve(self, query: str) -> list[RetrievedChunk]:
         started = time.perf_counter()
         status = "ok"
+        self.last_degraded_components = []
         with span("rag.retrieve", attributes={"rag.query_length": len(query)}) as retrieval_span:
             try:
                 if not self._chunks:
@@ -86,12 +88,17 @@ class HybridRetriever:
                         results = results[: self.rerank_candidates]
                         fusion_span.set_attribute("rag.fused_candidates", len(results))
                     with span("rag.rerank") as rerank_span:
-                        rerank_scores = self.reranker.score(query, results)
-                        for result, rerank_score in zip(results, rerank_scores, strict=True):
-                            result.rerank_score = rerank_score
-                        results.sort(
-                            key=lambda item: (item.rerank_score or 0.0, item.score), reverse=True
-                        )
+                        try:
+                            rerank_scores = self.reranker.score(query, results)
+                            for result, rerank_score in zip(results, rerank_scores, strict=True):
+                                result.rerank_score = rerank_score
+                            results.sort(
+                                key=lambda item: (item.rerank_score or 0.0, item.score),
+                                reverse=True,
+                            )
+                        except Exception:
+                            self.last_degraded_components.append("reranker")
+                            rerank_span.set_attribute("rag.status", "degraded")
                         rerank_span.set_attribute("rag.reranked_candidates", len(results))
                     results = results[: self.final_context_count]
                 retrieval_span.set_attribute("rag.final_context_chunks", len(results))

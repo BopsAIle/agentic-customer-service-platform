@@ -31,6 +31,12 @@ class Settings(BaseSettings):
     memory_max_context_items: int = Field(default=5, gt=0, le=20)
     memory_default_ttl_days: int = Field(default=365, ge=0)
     memory_support_context_ttl_days: int = Field(default=30, gt=0)
+    resilience_enabled: bool = True
+    resilience_max_retries: int = Field(default=2, ge=0, le=5)
+    resilience_initial_backoff_ms: int = Field(default=100, ge=0, le=5000)
+    resilience_max_backoff_ms: int = Field(default=500, ge=0, le=10000)
+    retrieval_timeout_seconds: float = Field(default=5.0, gt=0.0)
+    tool_timeout_seconds: float = Field(default=10.0, gt=0.0)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

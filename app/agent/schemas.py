@@ -54,6 +54,7 @@ class AgentErrorCategory(StrEnum):
     RETRIEVAL_ERROR = "retrieval_error"
     RERANKER_ERROR = "reranker_error"
     CONFIRMATION_EXPIRED = "confirmation_expired"
+    DEPENDENCY_FAILURE = "dependency_failure"
 
 
 class StructuredDecision(BaseModel):
@@ -85,6 +86,10 @@ class AgentResponse(BaseModel):
     decision_reason: str | None = None
     error_category: AgentErrorCategory | None = None
     citations: list[Citation] = Field(default_factory=list)
+    failure_category: str | None = None
+    degraded_components: list[str] = Field(default_factory=list)
+    recovery_action: str | None = None
+    write_outcome_unknown: bool = False
 
 
 class AgentChatRequest(BaseModel):

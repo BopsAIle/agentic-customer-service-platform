@@ -31,6 +31,7 @@ from app.policies.models import PolicyOutcome
 from app.policies.registry import InMemoryPolicyAuditLog
 from app.rag.generation.grounded import GroundedAnswerGenerator
 from app.rag.retrieval.service import KnowledgeRetriever
+from app.resilience.config import ResilienceConfig
 from app.tools import registry
 
 
@@ -128,6 +129,10 @@ def _load_context(state: AgentState) -> AgentState:
         "memory_key": None,
         "memory_operation_status": None,
         "memory_policy_outcome": None,
+        "failure_category": None,
+        "degraded_components": [],
+        "recovery_action": None,
+        "write_outcome_unknown": False,
     }
 
 
@@ -153,6 +158,11 @@ def _instrument_node(
             selected_tool = result.get("selected_tool")
             if isinstance(selected_tool, str):
                 active_span.set_attribute("tool.selected", selected_tool)
+            recovery = result.get("recovery_action")
+            if isinstance(recovery, str):
+                active_span.set_attribute("recovery.action", recovery)
+                if recovery in {"degraded", "continue_without_memory"}:
+                    get_metrics().degraded_requests_total.add(1, {"component": name})
             return result
 
     return instrumented
@@ -211,6 +221,7 @@ def build_graph(
     knowledge_retriever: KnowledgeRetriever,
     grounded_generator: GroundedAnswerGenerator,
     memory_service: MemoryService,
+    resilience_config: ResilienceConfig,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("load_context", cast(Any, _instrument_node("load_context", _load_context)))
@@ -225,12 +236,20 @@ def build_graph(
         "retrieve_memory",
         cast(
             Any,
-            _instrument_node("retrieve_memory", make_retrieve_memory_node(memory_service, session)),
+            _instrument_node(
+                "retrieve_memory",
+                make_retrieve_memory_node(memory_service, session, resilience_config),
+            ),
         ),
     )
     graph.add_node(
         "understand_request",
-        cast(Any, _instrument_node("understand_request", make_understand_request_node(provider))),
+        cast(
+            Any,
+            _instrument_node(
+                "understand_request", make_understand_request_node(provider, resilience_config)
+            ),
+        ),
     )
     graph.add_node(
         "select_tool_or_response", cast(Any, _instrument_node("route_request", select_tool))
@@ -266,11 +285,21 @@ def build_graph(
     )
     graph.add_node(
         "execute_tool",
-        cast(Any, _instrument_node("execute_tool", make_confirmed_execution_node(session))),
+        cast(
+            Any,
+            _instrument_node(
+                "execute_tool", make_confirmed_execution_node(session, resilience_config)
+            ),
+        ),
     )
     graph.add_node(
         "execute_confirmed_action",
-        cast(Any, _instrument_node("execute_tool", make_confirmed_execution_node(session))),
+        cast(
+            Any,
+            _instrument_node(
+                "execute_tool", make_confirmed_execution_node(session, resilience_config)
+            ),
+        ),
     )
     graph.add_node(
         "execute_human_escalation",
@@ -281,7 +310,8 @@ def build_graph(
         cast(
             Any,
             _instrument_node(
-                "retrieve_knowledge", make_retrieve_node(knowledge_retriever, grounded_generator)
+                "retrieve_knowledge",
+                make_retrieve_node(knowledge_retriever, grounded_generator, resilience_config),
             ),
         ),
     )

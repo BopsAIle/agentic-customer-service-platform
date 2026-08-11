@@ -46,3 +46,7 @@ class AgentState(TypedDict, total=False):
     memory_key: str | None
     memory_operation_status: str | None
     memory_policy_outcome: str | None
+    failure_category: str | None
+    degraded_components: list[str]
+    recovery_action: str | None
+    write_outcome_unknown: bool

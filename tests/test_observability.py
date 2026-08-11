@@ -14,6 +14,8 @@ from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
 from app.memory.service import MemoryService
 from app.observability.metrics import configure_metrics
+from app.resilience.config import ResilienceConfig
+from app.resilience.retry import run_with_retry
 
 _SPAN_EXPORTER = InMemorySpanExporter()
 _TRACER_PROVIDER = TracerProvider()
@@ -264,5 +266,32 @@ def test_memory_spans_include_outcomes_but_not_memory_content(
     assert {"memory.retrieve", "memory.evaluate_candidate", "agent.run"} <= names
     assert content not in span_attributes(exporter)
     assert "The customer prefers email updates." not in span_attributes(exporter)
+    data = metric_reader.get_metrics_data()
+    assert data is not None
+
+
+def test_resilience_retry_emits_bounded_trace_and_metric(
+    telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader],
+) -> None:
+    exporter, metric_reader = telemetry
+    attempts = 0
+
+    def flaky() -> str:
+        nonlocal attempts
+        attempts += 1
+        if attempts == 1:
+            raise TimeoutError("transient")
+        return "ok"
+
+    assert (
+        run_with_retry(
+            flaky,
+            dependency="retrieval",
+            config=ResilienceConfig(initial_backoff_ms=0, max_backoff_ms=0),
+        )
+        == "ok"
+    )
+    assert attempts == 2
+    assert "resilience.retry" in span_names(exporter)
     data = metric_reader.get_metrics_data()
     assert data is not None

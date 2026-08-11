@@ -24,6 +24,10 @@ class ObservabilityMetrics:
     memory_writes_total: Any
     memory_rejections_total: Any
     memory_forgets_total: Any
+    dependency_failures_total: Any
+    retry_attempts_total: Any
+    retry_exhausted_total: Any
+    degraded_requests_total: Any
 
 
 def build_metrics(meter: Meter | None = None) -> ObservabilityMetrics:
@@ -73,6 +77,18 @@ def build_metrics(meter: Meter | None = None) -> ObservabilityMetrics:
         ),
         memory_forgets_total=active_meter.create_counter(
             "memory_forgets_total", unit="{forget}", description="Memory forget operations."
+        ),
+        dependency_failures_total=active_meter.create_counter(
+            "dependency_failures_total", unit="{failure}", description="Dependency failures."
+        ),
+        retry_attempts_total=active_meter.create_counter(
+            "retry_attempts_total", unit="{attempt}", description="Retry attempts."
+        ),
+        retry_exhausted_total=active_meter.create_counter(
+            "retry_exhausted_total", unit="{exhaustion}", description="Exhausted retries."
+        ),
+        degraded_requests_total=active_meter.create_counter(
+            "degraded_requests_total", unit="{request}", description="Degraded requests."
         ),
     )
 

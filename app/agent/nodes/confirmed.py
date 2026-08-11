@@ -5,10 +5,13 @@ from sqlalchemy.orm import Session
 from app.agent.nodes.execute_tool import make_execute_tool_node
 from app.agent.state import AgentState
 from app.policies.models import PendingActionStatus
+from app.resilience.config import ResilienceConfig
 
 
-def make_confirmed_execution_node(session: Session) -> Callable[[AgentState], AgentState]:
-    execute = make_execute_tool_node(session)
+def make_confirmed_execution_node(
+    session: Session, resilience_config: ResilienceConfig | None = None
+) -> Callable[[AgentState], AgentState]:
+    execute = make_execute_tool_node(session, resilience_config)
 
     def execute_confirmed(state: AgentState) -> AgentState:
         result = execute(state)

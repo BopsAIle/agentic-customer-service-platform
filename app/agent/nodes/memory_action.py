@@ -8,6 +8,7 @@ from app.memory.schemas import MemorySource
 from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
+from app.resilience.errors import FailureCategory
 
 
 def make_memory_action_node(
@@ -22,13 +23,23 @@ def make_memory_action_node(
                     AgentErrorCategory.INVALID_TOOL_ARGUMENTS,
                     "A specific memory was not provided.",
                 )
-            with span("memory.evaluate_candidate") as memory_span:
-                result = service.remember(
-                    session,
-                    state["customer_id"],
-                    candidate,
-                    source=MemorySource.USER_EXPLICIT,
-                )
+            try:
+                with span("memory.evaluate_candidate") as memory_span:
+                    result = service.remember(
+                        session,
+                        state["customer_id"],
+                        candidate,
+                        source=MemorySource.USER_EXPLICIT,
+                    )
+            except Exception:
+                return {
+                    "memory_operation_status": "failed",
+                    "memory_policy_outcome": "failed",
+                    "failure_category": FailureCategory.MEMORY_FAILURE.value,
+                    "recovery_action": "fail_safely",
+                    "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                    "last_error": "Persistent memory could not be updated.",
+                }
                 memory_span.set_attribute("memory.type", candidate.memory_type.value)
                 memory_span.set_attribute("memory.policy_outcome", result.status)
             if result.status in {"persisted", "deduplicated"}:

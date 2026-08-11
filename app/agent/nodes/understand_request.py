@@ -5,10 +5,14 @@ from app.agent.schemas import AgentErrorCategory, AgentRequestType, Intent
 from app.agent.state import AgentState
 from app.memory.extraction import extract_memory_request
 from app.observability.tracing import span
+from app.resilience.config import ResilienceConfig
+from app.resilience.errors import RetryExhaustedError
+from app.resilience.retry import run_with_retry
 
 
 def make_understand_request_node(
     provider: StructuredDecisionProvider,
+    resilience_config: ResilienceConfig | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def understand_request(state: AgentState) -> AgentState:
         with span(
@@ -19,18 +23,24 @@ def make_understand_request_node(
             },
         ) as llm_span:
             try:
-                decision = provider.decide(
-                    messages=state.get("messages", []),
-                    customer_id=state["customer_id"],
-                    memory_context=state.get("memory_context", []),
+                decision = run_with_retry(
+                    lambda: provider.decide(
+                        messages=state.get("messages", []),
+                        customer_id=state["customer_id"],
+                        memory_context=state.get("memory_context", []),
+                    ),
+                    dependency="llm",
+                    config=resilience_config,
                 )
-            except Exception:
+            except RetryExhaustedError as error:
                 llm_span.set_attribute("llm.status", "error")
                 return {
                     "intent": Intent.UNKNOWN,
                     "request_type": AgentRequestType.UNCLEAR,
                     "last_error": "The request could not be classified.",
                     "error_category": AgentErrorCategory.LLM_ERROR,
+                    "failure_category": error.category.value,
+                    "recovery_action": "clarify",
                 }
             llm_span.set_attribute("llm.status", "ok")
         extracted_candidate, extracted_key = extract_memory_request(_latest_user_message(state))

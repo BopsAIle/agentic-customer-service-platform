@@ -4,6 +4,8 @@ from app.agent.schemas import (
 )
 from app.agent.state import AgentState
 from app.policies.models import PendingActionStatus
+from app.resilience.errors import FailureCategory
+from app.resilience.fallbacks import degraded_message
 
 
 def _error_message(category: AgentErrorCategory | None) -> str:
@@ -33,6 +35,9 @@ def _error_message(category: AgentErrorCategory | None) -> str:
         AgentErrorCategory.CONFIRMATION_EXPIRED: (
             "That confirmation expired. Please request the action again."
         ),
+        AgentErrorCategory.DEPENDENCY_FAILURE: (
+            "I couldn't complete that dependency operation safely."
+        ),
     }[category]
 
 
@@ -61,7 +66,26 @@ def respond(state: AgentState) -> AgentState:
     pending_action = state.get("pending_action")
     tool_name = state.get("selected_tool")
     memory_status = state.get("memory_operation_status")
-    if memory_status == "persisted":
+    if state.get("write_outcome_unknown"):
+        message = (
+            "I couldn't confirm whether the action completed, so I won't repeat it automatically."
+        )
+    elif state.get("knowledge_answer") is not None and error_category is None:
+        message = state.get("knowledge_answer") or ""
+    elif state.get("failure_category") is not None and not (
+        state.get("failure_category") == FailureCategory.MEMORY_FAILURE.value
+        and memory_status is None
+    ):
+        try:
+            failure_category = state["failure_category"]
+            assert failure_category is not None
+            message = degraded_message(
+                FailureCategory(failure_category),
+                knowledge_only=state.get("tool_result") is None,
+            )
+        except ValueError:
+            message = "I couldn't complete that request safely. Please try again."
+    elif memory_status == "persisted":
         message = "I’ll remember that for future support conversations."
     elif memory_status == "deduplicated":
         message = "I already had that preference and kept it current."
@@ -73,8 +97,6 @@ def respond(state: AgentState) -> AgentState:
         message = "I forgot that memory."
     elif memory_status == "not_found":
         message = "I couldn’t find an active memory matching that request."
-    elif state.get("knowledge_answer") is not None and error_category is None:
-        message = state.get("knowledge_answer") or ""
     elif error_category is not None:
         message = _error_message(error_category)
     elif state.get("confirmation_status") == "no_pending":

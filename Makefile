@@ -1,4 +1,4 @@
-.PHONY: dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-report eval-baseline observability-up observability-down
+.PHONY: dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-report eval-baseline observability-up observability-down
 
 dev:
 	uv run uvicorn app.main:app --reload
@@ -35,6 +35,9 @@ eval:
 
 eval-safety:
 	uv run python -m evaluation.runner --safety
+
+eval-resilience:
+	uv run python -m evaluation.runner --resilience
 
 eval-report:
 	uv run python -m evaluation.runner

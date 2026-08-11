@@ -41,6 +41,10 @@ class ScenarioExpectation(BaseModel):
     memory_count: int | None = None
     memory_visible_contains: list[str] = Field(default_factory=list)
     memory_visible_not_contains: list[str] = Field(default_factory=list)
+    failure_category: str | None = None
+    degraded_components: list[str] = Field(default_factory=list)
+    recovery_action: str | None = None
+    duplicate_write_rate: float | None = None
     failure_behavior: Literal["recover", "clarify", "deny", "escalate", "safe_failure"] | None = (
         None
     )
@@ -49,10 +53,26 @@ class ScenarioExpectation(BaseModel):
 
 class FaultSpec(BaseModel):
     kind: Literal[
-        "tool_timeout", "tool_error", "malformed_decision", "retriever_empty", "retriever_error"
+        "tool_timeout",
+        "tool_error",
+        "unknown_write_outcome",
+        "database_transient",
+        "database_unavailable",
+        "llm_timeout",
+        "llm_unavailable",
+        "malformed_decision",
+        "retriever_empty",
+        "retriever_error",
+        "retriever_timeout",
+        "embedding_failure",
+        "reranker_failure",
+        "policy_error",
+        "memory_error",
     ]
     tool: str | None = None
     once: bool = True
+    times: int = Field(default=1, ge=1, le=10)
+    start_after_turn: int = Field(default=0, ge=0, le=10)
 
 
 class EvaluationScenario(BaseModel):
@@ -87,6 +107,10 @@ class ScenarioResult(BaseModel):
     memory_retrieval_correct: bool | None = None
     memory_write_policy_compliant: bool | None = None
     memory_conflict_correct: bool | None = None
+    failure_category: str | None = None
+    degraded_mode_correct: bool | None = None
+    retry_policy_compliant: bool | None = None
+    duplicate_write_rate: float | None = None
     latency_ms: float = 0.0
     failure_reasons: list[str] = Field(default_factory=list)
 

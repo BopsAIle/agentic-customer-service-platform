@@ -9,6 +9,7 @@ from app.policies.confirmation import Clock
 from app.policies.engine import PolicyEngine
 from app.policies.models import PolicyAuditEvent, PolicyOutcome
 from app.policies.registry import InMemoryPolicyAuditLog
+from app.resilience.errors import FailureCategory
 
 
 def make_evaluate_policy_node(
@@ -25,11 +26,20 @@ def make_evaluate_policy_node(
             "policy.evaluate",
             attributes={"tool.name": tool_name},
         ) as policy_span:
-            decision = engine.evaluate(
-                tool_name=tool_name,
-                customer_id=state.get("customer_id"),
-                arguments=state.get("tool_arguments", {}),
-            )
+            try:
+                decision = engine.evaluate(
+                    tool_name=tool_name,
+                    customer_id=state.get("customer_id"),
+                    arguments=state.get("tool_arguments", {}),
+                )
+            except Exception:
+                policy_span.set_attribute("policy.outcome", "fail_closed")
+                return {
+                    "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                    "failure_category": FailureCategory.POLICY_FAILURE.value,
+                    "recovery_action": "deny",
+                    "last_error": "Policy evaluation failed closed.",
+                }
             policy_span.set_attribute("policy.outcome", decision.outcome.value)
             policy_span.set_attribute("tool.risk_level", decision.risk_level)
             policy_span.set_attribute("policy.reason_codes", decision.reasons[:10])
