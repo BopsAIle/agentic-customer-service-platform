@@ -95,11 +95,13 @@ def memory(customer_id: int, session: Session = Depends(get_db)) -> list[MemoryV
     return [
         MemoryView(
             id=record.id,
+            customer_id=record.customer_id,
             memory_type=str(getattr(record.memory_type, "value", record.memory_type)),
             normalized_key=record.normalized_key,
-            content=record.content,
+            source=str(getattr(record.source, "value", record.source)),
             status=str(getattr(record.status, "value", record.status)),
             created_at=record.created_at,
+            updated_at=record.updated_at,
             expires_at=record.expires_at,
         )
         for record in records

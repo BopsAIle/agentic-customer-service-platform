@@ -43,6 +43,11 @@ For the container workflow, run `cp .env.example .env` and `docker compose up --
 repository root, then open <http://localhost:5173>. nginx proxies the same API routes to the backend
 and explicitly forwards `Authorization` while retaining the existing CSP and security headers.
 
+The Operator Console memory panel receives lifecycle metadata only. The `/ui/memory` client type
+does not include persisted memory body text, and the panel displays type, normalized key, source,
+status, timestamps, and expiration. Memory content remains available internally to the
+agent runtime according to memory policy; the console has no reveal path.
+
 `local-demo-support-token` is deterministic, public localhost/demo configuration. It must never be
 used as a production credential. The production Compose overlay builds the console without this
 token; a real deployment must integrate its own authenticated session/token acquisition mechanism.

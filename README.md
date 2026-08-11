@@ -266,11 +266,17 @@ The React control plane includes:
 - **Tools** — selected and executed tools with risk and duration
 - **Policy** — deterministic outcomes and bounded reason codes
 - **RAG** — retrieved document metadata
-- **Memory** — memory usage and customer-scoped records
+- **Memory** — memory usage and customer-scoped lifecycle metadata
 - **Trace** — ordered, safe execution events
 - **Resilience** — dependency health, failures, retries, and degraded components
 
-The console does **not** expose chain-of-thought, raw prompts, raw model responses, retrieved document content, free-form tool arguments, customer names or emails, or other sensitive payloads.
+The console does **not** expose chain-of-thought, raw prompts, raw model responses, retrieved
+document content, free-form tool arguments, customer names or emails, persisted memory body text,
+or other sensitive payloads. The standard `/ui/memory/{customer_id}` response contains only memory
+identity, type, normalized key, source, status, timestamps, and expiration metadata.
+Memory content remains internal to the agent runtime under the existing customer scope and memory
+policy. Removing the former operator-facing `content` field is an intentional privacy-hardening API
+contract change.
 
 ## Safety Model
 

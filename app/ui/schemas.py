@@ -84,11 +84,13 @@ class ConversationView(BaseModel):
 
 class MemoryView(BaseModel):
     id: int
+    customer_id: int
     memory_type: str
     normalized_key: str
-    content: str
+    source: str
     status: str
     created_at: datetime
+    updated_at: datetime
     expires_at: datetime | None = None
 
 

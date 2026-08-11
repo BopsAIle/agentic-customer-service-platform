@@ -47,11 +47,13 @@ export type AgentRun = {
 
 export type MemoryRecord = {
   id: number;
+  customer_id: number;
   memory_type: string;
   normalized_key: string;
-  content: string;
+  source: string;
   status: string;
   created_at: string;
+  updated_at: string;
   expires_at: string | null;
 };
 

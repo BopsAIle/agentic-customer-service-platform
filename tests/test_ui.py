@@ -1,3 +1,5 @@
+import json
+
 from fastapi.testclient import TestClient
 from langgraph.checkpoint.memory import MemorySaver
 from sqlalchemy.orm import Session
@@ -52,11 +54,12 @@ def test_ui_projection_exposes_bounded_run_metadata_without_message_or_result_va
 def test_ui_memory_endpoint_is_customer_scoped_and_returns_safe_fields(
     db_session: Session, client: TestClient
 ) -> None:
+    private_content = "PRIVATE_MEMORY_SENTINEL_DO_NOT_EXPOSE"
     db_session.add(
         MemoryRecord(
             customer_id=1,
             memory_type=MemoryType.PREFERENCE,
-            content="Prefers concise responses",
+            content=private_content,
             normalized_key="response_style",
             source=MemorySource.USER_EXPLICIT,
             confidence=1.0,
@@ -68,11 +71,27 @@ def test_ui_memory_endpoint_is_customer_scoped_and_returns_safe_fields(
     customer_two = client.get("/ui/memory/2")
 
     assert customer_one.status_code == 200
-    assert customer_one.json()[0]["content"] == "Prefers concise responses"
+    payload = customer_one.json()
+    assert set(payload[0]) == {
+        "id",
+        "customer_id",
+        "memory_type",
+        "normalized_key",
+        "source",
+        "status",
+        "created_at",
+        "updated_at",
+        "expires_at",
+    }
+    assert payload[0]["customer_id"] == 1
+    assert payload[0]["memory_type"] == "preference"
+    assert payload[0]["normalized_key"] == "response_style"
+    assert payload[0]["source"] == "user_explicit"
+    assert "content" not in payload[0]
+    assert private_content not in json.dumps(payload, sort_keys=True)
+    assert private_content not in customer_one.text
     assert customer_two.status_code == 200
     assert customer_two.json() == []
-    assert "confidence" not in customer_one.json()[0]
-    assert "source" not in customer_one.json()[0]
 
 
 def test_ui_read_endpoints_and_health_have_bounded_contract(

@@ -4,8 +4,11 @@ from decimal import Decimal
 from sqlalchemy import delete
 
 from app.core.database import SessionLocal
-from app.models import Customer, Escalation, Order, RefundRequest, SupportTicket
+from app.memory.schemas import MemorySource, MemoryStatus, MemoryType
+from app.models import Customer, Escalation, MemoryRecord, Order, RefundRequest, SupportTicket
 from app.models.entities import OrderStatus, TicketStatus
+
+DEMO_MEMORY_PRIVATE_CONTENT = "PRIVATE_MEMORY_SENTINEL_DO_NOT_EXPOSE"
 
 
 def seed() -> None:
@@ -14,6 +17,7 @@ def seed() -> None:
         session.execute(delete(RefundRequest))
         session.execute(delete(SupportTicket))
         session.execute(delete(Order))
+        session.execute(delete(MemoryRecord))
         session.execute(delete(Customer))
         customers = [
             Customer(
@@ -36,6 +40,7 @@ def seed() -> None:
             ),
         ]
         session.add_all(customers)
+        session.flush()
         session.add_all(
             [
                 Order(
@@ -81,6 +86,21 @@ def seed() -> None:
                     created_at=datetime(2026, 1, 15),
                 ),
             ]
+        )
+        session.add(
+            MemoryRecord(
+                id=1,
+                customer_id=3,
+                memory_type=MemoryType.PREFERENCE,
+                content=DEMO_MEMORY_PRIVATE_CONTENT,
+                normalized_key="response_style",
+                source=MemorySource.USER_EXPLICIT,
+                confidence=1.0,
+                created_at=datetime(2026, 1, 20),
+                updated_at=datetime(2026, 1, 20),
+                expires_at=datetime(2027, 1, 20),
+                status=MemoryStatus.ACTIVE,
+            )
         )
         session.add_all(
             [

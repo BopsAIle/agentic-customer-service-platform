@@ -19,6 +19,8 @@ CONVERSATION_ID = "e2e-authenticated-cancellation"
 EXPECTED_ACTOR_ID = "e2e-support-operator"
 CUSTOMER_ID = 2
 ORDER_ID = 3
+MEMORY_CUSTOMER_ID = 3
+MEMORY_PRIVATE_CONTENT = "PRIVATE_MEMORY_SENTINEL_DO_NOT_EXPOSE"
 ACTION_ID_PATTERN = re.compile(r"^act_[0-9a-f]{32}$")
 
 
@@ -76,7 +78,10 @@ class ComposeStack:
         except subprocess.TimeoutExpired as error:
             raise SmokeFailure(f"Compose command timed out after {timeout} seconds.") from error
         if check and result.returncode != 0:
-            output = redact(f"{result.stdout}\n{result.stderr}", self.token)[-6000:]
+            output = redact(
+                redact(f"{result.stdout}\n{result.stderr}", self.token),
+                MEMORY_PRIVATE_CONTENT,
+            )[-6000:]
             raise SmokeFailure(f"Compose command failed ({arguments[0]}):\n{output}")
         return result
 
@@ -156,8 +161,12 @@ class ComposeStack:
             check=False,
         )
         return redact(
-            f"Compose status:\n{status.stdout}\nRecent bounded logs:\n{logs.stdout}{logs.stderr}",
-            self.token,
+            redact(
+                f"Compose status:\n{status.stdout}\n"
+                f"Recent bounded logs:\n{logs.stdout}{logs.stderr}",
+                self.token,
+            ),
+            MEMORY_PRIVATE_CONTENT,
         )
 
 
@@ -176,6 +185,12 @@ def expect_object(value: object, label: str) -> dict[str, Any]:
     return value
 
 
+def expect_list(value: object, label: str) -> list[Any]:
+    if not isinstance(value, list):
+        raise SmokeFailure(f"{label} was not a JSON list.")
+    return value
+
+
 def assert_no_sensitive_projection_fields(value: object) -> None:
     forbidden = {"authorization", "token", "credential", "secret", "prompt", "chain_of_thought"}
     if isinstance(value, dict):
@@ -188,14 +203,14 @@ def assert_no_sensitive_projection_fields(value: object) -> None:
             assert_no_sensitive_projection_fields(nested)
 
 
-def request_json(
+def _request_json_value(
     base_url: str,
     path: str,
     *,
     token: str | None = None,
     payload: dict[str, object] | None = None,
     timeout: float = 15.0,
-) -> tuple[int, dict[str, Any]]:
+) -> tuple[int, object]:
     headers = {"Accept": "application/json"}
     if token is not None:
         headers["Authorization"] = f"Bearer {token}"
@@ -217,7 +232,36 @@ def request_json(
         parsed = json.loads(raw_body)
     except json.JSONDecodeError as error:
         raise SmokeFailure(f"{path} did not return JSON (HTTP {status}).") from error
+    return status, parsed
+
+
+def request_json(
+    base_url: str,
+    path: str,
+    *,
+    token: str | None = None,
+    payload: dict[str, object] | None = None,
+    timeout: float = 15.0,
+) -> tuple[int, dict[str, Any]]:
+    status, parsed = _request_json_value(
+        base_url,
+        path,
+        token=token,
+        payload=payload,
+        timeout=timeout,
+    )
     return status, expect_object(parsed, path)
+
+
+def request_json_list(
+    base_url: str,
+    path: str,
+    *,
+    token: str | None = None,
+    timeout: float = 15.0,
+) -> tuple[int, list[Any]]:
+    status, parsed = _request_json_value(base_url, path, token=token, timeout=timeout)
+    return status, expect_list(parsed, path)
 
 
 def wait_for_ready(base_url: str, timeout_seconds: float = 90.0) -> None:
@@ -311,19 +355,22 @@ def run_smoke(stack: ComposeStack) -> None:
         "select (select version_num from alembic_version) || '|' || "
         "(select count(*) from customers) || '|' || "
         "(select count(*) from orders) || '|' || "
-        "(select count(*) from support_tickets);"
+        "(select count(*) from support_tickets) || '|' || "
+        "(select count(*) from memory_records);"
     )
-    expect(bootstrap == "20260811_0004|3|6|4", "Migration or demo seed state is incorrect.")
+    expect(bootstrap == "20260811_0004|3|6|4|1", "Migration or demo seed state is incorrect.")
     collection = stack.qdrant_collection()
     expect(collection.get("status") == "green", "Qdrant collection is not green.")
     expect(collection.get("points_count") == 14, "Knowledge ingestion did not load 14 chunks.")
 
-    anonymous_status, _ = request_json(base_url, "/ui/system-health")
-    expect(anonymous_status == 401, "Protected frontend-origin request did not return 401.")
+    anonymous_status, _ = request_json(base_url, f"/ui/memory/{MEMORY_CUSTOMER_ID}")
+    expect(anonymous_status == 401, "Anonymous operator memory request did not return 401.")
     invalid_status, _ = request_json(
-        base_url, "/ui/system-health", token="invalid-integration-token"
+        base_url,
+        f"/ui/memory/{MEMORY_CUSTOMER_ID}",
+        token="invalid-integration-token",
     )
-    expect(invalid_status == 401, "Invalid Bearer credential did not return 401.")
+    expect(invalid_status == 401, "Invalid Bearer operator memory request did not return 401.")
 
     before = authenticated_order(base_url, stack.token)
     expect(before.get("status") == "processing", "Canonical order is not initially processing.")
@@ -410,13 +457,43 @@ def run_smoke(stack: ComposeStack) -> None:
     )
     expect(stack.receipt_count(action_id) == 1, "Replay duplicated the idempotency receipt.")
 
+    memory_status, memory_records = request_json_list(
+        base_url,
+        f"/ui/memory/{MEMORY_CUSTOMER_ID}",
+        token=stack.token,
+    )
+    expect(memory_status == 200, f"Operator memory projection returned HTTP {memory_status}.")
+    expect(len(memory_records) == 1, "Seeded memory metadata was not visible to the operator.")
+    memory_record = expect_object(memory_records[0], "operator memory record")
+    expect(
+        set(memory_record)
+        == {
+            "id",
+            "customer_id",
+            "memory_type",
+            "normalized_key",
+            "source",
+            "status",
+            "created_at",
+            "updated_at",
+            "expires_at",
+        },
+        "Operator memory projection did not match the metadata-only contract.",
+    )
+    expect(memory_record.get("customer_id") == MEMORY_CUSTOMER_ID, "Memory scope was incorrect.")
+    expect(memory_record.get("normalized_key") == "response_style", "Memory key was missing.")
+    serialized_memory = json.dumps(memory_records, sort_keys=True)
+    expect(MEMORY_PRIVATE_CONTENT not in serialized_memory, "Raw memory content leaked via /ui.")
+    expect(stack.token not in serialized_memory, "Credential leaked via the memory projection.")
+
     captured = json.dumps(
-        [initial, initial_projection, confirmation, projection, replay],
+        [initial, initial_projection, confirmation, projection, replay, memory_records],
         sort_keys=True,
     )
     expect(stack.token not in captured, "Credential appeared in an API response projection.")
     logs = stack.run(("logs", "--no-color", "backend", "frontend"), timeout=30).stdout
     expect(stack.token not in logs, "Credential appeared in application logs.")
+    expect(MEMORY_PRIVATE_CONTENT not in logs, "Raw memory content appeared in application logs.")
     expect(
         "Deserializing unregistered type" not in logs,
         "Checkpoint restore used permissive unregistered-type deserialization.",
@@ -431,6 +508,7 @@ def run_smoke(stack: ComposeStack) -> None:
     print("auth=anonymous-401,invalid-401,support-operator-authenticated")
     print("lifecycle=pending,restarted,resumed,executed,replay-safe")
     print("projection=policy-and-tool-metadata-safe")
+    print("memory=metadata-only,private-content-absent")
 
 
 def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
