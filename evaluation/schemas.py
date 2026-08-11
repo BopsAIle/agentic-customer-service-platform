@@ -36,6 +36,11 @@ class ScenarioExpectation(BaseModel):
         "response", "citation", "state", "pending", "escalation", "safe_failure"
     ] = "response"
     response_contains: list[str] = Field(default_factory=list)
+    memory_status: str | None = None
+    memory_key: str | None = None
+    memory_count: int | None = None
+    memory_visible_contains: list[str] = Field(default_factory=list)
+    memory_visible_not_contains: list[str] = Field(default_factory=list)
     failure_behavior: Literal["recover", "clarify", "deny", "escalate", "safe_failure"] | None = (
         None
     )
@@ -60,6 +65,7 @@ class EvaluationScenario(BaseModel):
     expect: ScenarioExpectation
     retrieved_chunks: list[dict[str, Any]] = Field(default_factory=list)
     fault: FaultSpec | None = None
+    seed_memory_records: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class ScenarioResult(BaseModel):
@@ -78,6 +84,9 @@ class ScenarioResult(BaseModel):
     citations_valid: bool | None = None
     task_completed: bool = False
     failure_behavior: str | None = None
+    memory_retrieval_correct: bool | None = None
+    memory_write_policy_compliant: bool | None = None
+    memory_conflict_correct: bool | None = None
     latency_ms: float = 0.0
     failure_reasons: list[str] = Field(default_factory=list)
 

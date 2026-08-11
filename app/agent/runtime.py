@@ -10,6 +10,7 @@ from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import AgentRequestType, AgentResponse, AgentToolCall, Intent
 from app.agent.state import AgentState
 from app.core.config import get_settings
+from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
 from app.policies.confirmation import Clock, SystemClock
@@ -30,6 +31,7 @@ class AgentRuntime:
         confirmation_ttl_seconds: int | None = None,
         knowledge_retriever: KnowledgeRetriever | None = None,
         grounded_generator: GroundedAnswerGenerator | None = None,
+        memory_service: MemoryService | None = None,
     ) -> None:
         settings = get_settings()
         self.provider = provider or OpenAICompatibleProvider(get_settings())
@@ -43,6 +45,12 @@ class AgentRuntime:
         self.knowledge_retriever = knowledge_retriever or build_default_knowledge_service(settings)
         self.grounded_generator = grounded_generator or GroundedAnswerGenerator(
             settings.rag_final_context_count
+        )
+        self.memory_service = memory_service or MemoryService(
+            enabled=settings.memory_enabled,
+            max_context_items=settings.memory_max_context_items,
+            default_ttl_days=settings.memory_default_ttl_days,
+            support_context_ttl_days=settings.memory_support_context_ttl_days,
         )
 
     def run(
@@ -74,6 +82,7 @@ class AgentRuntime:
                     audit_log=self.audit_log,
                     knowledge_retriever=self.knowledge_retriever,
                     grounded_generator=self.grounded_generator,
+                    memory_service=self.memory_service,
                 )
                 state = cast(
                     AgentState,

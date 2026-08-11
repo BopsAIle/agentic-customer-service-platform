@@ -60,7 +60,20 @@ def respond(state: AgentState) -> AgentState:
     error_category = state.get("error_category")
     pending_action = state.get("pending_action")
     tool_name = state.get("selected_tool")
-    if state.get("knowledge_answer") is not None and error_category is None:
+    memory_status = state.get("memory_operation_status")
+    if memory_status == "persisted":
+        message = "I’ll remember that for future support conversations."
+    elif memory_status == "deduplicated":
+        message = "I already had that preference and kept it current."
+    elif memory_status == "reject":
+        message = "I can't store that kind of information."
+    elif memory_status == "require_explicit":
+        message = "Please explicitly ask me to remember that before I store it."
+    elif memory_status == "forgotten":
+        message = "I forgot that memory."
+    elif memory_status == "not_found":
+        message = "I couldn’t find an active memory matching that request."
+    elif state.get("knowledge_answer") is not None and error_category is None:
         message = state.get("knowledge_answer") or ""
     elif error_category is not None:
         message = _error_message(error_category)
@@ -98,7 +111,26 @@ def respond(state: AgentState) -> AgentState:
         message = _tool_message(tool_name, state.get("tool_result"))
     else:
         message = "Could you clarify what you need help with?"
+    message = _apply_memory_context(state, message)
     return {
         "final_response": message,
         "messages": [{"role": "assistant", "content": message}],
     }
+
+
+def _apply_memory_context(state: AgentState, message: str) -> str:
+    if state.get("error_category") is not None:
+        return message
+    memories = state.get("memory_context", [])
+    keys = {str(item.get("normalized_key")): str(item.get("content")) for item in memories}
+    if keys.get("response_style") == "The customer prefers concise answers." and len(message) > 240:
+        first_sentence = message.split(". ", 1)[0].strip()
+        if first_sentence:
+            message = first_sentence + "."
+    latest = " ".join(
+        item["content"] for item in state.get("messages", []) if item["role"] == "user"
+    ).casefold()
+    if keys.get("contact_channel") and ("contact" in latest or "reach" in latest):
+        channel = "email" if "email" in keys["contact_channel"].casefold() else "SMS"
+        message += f" I’ll use your preferred {channel} support channel."
+    return message

@@ -3,6 +3,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from app.memory.schemas import MemoryCandidate
 from app.policies.models import PendingAction
 from app.rag.schemas import Citation
 
@@ -24,6 +25,8 @@ class Intent(StrEnum):
     SUPPORT_FAQ = "support_faq"
     REFUND_ELIGIBILITY = "refund_eligibility"
     CANCELLATION_EXPLANATION = "cancellation_explanation"
+    MEMORY_REMEMBER = "memory_remember"
+    MEMORY_FORGET = "memory_forget"
     UNKNOWN = "unknown"
 
 
@@ -36,6 +39,7 @@ class AgentRequestType(StrEnum):
     KNOWLEDGE_ONLY = "knowledge_only"
     ACTION_ONLY = "action_only"
     KNOWLEDGE_AND_ACTION = "knowledge_and_action"
+    MEMORY_ACTION = "memory_action"
 
 
 class AgentErrorCategory(StrEnum):
@@ -60,6 +64,8 @@ class StructuredDecision(BaseModel):
     reason: str = Field(default="", max_length=300)
     requires_retrieval: bool = False
     knowledge_query: str | None = Field(default=None, max_length=500)
+    memory_candidate: MemoryCandidate | None = None
+    memory_key: str | None = Field(default=None, max_length=64)
 
 
 class AgentToolCall(BaseModel):

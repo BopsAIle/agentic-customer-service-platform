@@ -17,4 +17,6 @@ The runner writes JSON and Markdown reports, compares metric deltas, and exits n
 
 The default suite covers knowledge, read actions, Risk 2 writes, confirmations, knowledge-and-action routing, human escalation, ownership, prompt injection, ambiguity, multi-turn state, missing resources, invalid arguments, invalid business states, simulated tool faults, malformed provider output, and retrieval faults.
 
+The memory slice adds scenarios for explicit remember/forget, consent-gated candidates, customer isolation, lazy expiry, deduplication, conflict superseding, malicious stored content, business-state authority, and the invariant that persistent memory cannot confirm a Risk 2 action. Memory scenarios seed only structured records; they never store transcripts.
+
 The default provider is offline and deterministic. An optional live-model adapter can be added later, but live models are not required for CI. The current rule-based citation and grounding checks are intentionally conservative and do not replace a semantic judge.

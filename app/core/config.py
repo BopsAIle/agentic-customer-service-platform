@@ -27,6 +27,10 @@ class Settings(BaseSettings):
     otel_enabled: bool = False
     otel_exporter_otlp_endpoint: str = "http://localhost:4317"
     otel_service_name: str = "agentic-customer-service-platform"
+    memory_enabled: bool = True
+    memory_max_context_items: int = Field(default=5, gt=0, le=20)
+    memory_default_ttl_days: int = Field(default=365, ge=0)
+    memory_support_context_ttl_days: int = Field(default=30, gt=0)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 

@@ -6,6 +6,7 @@ from app.agent.schemas import (
     AgentRequestType,
     Intent,
 )
+from app.memory.schemas import MemoryCandidate
 from app.policies.models import PendingAction, PolicyDecision
 
 
@@ -40,3 +41,8 @@ class AgentState(TypedDict, total=False):
     final_response: str
     agent_run_id: str
     tool_execution_status: str | None
+    memory_context: list[dict[str, object]]
+    memory_candidate: MemoryCandidate | None
+    memory_key: str | None
+    memory_operation_status: str | None
+    memory_policy_outcome: str | None

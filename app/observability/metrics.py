@@ -20,6 +20,10 @@ class ObservabilityMetrics:
     confirmation_results_total: Any
     escalations_total: Any
     agent_errors_total: Any
+    memory_reads_total: Any
+    memory_writes_total: Any
+    memory_rejections_total: Any
+    memory_forgets_total: Any
 
 
 def build_metrics(meter: Meter | None = None) -> ObservabilityMetrics:
@@ -57,6 +61,18 @@ def build_metrics(meter: Meter | None = None) -> ObservabilityMetrics:
         ),
         agent_errors_total=active_meter.create_counter(
             "agent_errors_total", unit="{error}", description="Agent errors."
+        ),
+        memory_reads_total=active_meter.create_counter(
+            "memory_reads_total", unit="{read}", description="Memory reads."
+        ),
+        memory_writes_total=active_meter.create_counter(
+            "memory_writes_total", unit="{write}", description="Memory writes."
+        ),
+        memory_rejections_total=active_meter.create_counter(
+            "memory_rejections_total", unit="{rejection}", description="Rejected memory candidates."
+        ),
+        memory_forgets_total=active_meter.create_counter(
+            "memory_forgets_total", unit="{forget}", description="Memory forget operations."
         ),
     )
 

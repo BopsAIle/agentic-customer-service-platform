@@ -12,14 +12,17 @@ from app.agent.nodes.confirmed import make_confirmed_execution_node
 from app.agent.nodes.create_pending import make_create_pending_node
 from app.agent.nodes.evaluate_policy import make_evaluate_policy_node
 from app.agent.nodes.human import make_human_escalation_node
+from app.agent.nodes.memory_action import make_memory_action_node
 from app.agent.nodes.respond import respond
 from app.agent.nodes.retrieve_knowledge import make_retrieve_node
+from app.agent.nodes.retrieve_memory import make_retrieve_memory_node
 from app.agent.nodes.revalidate import make_revalidate_node
 from app.agent.nodes.select_tool import select_tool
 from app.agent.nodes.understand_request import make_understand_request_node
 from app.agent.nodes.validate_tool import validate_tool
 from app.agent.schemas import AgentErrorCategory, AgentRequestType, Intent
 from app.agent.state import AgentState
+from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
 from app.policies.confirmation import Clock
@@ -32,7 +35,7 @@ from app.tools import registry
 
 
 def _after_context(state: AgentState) -> str:
-    return "respond" if state.get("error_category") is not None else "check_pending_action"
+    return "respond" if state.get("error_category") is not None else "retrieve_memory"
 
 
 def _after_pending(state: AgentState) -> str:
@@ -51,6 +54,8 @@ def _after_pending(state: AgentState) -> str:
 def _after_selection(state: AgentState) -> str:
     if state.get("error_category") is not None:
         return "respond"
+    if state.get("intent") in {Intent.MEMORY_REMEMBER, Intent.MEMORY_FORGET}:
+        return "memory_action"
     if state.get("request_type") in {
         AgentRequestType.INFORMATIONAL,
         AgentRequestType.UNCLEAR,
@@ -118,6 +123,11 @@ def _load_context(state: AgentState) -> AgentState:
         "policy_decision": None,
         "confirmation_status": None,
         "tool_execution_status": None,
+        "memory_context": [],
+        "memory_candidate": None,
+        "memory_key": None,
+        "memory_operation_status": None,
+        "memory_policy_outcome": None,
     }
 
 
@@ -200,6 +210,7 @@ def build_graph(
     audit_log: InMemoryPolicyAuditLog,
     knowledge_retriever: KnowledgeRetriever,
     grounded_generator: GroundedAnswerGenerator,
+    memory_service: MemoryService,
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("load_context", cast(Any, _instrument_node("load_context", _load_context)))
@@ -211,11 +222,25 @@ def build_graph(
         ),
     )
     graph.add_node(
+        "retrieve_memory",
+        cast(
+            Any,
+            _instrument_node("retrieve_memory", make_retrieve_memory_node(memory_service, session)),
+        ),
+    )
+    graph.add_node(
         "understand_request",
         cast(Any, _instrument_node("understand_request", make_understand_request_node(provider))),
     )
     graph.add_node(
         "select_tool_or_response", cast(Any, _instrument_node("route_request", select_tool))
+    )
+    graph.add_node(
+        "memory_action",
+        cast(
+            Any,
+            _instrument_node("memory_action", make_memory_action_node(memory_service, session)),
+        ),
     )
     graph.add_node("validate_tool", cast(Any, _instrument_node("validate_tool", validate_tool)))
     graph.add_node(
@@ -265,8 +290,9 @@ def build_graph(
     graph.add_conditional_edges(
         "load_context",
         _after_context,
-        {"check_pending_action": "check_pending_action", "respond": "respond"},
+        {"retrieve_memory": "retrieve_memory", "respond": "respond"},
     )
+    graph.add_edge("retrieve_memory", "check_pending_action")
     graph.add_conditional_edges(
         "check_pending_action",
         _after_pending,
@@ -282,6 +308,7 @@ def build_graph(
         _after_selection,
         {
             "validate_tool": "validate_tool",
+            "memory_action": "memory_action",
             "retrieve_knowledge": "retrieve_knowledge",
             "respond": "respond",
         },
@@ -313,6 +340,7 @@ def build_graph(
         {"retrieve_knowledge": "retrieve_knowledge", "respond": "respond"},
     )
     graph.add_edge("create_pending_action", "respond")
+    graph.add_edge("memory_action", "respond")
     graph.add_edge("execute_confirmed_action", "respond")
     graph.add_edge("execute_human_escalation", "respond")
     graph.add_edge("retrieve_knowledge", "respond")

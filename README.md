@@ -38,6 +38,8 @@ For local development with `uv`, use `uv sync` and `make dev`. The API is availa
 - `POST /orders/{order_id}/refunds`
 - `POST /escalations`
 - `POST /agent/chat`
+- `GET /customers/{customer_id}/memories`
+- `DELETE /customers/{customer_id}/memories/{memory_id}`
 
 ## Sprint 2–4 agent core
 
@@ -118,6 +120,18 @@ make observability-down
 
 The local settings are `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_SERVICE_NAME`. OTLP uses Jaeger’s gRPC port `4317`. The trace data intentionally excludes raw user messages, prompts, model responses, retrieved document content, customer names/emails, free-form tool arguments, and hidden model reasoning. Trace attributes use only bounded IDs/statuses/categories needed to correlate an agent run safely.
 
+## Persistent Agentic Memory
+
+Sprint 7 adds selective persistent memory backed by PostgreSQL. It is separate from short-term LangGraph conversation state, authoritative customer/order/ticket business state, RAG knowledge, and action authorization. Memory is contextual evidence for personalization; it cannot select tools, confirm Risk 2 actions, override business state, or bypass the policy engine.
+
+The bounded taxonomy is `preference`, `support_context`, `explicit_instruction`, `unresolved_issue`, and `interaction_summary`. Raw transcripts, tool arguments, confirmation state, payment data, credentials, tokens, hidden reasoning, retrieved chunks, and full escalation summaries are never stored. Candidates are structured and passed through a deterministic policy: safe durable preferences may be retained, broader context requires an explicit remember request, and sensitive or instruction-injection content is rejected.
+
+Users can say `Remember that I prefer email updates.` or `Forget my email preference.`. Forget requests need a resolvable target; vague requests clarify instead of deleting all memories. Repeated values are deduplicated, conflicting values with the same normalized key supersede the old active value, and temporary support context expires lazily. Retrieval is customer-scoped, lexical/recency-ranked, and bounded by `MEMORY_MAX_CONTEXT_ITEMS`. The memory context is explicitly marked untrusted before it reaches the provider.
+
+Authority ordering remains strict: policy engine > business tool state > current user request > RAG knowledge > persistent memory. For example, a stored preference cannot satisfy a pending confirmation, and a stored belief that an order is refundable cannot replace a fresh business-state and policy check. Memory spans (`memory.retrieve`, `memory.evaluate_candidate`, `memory.forget`) record only type, outcome, count, and status; memory content is not telemetry.
+
+Memory is enabled by `MEMORY_ENABLED=true` and configured with `MEMORY_MAX_CONTEXT_ITEMS`, `MEMORY_DEFAULT_TTL_DAYS`, and `MEMORY_SUPPORT_CONTEXT_TTL_DAYS`. Set `MEMORY_ENABLED=false` to preserve Sprint 0–6 behavior without reads or writes. The default evaluation suite includes persistent-memory scenarios for consent, isolation, expiry, conflict resolution, injection boundaries, business authority, and confirmation safety.
+
 ## Roadmap
 
 1. Business tools — implemented
@@ -126,8 +140,8 @@ The local settings are `OTEL_ENABLED`, `OTEL_EXPORTER_OTLP_ENDPOINT`, and `OTEL_
 4. RAG and knowledge/action routing — implemented
 5. Failure handling and human escalation
 6. Agent evaluation — implemented
-7. Observability
-8. Persistent memory
+7. Observability — implemented
+8. Persistent memory — implemented
 9. Demo UI
 
-The live OpenAI-compatible provider, LangGraph orchestration, deterministic policy engine, confirmation lifecycle, Risk 3 persistence path, deterministic RAG pipeline, knowledge/action routing, and Sprint 5 evaluation harness are implemented, but live LLM, embedding, reranking, and Qdrant services are not required for automated tests. Persistent long-term memory, OpenTelemetry tracing, human operator dashboard/workflow, voice, and multi-agent architecture remain future work.
+The live OpenAI-compatible provider, LangGraph orchestration, deterministic policy engine, confirmation lifecycle, Risk 3 persistence path, deterministic RAG pipeline, knowledge/action routing, evaluation harness, OpenTelemetry tracing, and selective persistent memory are implemented, but live LLM, embedding, reranking, and Qdrant services are not required for automated tests. Human operator dashboard/workflow, voice, and multi-agent architecture remain future work.

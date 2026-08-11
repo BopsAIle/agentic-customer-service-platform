@@ -1,3 +1,4 @@
+from app.memory.models import MemoryRecord
 from app.models.entities import (
     Customer,
     Escalation,
@@ -22,4 +23,5 @@ __all__ = [
     "RefundStatus",
     "SupportTicket",
     "TicketStatus",
+    "MemoryRecord",
 ]

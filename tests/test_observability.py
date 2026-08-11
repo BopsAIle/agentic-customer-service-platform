@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
+from app.memory.service import MemoryService
 from app.observability.metrics import configure_metrics
 
 _SPAN_EXPORTER = InMemorySpanExporter()
@@ -234,3 +235,34 @@ def test_failed_tool_records_error_category_without_arguments(
     assert tool_spans[0].attributes is not None
     assert tool_spans[0].attributes.get("error.category") == "resource_not_found"
     assert 999 not in span_attributes(exporter)
+
+
+def test_memory_spans_include_outcomes_but_not_memory_content(
+    db_session: Session, telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader]
+) -> None:
+    exporter, metric_reader = telemetry
+    content = "The customer prefers a private channel that must not be telemetry."
+    runtime = AgentRuntime(
+        provider=FakeDecisionProvider(
+            [
+                StructuredDecision(
+                    intent=Intent.MEMORY_REMEMBER,
+                    request_type=AgentRequestType.MEMORY_ACTION,
+                    reason="memory privacy",
+                )
+            ]
+        ),
+        memory_service=MemoryService(),
+    )
+    runtime.run(
+        conversation_id="otel-memory",
+        customer_id=1,
+        message="Remember that I prefer email updates.",
+        session=db_session,
+    )
+    names = span_names(exporter)
+    assert {"memory.retrieve", "memory.evaluate_candidate", "agent.run"} <= names
+    assert content not in span_attributes(exporter)
+    assert "The customer prefers email updates." not in span_attributes(exporter)
+    data = metric_reader.get_metrics_data()
+    assert data is not None
