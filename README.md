@@ -112,6 +112,8 @@ The application records `agent_runs_total`, agent duration, tool calls/duration/
 
 Tracing is disabled by default for local tests. Compose enables OTLP export to Jaeger:
 
+The local stack pins Jaeger All-in-One to `jaegertracing/all-in-one:1.62.0` for reproducible development environments.
+
 ```bash
 make observability-up
 # Jaeger UI: http://localhost:16686
