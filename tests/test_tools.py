@@ -43,7 +43,7 @@ def test_tool_registry_exposes_explicit_catalog() -> None:
 
 
 def test_read_missing_resource(client: TestClient) -> None:
-    response = client.get("/orders/999")
+    response = client.get("/orders/999", params={"customer_id": 1})
     assert response.status_code == 404
 
 

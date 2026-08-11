@@ -1,8 +1,14 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.api.errors import raise_http_for_tool_error
+from app.auth.dependencies import (
+    get_current_principal,
+    require_support_operator,
+    resolve_customer_scope,
+)
+from app.auth.models import Principal
 from app.core.database import get_db
 from app.schemas.domain import OrderResponse, RefundRequestResponse
 from app.tools.base import ToolError
@@ -27,9 +33,18 @@ class RefundActionRequest(OrderActionRequest):
 
 
 @router.get("/{order_id}", response_model=OrderResponse)
-def get_order_by_id(order_id: int, session: Session = Depends(get_db)) -> OrderResponse:
+def get_order_by_id(
+    order_id: int,
+    customer_id: int | None = Query(default=None, gt=0),
+    principal: Principal = Depends(get_current_principal),
+    session: Session = Depends(get_db),
+) -> OrderResponse:
+    customer_scope = resolve_customer_scope(principal, customer_id)
     try:
-        return get_order(session, GetOrderInput(order_id=order_id))
+        return get_order(
+            session,
+            GetOrderInput(order_id=order_id, customer_id=customer_scope.customer_id),
+        )
     except ToolError as error:
         raise_http_for_tool_error(error)
 
@@ -38,11 +53,14 @@ def get_order_by_id(order_id: int, session: Session = Depends(get_db)) -> OrderR
 def cancel_order_by_id(
     order_id: int,
     request: OrderActionRequest,
+    principal: Principal = Depends(require_support_operator),
     session: Session = Depends(get_db),
 ) -> CancelOrderOutput:
+    customer_scope = resolve_customer_scope(principal, request.customer_id)
     try:
         result = cancel_order(
-            session, CancelOrderInput(customer_id=request.customer_id, order_id=order_id)
+            session,
+            CancelOrderInput(customer_id=customer_scope.customer_id, order_id=order_id),
         )
         session.commit()
         return result
@@ -55,13 +73,17 @@ def cancel_order_by_id(
 def request_order_refund(
     order_id: int,
     request: RefundActionRequest,
+    principal: Principal = Depends(require_support_operator),
     session: Session = Depends(get_db),
 ) -> RefundRequestResponse:
+    customer_scope = resolve_customer_scope(principal, request.customer_id)
     try:
         result = request_refund(
             session,
             RequestRefundInput(
-                customer_id=request.customer_id, order_id=order_id, reason=request.reason
+                customer_id=customer_scope.customer_id,
+                order_id=order_id,
+                reason=request.reason,
             ),
         )
         session.commit()

@@ -6,10 +6,44 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.auth.backends import StaticBearerAuthenticator
+from app.auth.dependencies import get_authenticator
+from app.auth.models import ActorType, Principal
 from app.core.database import Base, get_db
 from app.main import app
 from app.models import Customer, Order, SupportTicket
 from app.models.entities import OrderStatus, TicketStatus
+
+TEST_OPERATOR_TOKEN = "test-operator-token"
+TEST_CUSTOMER_ONE_TOKEN = "test-customer-one-token"
+TEST_CUSTOMER_TWO_TOKEN = "test-customer-two-token"
+
+
+def _test_authenticator() -> StaticBearerAuthenticator:
+    return StaticBearerAuthenticator(
+        {
+            TEST_OPERATOR_TOKEN: Principal(
+                actor_id="operator-test",
+                actor_type=ActorType.SUPPORT_OPERATOR,
+                roles=["support_operator"],
+                credential_id="test-operator",
+            ),
+            TEST_CUSTOMER_ONE_TOKEN: Principal(
+                actor_id="customer-test-1",
+                actor_type=ActorType.CUSTOMER,
+                roles=["customer"],
+                customer_id=1,
+                credential_id="test-customer-1",
+            ),
+            TEST_CUSTOMER_TWO_TOKEN: Principal(
+                actor_id="customer-test-2",
+                actor_type=ActorType.CUSTOMER,
+                roles=["customer"],
+                customer_id=2,
+                credential_id="test-customer-2",
+            ),
+        }
+    )
 
 
 @pytest.fixture
@@ -66,6 +100,10 @@ def client(db_session: Session) -> Generator[TestClient, None, None]:
         yield db_session
 
     app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
+    app.dependency_overrides[get_authenticator] = _test_authenticator
+    with TestClient(
+        app,
+        headers={"Authorization": f"Bearer {TEST_OPERATOR_TOKEN}"},
+    ) as test_client:
         yield test_client
     app.dependency_overrides.clear()

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.auth.dependencies import require_support_operator
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.memory.service import MemoryService
@@ -18,7 +19,11 @@ from app.ui.schemas import (
     UITraceEvent,
 )
 
-router = APIRouter(prefix="/ui", tags=["operator-console"])
+router = APIRouter(
+    prefix="/ui",
+    tags=["operator-console"],
+    dependencies=[Depends(require_support_operator)],
+)
 
 
 def _run_or_404(run_id: str) -> AgentRunView:

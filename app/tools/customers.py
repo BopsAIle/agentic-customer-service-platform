@@ -11,7 +11,9 @@ class GetCustomerInput(BaseModel):
 
 
 def get_customer(session: Session, request: GetCustomerInput) -> CustomerResponse:
-    customer = customer_service.get_customer(session, request.customer_id)
+    customer = customer_service.get_customer_for_scope(
+        session, request.customer_id, request.customer_id
+    )
     if customer is None:
         raise ResourceNotFoundError("Customer", request.customer_id)
     return CustomerResponse.model_validate(customer)

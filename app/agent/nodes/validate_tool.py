@@ -15,19 +15,17 @@ def validate_tool(state: AgentState) -> AgentState:
             "last_error": f"Tool {tool_name} is not registered.",
             "error_category": AgentErrorCategory.UNKNOWN_TOOL,
         }
+    raw_arguments = dict(state.get("tool_arguments", {}))
+    if tool_name in {"get_order", "get_ticket"} and raw_arguments.get("customer_id") is None:
+        raw_arguments["customer_id"] = state["customer_id"]
     try:
-        arguments = definition.input_model.model_validate(state.get("tool_arguments", {}))
+        arguments = definition.input_model.model_validate(raw_arguments)
     except PydanticValidationError:
         return {
             "last_error": "The selected tool arguments were invalid.",
             "error_category": AgentErrorCategory.INVALID_TOOL_ARGUMENTS,
         }
     arguments_data = arguments.model_dump(mode="json")
-    if tool_name in {"get_order", "get_ticket"} and "customer_id" not in arguments_data:
-        return {
-            "last_error": "The selected tool arguments were invalid.",
-            "error_category": AgentErrorCategory.INVALID_TOOL_ARGUMENTS,
-        }
     requested_customer = arguments_data.get("customer_id")
     if requested_customer is not None and requested_customer != state.get("customer_id"):
         return {

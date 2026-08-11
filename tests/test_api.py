@@ -20,7 +20,7 @@ def test_missing_customer(client: TestClient) -> None:
 
 
 def test_order_lookup(client: TestClient) -> None:
-    response = client.get("/orders/1")
+    response = client.get("/orders/1", params={"customer_id": 1})
     assert response.status_code == 200
     assert response.json()["status"] == "shipped"
 
@@ -32,13 +32,13 @@ def test_customer_orders(client: TestClient) -> None:
 
 
 def test_ticket_lookup(client: TestClient) -> None:
-    response = client.get("/tickets/1")
+    response = client.get("/tickets/1", params={"customer_id": 1})
     assert response.status_code == 200
     assert response.json()["category"] == "delivery"
 
 
 def test_missing_ticket(client: TestClient) -> None:
-    response = client.get("/tickets/999")
+    response = client.get("/tickets/999", params={"customer_id": 1})
     assert response.status_code == 404
 
 

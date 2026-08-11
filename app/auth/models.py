@@ -32,3 +32,12 @@ class Principal(BaseModel):
     roles: list[str] = Field(default_factory=list)
     customer_id: int | None = Field(default=None, gt=0)
     credential_id: str | None = Field(default=None, min_length=1, max_length=200)
+
+
+class CustomerScope(BaseModel):
+    """Server-resolved customer boundary for a single request."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    customer_id: int = Field(gt=0)
+    principal: Principal

@@ -3,12 +3,13 @@ from sqlalchemy.orm import Session
 
 from app.models import Customer, Order, SupportTicket, TicketStatus
 from app.schemas.domain import TicketResponse
+from app.services.ticket_service import get_ticket_for_customer
 from app.tools.base import OwnershipError, ResourceNotFoundError
 
 
 class GetTicketInput(BaseModel):
     ticket_id: int = Field(gt=0)
-    customer_id: int | None = Field(default=None, gt=0)
+    customer_id: int = Field(gt=0)
 
 
 class CreateSupportTicketInput(BaseModel):
@@ -19,11 +20,9 @@ class CreateSupportTicketInput(BaseModel):
 
 
 def get_ticket(session: Session, request: GetTicketInput) -> TicketResponse:
-    ticket = session.get(SupportTicket, request.ticket_id)
+    ticket = get_ticket_for_customer(session, request.ticket_id, request.customer_id)
     if ticket is None:
         raise ResourceNotFoundError("Support ticket", request.ticket_id)
-    if request.customer_id is not None and ticket.customer_id != request.customer_id:
-        raise OwnershipError("Support ticket", request.ticket_id, request.customer_id)
     return TicketResponse.model_validate(ticket)
 
 

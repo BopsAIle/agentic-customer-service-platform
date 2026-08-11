@@ -5,7 +5,6 @@ from sqlalchemy.orm import Session
 from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
-from app.main import app
 from app.memory.models import MemoryRecord
 from app.memory.schemas import MemorySource, MemoryStatus, MemoryType
 from app.ui.projection import get_projection_store
@@ -22,7 +21,7 @@ def _decision() -> StructuredDecision:
 
 
 def test_ui_projection_exposes_bounded_run_metadata_without_message_or_result_values(
-    db_session: Session,
+    db_session: Session, client: TestClient
 ) -> None:
     runtime = AgentRuntime(
         provider=FakeDecisionProvider([_decision()]),
@@ -42,13 +41,12 @@ def test_ui_projection_exposes_bounded_run_metadata_without_message_or_result_va
     assert run.tools[0].name == "get_customer_orders"
     assert run.tools[0].result_fields
 
-    with TestClient(app) as client:
-        payload = client.get(f"/ui/agent-runs/{response.agent_run_id}").json()
-        assert payload["run_id"] == response.agent_run_id
-        assert "Show my orders" not in str(payload)
-        assert "Test Customer" not in str(payload)
-        assert "test@example.com" not in str(payload)
-        assert "25.00" not in str(payload)
+    payload = client.get(f"/ui/agent-runs/{response.agent_run_id}").json()
+    assert payload["run_id"] == response.agent_run_id
+    assert "Show my orders" not in str(payload)
+    assert "Test Customer" not in str(payload)
+    assert "test@example.com" not in str(payload)
+    assert "25.00" not in str(payload)
 
 
 def test_ui_memory_endpoint_is_customer_scoped_and_returns_safe_fields(

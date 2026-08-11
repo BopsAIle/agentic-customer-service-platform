@@ -1,5 +1,11 @@
 from app.auth.backends import StaticBearerAuthenticator
-from app.auth.models import ActorType, AuthenticationCredentials, CredentialScheme, Principal
+from app.auth.models import (
+    ActorType,
+    AuthenticationCredentials,
+    CredentialScheme,
+    CustomerScope,
+    Principal,
+)
 from app.auth.protocols import AuthenticationError, Authenticator
 
 __all__ = [
@@ -8,6 +14,7 @@ __all__ = [
     "AuthenticationError",
     "Authenticator",
     "CredentialScheme",
+    "CustomerScope",
     "Principal",
     "StaticBearerAuthenticator",
 ]

@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.models import Order, OrderStatus
 from app.schemas.domain import OrderResponse
 from app.services.order_service import get_order as get_order_record
+from app.services.order_service import get_order_for_customer
 from app.tools.base import (
     InvalidStateTransitionError,
     OwnershipError,
@@ -13,7 +14,7 @@ from app.tools.base import (
 
 class GetOrderInput(BaseModel):
     order_id: int = Field(gt=0)
-    customer_id: int | None = Field(default=None, gt=0)
+    customer_id: int = Field(gt=0)
 
 
 class CancelOrderInput(BaseModel):
@@ -30,11 +31,9 @@ class CancelOrderOutput(BaseModel):
 
 
 def get_order(session: Session, request: GetOrderInput) -> OrderResponse:
-    order = get_order_record(session, request.order_id)
+    order = get_order_for_customer(session, request.order_id, request.customer_id)
     if order is None:
         raise ResourceNotFoundError("Order", request.order_id)
-    if request.customer_id is not None and order.customer_id != request.customer_id:
-        raise OwnershipError("Order", request.order_id, request.customer_id)
     return OrderResponse.model_validate(order)
 
 
