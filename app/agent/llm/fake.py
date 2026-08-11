@@ -1,0 +1,18 @@
+from collections.abc import Iterable, Sequence
+
+from app.agent.schemas import StructuredDecision
+from app.agent.state import ConversationMessage
+
+
+class FakeDecisionProvider:
+    """Deterministic provider for graph tests; it never contacts an LLM service."""
+
+    def __init__(self, decisions: Iterable[StructuredDecision]) -> None:
+        self._decisions = iter(decisions)
+        self.calls: list[Sequence[ConversationMessage]] = []
+
+    def decide(
+        self, *, messages: Sequence[ConversationMessage], customer_id: int
+    ) -> StructuredDecision:
+        self.calls.append(messages)
+        return next(self._decisions)
