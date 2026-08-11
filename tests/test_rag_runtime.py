@@ -1,4 +1,3 @@
-import time
 from collections.abc import Sequence
 from types import SimpleNamespace
 from typing import Any, cast
@@ -70,9 +69,8 @@ class UnavailableQdrantClient(FakeQdrantClient):
 
 class SlowReranker(Reranker):
     def score(self, query: str, chunks: Sequence[RetrievedChunk]) -> list[float]:
-        del query
-        time.sleep(0.05)
-        return [1.0 for _ in chunks]
+        del query, chunks
+        raise TimeoutError("native reranker deadline")
 
 
 def qdrant_backend(

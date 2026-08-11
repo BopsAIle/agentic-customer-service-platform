@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     embedding_dimension: int = Field(default=32, gt=0)
     embedding_base_url: str | None = None
     embedding_api_key: SecretStr | None = None
+    embedding_connect_timeout_seconds: float = Field(default=5.0, gt=0.0)
+    embedding_timeout_seconds: float = Field(default=30.0, gt=0.0)
     reranker_enabled: bool = True
     qdrant_url: str = "http://localhost:6333"
     qdrant_collection: str = "customer_service_knowledge"

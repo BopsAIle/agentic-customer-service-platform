@@ -69,12 +69,76 @@ def test_retry_is_bounded_and_does_not_sleep_for_tests() -> None:
             dependency="retrieval",
             config=config(),
             sleeper=sleeps.append,
+            timeout_seconds=1.0,
         )
     except Exception as error:
         assert isinstance(error, ResilienceError)
         assert error.category == FailureCategory.RETRIEVAL_TIMEOUT
     assert calls == 3
     assert sleeps == [0.0, 0.0]
+
+
+def test_native_timeout_retry_attempts_never_overlap() -> None:
+    active_call_count = 0
+    max_concurrent_calls = 0
+    events: list[str] = []
+    attempts = 0
+
+    def native_dependency_call() -> None:
+        nonlocal active_call_count, max_concurrent_calls, attempts
+        attempts += 1
+        active_call_count += 1
+        max_concurrent_calls = max(max_concurrent_calls, active_call_count)
+        events.append(f"start:{attempts}")
+        try:
+            raise TimeoutError("dependency-native timeout")
+        finally:
+            active_call_count -= 1
+            events.append(f"end:{attempts}")
+
+    with pytest.raises(ResilienceError):
+        run_with_retry(
+            native_dependency_call,
+            dependency="retrieval",
+            config=ResilienceConfig(max_retries=1, initial_backoff_ms=0, max_backoff_ms=0),
+            timeout_seconds=0.01,
+            sleeper=lambda _: None,
+        )
+
+    assert max_concurrent_calls == 1
+    assert events == ["start:1", "end:1", "start:2", "end:2"]
+
+
+def test_retry_total_budget_is_bounded_with_a_controllable_clock() -> None:
+    now = 0.0
+    attempts = 0
+
+    def clock() -> float:
+        return now
+
+    def timeout() -> None:
+        nonlocal now, attempts
+        attempts += 1
+        now += 2.0
+        raise TimeoutError("native timeout")
+
+    def sleeper(delay: float) -> None:
+        nonlocal now
+        now += delay
+
+    with pytest.raises(ResilienceError) as raised:
+        run_with_retry(
+            timeout,
+            dependency="retrieval",
+            config=ResilienceConfig(max_retries=3, initial_backoff_ms=100, max_backoff_ms=100),
+            timeout_seconds=2.0,
+            clock=clock,
+            sleeper=sleeper,
+        )
+
+    assert attempts == 4
+    assert now <= 8.3
+    assert raised.value.category == FailureCategory.RETRIEVAL_TIMEOUT
 
 
 def test_unknown_write_outcome_is_never_retried_even_if_mislabeled_as_read() -> None:

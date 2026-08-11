@@ -3,6 +3,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, cast
 
+import httpx
 from pydantic import SecretStr
 
 from app.core.config import Settings
@@ -22,10 +23,14 @@ class OpenAIEmbeddingProvider:
         model: str,
         api_key: SecretStr | None,
         base_url: str | None,
+        connect_timeout_seconds: float = 5.0,
+        timeout_seconds: float = 30.0,
     ) -> None:
         self.model = model
         self.api_key = api_key
         self.base_url = base_url
+        self.connect_timeout_seconds = connect_timeout_seconds
+        self.timeout_seconds = timeout_seconds
         self._client: Any | None = None
 
     def _get_client(self) -> Any:
@@ -37,6 +42,14 @@ class OpenAIEmbeddingProvider:
                 kwargs["api_key"] = self.api_key
             if self.base_url:
                 kwargs["base_url"] = self.base_url
+            kwargs["timeout"] = httpx.Timeout(
+                connect=self.connect_timeout_seconds,
+                read=self.timeout_seconds,
+                write=self.timeout_seconds,
+                pool=self.connect_timeout_seconds,
+            )
+            # Application retry policy owns retries; the SDK must not create hidden attempts.
+            kwargs["max_retries"] = 0
             self._client = OpenAIEmbeddings(**kwargs)
         return self._client
 
@@ -81,7 +94,12 @@ class HuggingFaceEmbeddingProvider:
         return self.embed_query(text)
 
 
-def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
+def build_embedding_provider(
+    settings: Settings,
+    *,
+    timeout_seconds: float | None = None,
+    connect_timeout_seconds: float | None = None,
+) -> EmbeddingProvider:
     provider = EmbeddingProviderType(settings.embedding_provider)
     if provider is EmbeddingProviderType.DETERMINISTIC:
         return DeterministicEmbeddingProvider(settings.embedding_dimension)
@@ -90,5 +108,15 @@ def build_embedding_provider(settings: Settings) -> EmbeddingProvider:
             model=settings.embedding_model,
             api_key=settings.embedding_api_key,
             base_url=settings.embedding_base_url,
+            connect_timeout_seconds=(
+                connect_timeout_seconds
+                if connect_timeout_seconds is not None
+                else settings.embedding_connect_timeout_seconds
+            ),
+            timeout_seconds=(
+                timeout_seconds
+                if timeout_seconds is not None
+                else settings.embedding_timeout_seconds
+            ),
         )
     return HuggingFaceEmbeddingProvider(model=settings.embedding_model)

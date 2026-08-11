@@ -580,3 +580,11 @@ Agent quality is behavioral. Versioned scenarios make confirmation, safety, retr
 ### Why a resilience layer?
 
 Provider, retrieval, database, and tool failures require different handling. Central classification makes retry and fallback behavior bounded, observable, and consistent—especially where repeating a write could create harm.
+
+Dependency timeouts are enforced by the dependency client wherever native request deadlines are
+available. LLM and embedding HTTP clients disable hidden SDK retries, Qdrant receives the effective
+retrieval attempt timeout directly, and the application retry loop starts the next attempt only
+after the previous call has returned. The platform does not use detached daemon threads to fake
+cancellation. Local rerankers are allowed to finish; a provider-raised timeout or failure keeps
+the original fused ranking. A business write whose commit outcome is unknown remains
+`UnknownWriteOutcomeError` and is never automatically replayed.

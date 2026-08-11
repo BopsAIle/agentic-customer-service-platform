@@ -70,7 +70,16 @@ class KnowledgeService:
 def build_knowledge_service(
     settings: Settings, *, qdrant_client: Any | None = None
 ) -> KnowledgeService:
-    embedding_provider = build_embedding_provider(settings)
+    # A retrieval attempt is the logical operation boundary. Network-backed embedding and
+    # Qdrant calls must not have a native deadline longer than that attempt's budget.
+    embedding_provider = build_embedding_provider(
+        settings,
+        timeout_seconds=min(settings.embedding_timeout_seconds, settings.retrieval_timeout_seconds),
+        connect_timeout_seconds=min(
+            settings.embedding_connect_timeout_seconds,
+            settings.retrieval_timeout_seconds,
+        ),
+    )
     reranker = DeterministicReranker() if settings.reranker_enabled else None
     backend = RagBackend(settings.rag_backend)
     if backend is RagBackend.LOCAL:
@@ -93,7 +102,11 @@ def build_knowledge_service(
             reranker_enabled=settings.reranker_enabled,
             rerank_candidates=settings.rag_rerank_candidates,
             final_context_count=settings.rag_final_context_count,
-            timeout_seconds=settings.qdrant_timeout_seconds,
+            # Retrieval owns the logical attempt budget. Keep Qdrant's native request
+            # deadline at or below it so a retry cannot overlap an abandoned call.
+            timeout_seconds=min(
+                settings.qdrant_timeout_seconds, settings.retrieval_timeout_seconds
+            ),
             reranker_timeout_seconds=settings.rag_reranker_timeout_seconds,
             client=qdrant_client,
         )

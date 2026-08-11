@@ -8,7 +8,6 @@ from app.observability.tracing import span
 from app.resilience.config import ResilienceConfig
 from app.resilience.errors import RetryExhaustedError
 from app.resilience.retry import run_with_retry
-from app.resilience.timeout import run_with_timeout
 
 
 def make_understand_request_node(
@@ -27,16 +26,14 @@ def make_understand_request_node(
         ) as llm_span:
             try:
                 decision = run_with_retry(
-                    lambda: run_with_timeout(
-                        lambda: provider.decide(
-                            messages=state.get("messages", []),
-                            customer_id=context.effective_customer_id,
-                            memory_context=state.get("memory_context", []),
-                        ),
-                        timeout_seconds=timeout_seconds,
+                    lambda: provider.decide(
+                        messages=state.get("messages", []),
+                        customer_id=context.effective_customer_id,
+                        memory_context=state.get("memory_context", []),
                     ),
                     dependency="llm",
                     config=resilience_config,
+                    timeout_seconds=timeout_seconds,
                 )
             except RetryExhaustedError as error:
                 llm_span.set_attribute("llm.status", "error")

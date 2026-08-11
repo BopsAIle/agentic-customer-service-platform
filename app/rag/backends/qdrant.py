@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import time
 from collections.abc import Sequence
-from math import ceil
 from typing import Any
 
 from pydantic import ValidationError
@@ -13,7 +12,6 @@ from app.rag.embeddings import EmbeddingProvider
 from app.rag.interfaces import KnowledgeFilter, RetrievalMetadata
 from app.rag.rerankers import Reranker
 from app.rag.schemas import RetrievedChunk
-from app.resilience.timeout import run_with_timeout
 
 
 class QdrantKnowledgeBackend:
@@ -39,7 +37,10 @@ class QdrantKnowledgeBackend:
         if client is None:
             from qdrant_client import QdrantClient
 
-            client = QdrantClient(url=url, timeout=ceil(timeout_seconds))
+            # Qdrant owns the request deadline. Do not wrap this synchronous client in a
+            # detached thread; a native timeout guarantees a retry starts only after the
+            # previous request has returned.
+            client = QdrantClient(url=url, timeout=_native_timeout(timeout_seconds))
         self.client = client
         self.collection_name = collection_name
         self.embedding_provider = embedding_provider
@@ -67,27 +68,24 @@ class QdrantKnowledgeBackend:
             try:
                 with span("rag.embed_query"):
                     vector = self.embedding_provider.embed_query(query)
-                response = run_with_timeout(
-                    lambda: self.client.query_points(
-                        collection_name=self.collection_name,
-                        query=vector,
-                        query_filter=self._query_filter(),
-                        limit=self.rerank_candidates,
-                        with_payload=True,
-                        with_vectors=False,
-                        timeout=ceil(self.timeout_seconds),
-                    ),
-                    timeout_seconds=self.timeout_seconds,
+                response = self.client.query_points(
+                    collection_name=self.collection_name,
+                    query=vector,
+                    query_filter=self._query_filter(),
+                    limit=self.rerank_candidates,
+                    with_payload=True,
+                    with_vectors=False,
+                    timeout=_native_timeout(self.timeout_seconds),
                 )
                 results = self._validated_results(response.points)
                 if self.reranker_enabled and self.reranker is not None and results:
                     reranker = self.reranker
                     with span("rag.rerank") as rerank_span:
                         try:
-                            scores = run_with_timeout(
-                                lambda: reranker.score(query, results),
-                                timeout_seconds=self.reranker_timeout_seconds,
-                            )
+                            # Rerankers are synchronous providers. Network-backed providers
+                            # must enforce their own native deadline; local CPU rerankers are
+                            # allowed to finish and failures retain the fused ranking.
+                            scores = reranker.score(query, results)
                             for result, score in zip(results, scores, strict=True):
                                 result.rerank_score = score
                             results.sort(
@@ -133,10 +131,7 @@ class QdrantKnowledgeBackend:
             close()
 
     def is_ready(self) -> bool:
-        run_with_timeout(
-            self.client.get_collections,
-            timeout_seconds=self.timeout_seconds,
-        )
+        self.client.get_collections()
         return True
 
     def _query_filter(self) -> Any | None:
@@ -162,3 +157,9 @@ class QdrantKnowledgeBackend:
             except ValidationError:
                 continue
         return results
+
+
+def _native_timeout(seconds: float) -> int:
+    """Qdrant's HTTP API accepts whole-second server deadlines only."""
+
+    return max(1, int(seconds))

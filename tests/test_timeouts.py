@@ -1,5 +1,5 @@
-import time
 from collections.abc import Sequence
+from types import SimpleNamespace
 from typing import cast
 
 import httpx
@@ -39,22 +39,19 @@ def decision(*, requires_retrieval: bool = False) -> StructuredDecision:
 class SlowDecisionProvider:
     def decide(self, **kwargs: object) -> StructuredDecision:
         del kwargs
-        time.sleep(0.1)
-        return decision()
+        raise httpx.ReadTimeout("native LLM request deadline")
 
 
 class SlowRetriever:
     def retrieve(self, query: str) -> list[RetrievedChunk]:
         del query
-        time.sleep(0.1)
-        return []
+        raise TimeoutError("native retrieval request deadline")
 
 
 class SlowReranker(Reranker):
     def score(self, query: str, chunks: Sequence[RetrievedChunk]) -> list[float]:
-        del query
-        time.sleep(0.1)
-        return [1.0 for _ in chunks]
+        del query, chunks
+        raise TimeoutError("native reranker deadline")
 
 
 def timeout_config() -> ResilienceConfig:
@@ -163,7 +160,86 @@ def test_qdrant_http_client_has_an_explicit_request_timeout(
         timeout_seconds=2.2,
     )
 
-    assert captured["timeout"] == 3
+    assert captured["timeout"] == 2
+
+
+def test_qdrant_request_uses_native_timeout_before_retry() -> None:
+    events: list[str] = []
+    calls = 0
+
+    class FakeClient:
+        def query_points(self, **kwargs: object) -> SimpleNamespace:
+            nonlocal calls
+            calls += 1
+            events.append(f"start:{calls}:{kwargs['timeout']}")
+            try:
+                if calls == 1:
+                    raise TimeoutError("qdrant native timeout")
+                return SimpleNamespace(points=[])
+            finally:
+                events.append(f"end:{calls}")
+
+    from app.rag.backends.qdrant import QdrantKnowledgeBackend
+
+    backend = QdrantKnowledgeBackend(
+        url="http://qdrant.test",
+        collection_name="knowledge",
+        embedding_provider=DeterministicEmbeddingProvider(),
+        reranker=None,
+        reranker_enabled=False,
+        rerank_candidates=4,
+        final_context_count=2,
+        timeout_seconds=1.5,
+        reranker_timeout_seconds=0.1,
+        client=FakeClient(),
+    )
+
+    from app.resilience.config import ResilienceConfig
+    from app.resilience.retry import run_with_retry
+
+    result = run_with_retry(
+        lambda: backend.retrieve("refund"),
+        dependency="retrieval",
+        config=ResilienceConfig(max_retries=1, initial_backoff_ms=0, max_backoff_ms=0),
+        timeout_seconds=1.5,
+        sleeper=lambda _: None,
+    )
+
+    assert result == []
+    assert events == ["start:1:1", "end:1", "start:2:1", "end:2"]
+
+
+def test_openai_embedding_client_has_native_timeout_and_no_hidden_retries(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeEmbeddings:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def embed_query(self, text: str) -> list[float]:
+            del text
+            return [1.0]
+
+    monkeypatch.setattr("langchain_openai.OpenAIEmbeddings", FakeEmbeddings)
+    from app.rag.embeddings.providers import OpenAIEmbeddingProvider
+
+    provider = OpenAIEmbeddingProvider(
+        model="embedding-model",
+        api_key=None,
+        base_url="http://embedding.test/v1",
+        connect_timeout_seconds=1.5,
+        timeout_seconds=7.0,
+    )
+    provider.embed_query("refund")
+
+    timeout = captured["timeout"]
+    assert isinstance(timeout, httpx.Timeout)
+    assert timeout.connect == 1.5
+    assert timeout.read == 7.0
+    assert timeout.write == 7.0
+    assert captured["max_retries"] == 0
 
 
 def test_postgres_engine_has_explicit_connect_pool_and_query_timeouts(

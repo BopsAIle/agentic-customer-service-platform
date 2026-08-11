@@ -10,7 +10,6 @@ from app.rag.embeddings import EmbeddingProvider
 from app.rag.interfaces import RetrievalMetadata
 from app.rag.reranking.service import DeterministicReranker, Reranker
 from app.rag.schemas import DocumentChunk, RetrievedChunk
-from app.resilience.timeout import run_with_timeout
 
 
 class HybridRetriever:
@@ -104,10 +103,10 @@ class HybridRetriever:
                     if self.reranker_enabled:
                         with span("rag.rerank") as rerank_span:
                             try:
-                                rerank_scores = run_with_timeout(
-                                    lambda: self.reranker.score(query, results),
-                                    timeout_seconds=self.reranker_timeout_seconds,
-                                )
+                                # A synchronous local reranker is not cancellable by an outer
+                                # wall-clock timer. Providers that perform I/O must enforce a
+                                # native request deadline and raise on timeout themselves.
+                                rerank_scores = self.reranker.score(query, results)
                                 for result, rerank_score in zip(
                                     results, rerank_scores, strict=True
                                 ):

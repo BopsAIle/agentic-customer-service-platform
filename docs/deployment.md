@@ -44,6 +44,22 @@ The backend receives `SIGTERM` directly. Uvicorn stops accepting connections and
 Compose allows 35 seconds before forcefully stopping the backend. Lifecycle logs contain only
 bounded component names and statuses; they do not contain prompts, customer data, or credentials.
 
+## Timeout and retry coordination
+
+Network dependencies use their native bounded request deadlines: the OpenAI-compatible model and
+embedding clients receive explicit connect/read/write/pool timeouts with SDK retries disabled, and
+Qdrant receives the effective retrieval-attempt timeout on each request. The retry coordinator
+budgets the complete sequence and schedules an attempt only after the previous native call has
+returned; it does not run synchronous I/O in a detached daemon thread. Local CPU rerankers are not
+wrapped in a non-cancellable wall-clock thread, so a reranker failure or provider-native timeout
+degrades to the original fused ranking. PostgreSQL uses pool acquisition, connection, and
+statement timeouts, with transaction cleanup handled by the existing session boundary.
+
+Write timeouts retain the unknown-outcome safety model. If a commit response cannot be confirmed,
+the operation raises `UnknownWriteOutcomeError`, is not automatically replayed, and can only be
+reconciled with the same idempotency key. These deadlines bound dependency work; they do not claim
+to cancel arbitrary synchronous application code that has no native cancellation mechanism.
+
 ## Checkpoint deserialization boundary
 
 PostgreSQL checkpoint data is integrity-sensitive. The application configures LangGraph's msgpack

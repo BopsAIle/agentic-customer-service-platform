@@ -8,7 +8,6 @@ from app.resilience.config import ResilienceConfig
 from app.resilience.errors import RetryExhaustedError
 from app.resilience.fallbacks import degraded_message
 from app.resilience.retry import run_with_retry
-from app.resilience.timeout import run_with_timeout
 
 
 def make_retrieve_node(
@@ -21,11 +20,10 @@ def make_retrieve_node(
         timeout_seconds = (resilience_config or ResilienceConfig()).retrieval_timeout_seconds
         try:
             chunks = run_with_retry(
-                lambda: run_with_timeout(
-                    lambda: retriever.retrieve(query), timeout_seconds=timeout_seconds
-                ),
+                lambda: retriever.retrieve(query),
                 dependency="retrieval",
                 config=resilience_config,
+                timeout_seconds=timeout_seconds,
             )
         except RetryExhaustedError as error:
             knowledge_only = state.get("tool_result") is None
