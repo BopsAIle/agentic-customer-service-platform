@@ -143,13 +143,22 @@ when post-commit audit evidence is unavailable.
 
 Qdrant knowledge is deployed as immutable, versioned hybrid snapshots. The logical
 `QDRANT_COLLECTION` name is an atomic alias (for example, `customer_service_knowledge`) pointing
-to a physical `*_v_<snapshot>` collection. `scripts.rag_ingest` builds the complete corpus,
-derives lexical vocabulary/IDF from that corpus, validates dense+sparse schema and provenance,
-then switches the alias atomically. Incremental mutation of the active hybrid collection is not
-supported because lexical semantics belong to the complete snapshot. Use `python -m scripts.rag_ingest list`
-to inspect snapshots and `python -m scripts.rag_ingest rollback <physical-collection>` for a controlled
-rollback; old snapshots are retained until operators explicitly retire them. Readiness checks the
-stored embedding provider/model, schema, chunking, and lexical-index versions when available.
+to a physical `*_v_<snapshot-spec-prefix>` collection. `corpus_hash` identifies only the canonical
+complete source corpus; `snapshot_id`/`snapshot_spec_hash` identifies the immutable index artifact
+and includes embedding provider/model/dimension plus dense/sparse schema, knowledge-schema,
+chunking, and lexical-index semantics. Therefore one corpus may safely have multiple snapshots
+when its embedding or index specification changes. The full spec hash is retained in provenance;
+the collection name uses only its first 16 hexadecimal characters.
+
+`scripts.rag_ingest` builds the complete corpus, derives lexical vocabulary/IDF from that corpus,
+validates dense+sparse schema and provenance, then switches the alias atomically. Incremental
+mutation of the active hybrid collection is not supported because lexical semantics belong to the
+complete snapshot. Use `python -m scripts.rag_ingest list` to inspect snapshot and corpus identities
+and `python -m scripts.rag_ingest rollback <physical-collection>` for a controlled rollback; old
+snapshots are retained until operators explicitly retire them. Readiness and activation validate
+the full stored spec hash and runtime embedding compatibility. Legacy corpus-only snapshots without
+spec provenance are incompatible and require a controlled rebuild; they are never silently reused.
+Rollback across embedding-model versions also requires coordinated runtime embedding configuration.
 
 ### Business Tools
 

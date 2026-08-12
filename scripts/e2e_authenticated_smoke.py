@@ -382,9 +382,18 @@ def run_smoke(stack: ComposeStack) -> None:
     collection = stack.qdrant_collection()
     expect(collection.get("status") == "green", "Qdrant collection is not green.")
     expect(collection.get("points_count") == 14, "Knowledge ingestion did not load 14 chunks.")
+    metadata = collection.get("config", {}).get("metadata", {})
+    provenance = metadata.get("knowledge_snapshot", {}) if isinstance(metadata, dict) else {}
+    expect(
+        isinstance(provenance, dict)
+        and len(str(provenance.get("corpus_hash", ""))) == 64
+        and len(str(provenance.get("snapshot_spec_hash", ""))) == 64
+        and provenance.get("snapshot_id") == provenance.get("snapshot_spec_hash"),
+        "Qdrant snapshot provenance does not contain a full corpus/spec identity.",
+    )
     active_snapshot = stack.qdrant_alias_target()
     expect(
-        active_snapshot.startswith("customer_service_knowledge_v_"),
+        re.fullmatch(r"customer_service_knowledge_v_[0-9a-f]{16}", active_snapshot) is not None,
         "Qdrant runtime is not serving a versioned snapshot alias target.",
     )
 

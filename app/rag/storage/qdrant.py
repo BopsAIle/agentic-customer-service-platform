@@ -20,6 +20,7 @@ from app.rag.schemas import DocumentChunk
 
 QDRANT_DENSE_DISTANCE = "Cosine"
 SNAPSHOT_METADATA_KEY = "knowledge_snapshot"
+SNAPSHOT_SPEC_VERSION = 1
 KNOWLEDGE_SCHEMA_VERSION = 2
 CHUNKING_VERSION = 1
 SNAPSHOT_UPSERT_BATCH_SIZE = 128
@@ -28,14 +29,57 @@ SNAPSHOT_UPSERT_BATCH_SIZE = 128
 @dataclass(frozen=True)
 class KnowledgeSnapshot:
     snapshot_id: str
+    snapshot_spec_hash: str
     collection_name: str
     corpus_hash: str
     chunk_count: int
     embedding_provider: str
     embedding_model: str
     embedding_dimension: int
+    schema_version: int
+    chunking_version: int
+    lexical_index_version: int
     lexical_index_hash: str
     created_at: str
+
+
+@dataclass(frozen=True)
+class KnowledgeSnapshotSpec:
+    """Canonical semantic identity of one immutable dense+sparse index artifact."""
+
+    corpus_hash: str
+    embedding_provider: str
+    embedding_model: str
+    embedding_dimension: int
+    schema_version: int
+    chunking_version: int
+    lexical_index_version: int
+    dense_distance: str = QDRANT_DENSE_DISTANCE
+    sparse_vector_name: str = LEXICAL_VECTOR_NAME
+    spec_version: int = SNAPSHOT_SPEC_VERSION
+
+    def canonical_payload(self) -> dict[str, object]:
+        return {
+            "chunking_version": self.chunking_version,
+            "corpus_hash": self.corpus_hash,
+            "dense_distance": self.dense_distance,
+            "embedding_dimension": self.embedding_dimension,
+            "embedding_model": self.embedding_model,
+            "embedding_provider": self.embedding_provider,
+            "knowledge_schema_version": self.schema_version,
+            "lexical_index_version": self.lexical_index_version,
+            "sparse_vector_name": self.sparse_vector_name,
+            "snapshot_spec_version": self.spec_version,
+        }
+
+
+def compute_snapshot_spec_hash(spec: KnowledgeSnapshotSpec) -> str:
+    """Hash stable semantic fields, excluding timestamps and operational settings."""
+
+    encoded = json.dumps(spec.canonical_payload(), sort_keys=True, separators=(",", ":")).encode(
+        "utf-8"
+    )
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def build_dense_vector_params(dimension: int) -> Any:
@@ -68,6 +112,7 @@ class QdrantKnowledgeStore:
         embedding_model: str | None = None,
         schema_version: int = KNOWLEDGE_SCHEMA_VERSION,
         chunking_version: int = CHUNKING_VERSION,
+        lexical_index_version: int = LEXICAL_SCHEMA_VERSION,
     ) -> None:
         if client is None:
             from qdrant_client import QdrantClient
@@ -76,14 +121,20 @@ class QdrantKnowledgeStore:
         self.client = client
         self.collection_name = collection_name
         self.embedding_provider = embedding_provider
-        self.embedding_model = str(
-            embedding_model
-            or getattr(
-                embedding_provider, "model", f"{embedding_provider.provider_type}-deterministic"
+        self.embedding_provider_name = _canonical_provider_identity(
+            str(embedding_provider.provider_type)
+        )
+        self.embedding_model = _canonical_model_identity(
+            str(
+                embedding_model
+                or getattr(
+                    embedding_provider, "model", f"{embedding_provider.provider_type}-deterministic"
+                )
             )
         )
         self.schema_version = schema_version
         self.chunking_version = chunking_version
+        self.lexical_index_version = lexical_index_version
         self.timeout_seconds = timeout_seconds
 
     def upsert(self, chunks: Sequence[DocumentChunk]) -> int:
@@ -112,30 +163,42 @@ class QdrantKnowledgeStore:
             raise ValueError("Knowledge snapshot contains duplicate chunk IDs.")
 
         corpus_hash = _corpus_hash(canonical_chunks)
-        snapshot_id = corpus_version or corpus_hash[:16]
-        if not _safe_snapshot_id(snapshot_id):
-            raise ValueError("Corpus version contains unsupported collection-name characters.")
-        physical_name = f"{self.collection_name}_v_{snapshot_id}"
         vectors = self.embedding_provider.embed_documents(
             [chunk.content for chunk in canonical_chunks]
         )
         dimension = _validate_vectors(vectors, self.embedding_provider)
         lexical_index = build_lexical_index(canonical_chunks)
-        lexical_metadata = lexical_index.to_metadata()
+        lexical_metadata = lexical_index.to_metadata(version=self.lexical_index_version)
         lexical_index_hash = _metadata_hash(lexical_metadata)
+        snapshot_spec = KnowledgeSnapshotSpec(
+            corpus_hash=corpus_hash,
+            embedding_provider=self.embedding_provider_name,
+            embedding_model=self.embedding_model,
+            embedding_dimension=dimension,
+            schema_version=self.schema_version,
+            chunking_version=self.chunking_version,
+            lexical_index_version=self.lexical_index_version,
+        )
+        snapshot_spec_hash = compute_snapshot_spec_hash(snapshot_spec)
+        snapshot_id = snapshot_spec_hash
+        physical_name = f"{self.collection_name}_v_{snapshot_spec_hash[:16]}"
         created_at = datetime.now(UTC).isoformat()
         provenance = {
             "snapshot_id": snapshot_id,
+            "snapshot_spec_hash": snapshot_spec_hash,
+            "snapshot_spec_version": SNAPSHOT_SPEC_VERSION,
             "corpus_hash": corpus_hash,
-            "corpus_version": corpus_version or corpus_hash,
+            "corpus_version": corpus_hash,
             "chunk_count": len(canonical_chunks),
-            "embedding_provider": self.embedding_provider.provider_type,
+            "embedding_provider": self.embedding_provider_name,
             "embedding_model": self.embedding_model,
             "embedding_dimension": dimension,
-            "lexical_index_version": LEXICAL_SCHEMA_VERSION,
+            "lexical_index_version": self.lexical_index_version,
             "lexical_index_hash": lexical_index_hash,
             "schema_version": self.schema_version,
             "chunking_version": self.chunking_version,
+            "dense_distance": QDRANT_DENSE_DISTANCE,
+            "sparse_vector_name": LEXICAL_VECTOR_NAME,
             "created_at": created_at,
         }
 
@@ -181,12 +244,16 @@ class QdrantKnowledgeStore:
 
         snapshot = KnowledgeSnapshot(
             snapshot_id=snapshot_id,
+            snapshot_spec_hash=snapshot_spec_hash,
             collection_name=physical_name,
             corpus_hash=corpus_hash,
             chunk_count=len(canonical_chunks),
-            embedding_provider=self.embedding_provider.provider_type,
+            embedding_provider=self.embedding_provider_name,
             embedding_model=self.embedding_model,
             embedding_dimension=dimension,
+            schema_version=self.schema_version,
+            chunking_version=self.chunking_version,
+            lexical_index_version=self.lexical_index_version,
             lexical_index_hash=lexical_index_hash,
             created_at=created_at,
         )
@@ -199,28 +266,64 @@ class QdrantKnowledgeStore:
         collection = self.client.get_collection(snapshot.collection_name)
         metadata = _collection_metadata(collection)
         provenance = metadata.get(SNAPSHOT_METADATA_KEY)
-        if (
-            not isinstance(provenance, dict)
-            or provenance.get("corpus_hash") != snapshot.corpus_hash
-        ):
+        if not isinstance(provenance, dict):
+            raise RuntimeError("Qdrant snapshot provenance validation failed.")
+        expected_spec = KnowledgeSnapshotSpec(
+            corpus_hash=snapshot.corpus_hash,
+            embedding_provider=snapshot.embedding_provider,
+            embedding_model=snapshot.embedding_model,
+            embedding_dimension=snapshot.embedding_dimension,
+            schema_version=snapshot.schema_version,
+            chunking_version=snapshot.chunking_version,
+            lexical_index_version=snapshot.lexical_index_version,
+        )
+        expected_spec_hash = compute_snapshot_spec_hash(expected_spec)
+        if snapshot.snapshot_spec_hash != expected_spec_hash:
+            raise RuntimeError("Qdrant snapshot provenance validation failed.")
+        required_provenance = {
+            "snapshot_id",
+            "snapshot_spec_hash",
+            "snapshot_spec_version",
+            "corpus_hash",
+            "chunk_count",
+            "embedding_provider",
+            "embedding_model",
+            "embedding_dimension",
+            "lexical_index_version",
+            "lexical_index_hash",
+            "schema_version",
+            "chunking_version",
+            "dense_distance",
+            "sparse_vector_name",
+            "created_at",
+        }
+        if not required_provenance.issubset(provenance):
+            raise RuntimeError("Qdrant snapshot provenance validation failed.")
+        expected_provenance = {
+            "snapshot_id": snapshot.snapshot_id,
+            "snapshot_spec_hash": expected_spec_hash,
+            "snapshot_spec_version": SNAPSHOT_SPEC_VERSION,
+            "corpus_hash": snapshot.corpus_hash,
+            "embedding_provider": snapshot.embedding_provider,
+            "embedding_model": snapshot.embedding_model,
+            "embedding_dimension": snapshot.embedding_dimension,
+            "lexical_index_version": snapshot.lexical_index_version,
+            "lexical_index_hash": snapshot.lexical_index_hash,
+            "schema_version": snapshot.schema_version,
+            "chunking_version": snapshot.chunking_version,
+            "dense_distance": QDRANT_DENSE_DISTANCE,
+            "sparse_vector_name": LEXICAL_VECTOR_NAME,
+        }
+        if any(provenance.get(key) != value for key, value in expected_provenance.items()):
             raise RuntimeError("Qdrant snapshot provenance validation failed.")
         lexical_metadata = metadata.get(LEXICAL_METADATA_KEY)
         if (
             not isinstance(lexical_metadata, dict)
             or _metadata_hash(lexical_metadata) != snapshot.lexical_index_hash
+            or lexical_metadata.get("version") != snapshot.lexical_index_version
         ):
             raise RuntimeError("Qdrant snapshot lexical provenance validation failed.")
-        expected_provenance = {
-            "embedding_provider": snapshot.embedding_provider,
-            "embedding_model": snapshot.embedding_model,
-            "embedding_dimension": snapshot.embedding_dimension,
-            "lexical_index_version": LEXICAL_SCHEMA_VERSION,
-            "lexical_index_hash": snapshot.lexical_index_hash,
-            "schema_version": self.schema_version,
-            "chunking_version": self.chunking_version,
-            "chunk_count": snapshot.chunk_count,
-        }
-        if any(provenance.get(key) != value for key, value in expected_provenance.items()):
+        if provenance.get("chunk_count") != snapshot.chunk_count:
             raise RuntimeError("Qdrant snapshot provenance validation failed.")
         point_count = _field(collection, "points_count")
         if not isinstance(point_count, int) or point_count != snapshot.chunk_count:
@@ -239,6 +342,19 @@ class QdrantKnowledgeStore:
             or _field(sparse_config, "index") is None
         ):
             raise RuntimeError("Qdrant snapshot schema validation failed.")
+        expected_dimension = getattr(self.embedding_provider, "dimension", None)
+        if (
+            snapshot.embedding_provider != self.embedding_provider_name
+            or snapshot.embedding_model != self.embedding_model
+            or (
+                expected_dimension is not None
+                and snapshot.embedding_dimension != expected_dimension
+            )
+            or snapshot.schema_version != self.schema_version
+            or snapshot.chunking_version != self.chunking_version
+            or snapshot.lexical_index_version != self.lexical_index_version
+        ):
+            raise RuntimeError("Qdrant snapshot is incompatible with the configured runtime.")
 
     def activate(self, physical_collection: str) -> None:
         """Atomically switch the logical alias, preserving the prior target on failure."""
@@ -247,6 +363,8 @@ class QdrantKnowledgeStore:
 
         if not self.client.collection_exists(physical_collection):
             raise ValueError("Cannot activate a missing Qdrant snapshot collection.")
+        snapshot = _snapshot_from_collection(self.client, physical_collection)
+        self.validate_snapshot(snapshot)
         current = _alias_target(self.client, self.collection_name)
         operations: list[Any] = []
         if current is not None:
@@ -278,12 +396,16 @@ class QdrantKnowledgeStore:
         try:
             snapshot = KnowledgeSnapshot(
                 snapshot_id=str(provenance["snapshot_id"]),
+                snapshot_spec_hash=str(provenance["snapshot_spec_hash"]),
                 collection_name=snapshot_collection,
                 corpus_hash=str(provenance["corpus_hash"]),
                 chunk_count=int(provenance["chunk_count"]),
                 embedding_provider=str(provenance["embedding_provider"]),
                 embedding_model=str(provenance["embedding_model"]),
                 embedding_dimension=int(provenance["embedding_dimension"]),
+                schema_version=int(provenance["schema_version"]),
+                chunking_version=int(provenance["chunking_version"]),
+                lexical_index_version=int(provenance["lexical_index_version"]),
                 lexical_index_hash=str(provenance["lexical_index_hash"]),
                 created_at=str(provenance["created_at"]),
             )
@@ -334,6 +456,14 @@ def _corpus_hash(chunks: Sequence[DocumentChunk]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _canonical_provider_identity(value: str) -> str:
+    return value.strip().casefold()
+
+
+def _canonical_model_identity(value: str) -> str:
+    return value.strip()
+
+
 def _metadata_hash(metadata: dict[str, object]) -> str:
     encoded = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
@@ -345,8 +475,29 @@ def _same_provenance(first: dict[str, object], second: dict[str, object]) -> boo
     }
 
 
-def _safe_snapshot_id(value: str) -> bool:
-    return bool(value) and all(character.isalnum() or character in "-_" for character in value)
+def _snapshot_from_collection(client: Any, collection_name: str) -> KnowledgeSnapshot:
+    metadata = _collection_metadata(client.get_collection(collection_name))
+    provenance = metadata.get(SNAPSHOT_METADATA_KEY)
+    if not isinstance(provenance, dict):
+        raise ValueError("Qdrant collection is missing managed snapshot provenance.")
+    try:
+        return KnowledgeSnapshot(
+            snapshot_id=str(provenance["snapshot_id"]),
+            snapshot_spec_hash=str(provenance["snapshot_spec_hash"]),
+            collection_name=collection_name,
+            corpus_hash=str(provenance["corpus_hash"]),
+            chunk_count=int(provenance["chunk_count"]),
+            embedding_provider=str(provenance["embedding_provider"]),
+            embedding_model=str(provenance["embedding_model"]),
+            embedding_dimension=int(provenance["embedding_dimension"]),
+            schema_version=int(provenance["schema_version"]),
+            chunking_version=int(provenance["chunking_version"]),
+            lexical_index_version=int(provenance["lexical_index_version"]),
+            lexical_index_hash=str(provenance["lexical_index_hash"]),
+            created_at=str(provenance["created_at"]),
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("Qdrant collection has invalid snapshot provenance.") from error
 
 
 def _validate_vectors(vectors: Sequence[Sequence[float]], provider: EmbeddingProvider) -> int:

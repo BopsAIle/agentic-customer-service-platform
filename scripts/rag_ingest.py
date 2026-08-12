@@ -42,9 +42,15 @@ def main() -> None:
             for snapshot_record in store.list_snapshots():
                 print(
                     f"{snapshot_record.get('collection_name')} "
+                    f"snapshot={snapshot_record.get('snapshot_id')} "
                     f"active={snapshot_record.get('active')} "
                     f"points={snapshot_record.get('points_count')} "
-                    f"corpus={snapshot_record.get('corpus_hash')}"
+                    f"corpus={snapshot_record.get('corpus_hash')} "
+                    f"embedding={snapshot_record.get('embedding_provider')}/"
+                    f"{snapshot_record.get('embedding_model')} "
+                    f"schema={snapshot_record.get('schema_version')} "
+                    f"chunking={snapshot_record.get('chunking_version')} "
+                    f"lexical={snapshot_record.get('lexical_index_version')}"
                 )
             return
         if arguments.command == "rollback":
@@ -63,7 +69,8 @@ def main() -> None:
     print(
         f"Built snapshot {snapshot.snapshot_id} with {count} chunks and activated "
         f"{settings.qdrant_collection} using "
-        f"{settings.embedding_provider}/{settings.embedding_model}."
+        f"{settings.embedding_provider}/{settings.embedding_model}; "
+        f"corpus={snapshot.corpus_hash}; physical={snapshot.collection_name}."
     )
 
 

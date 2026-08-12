@@ -469,6 +469,8 @@ def test_qdrant_snapshots_switch_atomically_and_support_rollback() -> None:
         activate=False,
     )
     assert repeated.collection_name == first.collection_name
+    assert repeated.snapshot_spec_hash == first.snapshot_spec_hash
+    assert repeated.corpus_hash == first.corpus_hash
     second = store.build_snapshot([snapshot_chunk("alpha", "alpha replacement")], activate=False)
 
     assert client.get_aliases().aliases[0].collection_name == first.collection_name
@@ -479,6 +481,209 @@ def test_qdrant_snapshots_switch_atomically_and_support_rollback() -> None:
     store.rollback(first.collection_name)
     assert client.get_aliases().aliases[0].collection_name == first.collection_name
     assert client.get_collection("knowledge_current").points_count == 2
+
+
+def test_same_corpus_different_embedding_models_have_distinct_snapshots() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    chunks = [snapshot_chunk("alpha", "alpha stable knowledge")]
+    model_a = QdrantKnowledgeStore(
+        "unused", "knowledge_current", provider, client=client, embedding_model="model-a"
+    )
+    model_b = QdrantKnowledgeStore(
+        "unused", "knowledge_current", provider, client=client, embedding_model="model-b"
+    )
+
+    snapshot_a = model_a.build_snapshot(chunks)
+    snapshot_b = model_b.build_snapshot(chunks, activate=False)
+
+    assert snapshot_a.corpus_hash == snapshot_b.corpus_hash
+    assert snapshot_a.snapshot_spec_hash != snapshot_b.snapshot_spec_hash
+    assert snapshot_a.collection_name != snapshot_b.collection_name
+    assert client.collection_exists(snapshot_a.collection_name)
+    assert client.collection_exists(snapshot_b.collection_name)
+    metadata_a = client.get_collection(snapshot_a.collection_name).config.metadata
+    metadata_b = client.get_collection(snapshot_b.collection_name).config.metadata
+    assert isinstance(metadata_a, dict)
+    assert isinstance(metadata_b, dict)
+    provenance_a = metadata_a["knowledge_snapshot"]
+    provenance_b = metadata_b["knowledge_snapshot"]
+    assert isinstance(provenance_a, dict)
+    assert isinstance(provenance_b, dict)
+    assert provenance_a["embedding_model"] == "model-a"
+    assert provenance_b["embedding_model"] == "model-b"
+
+    backend_a = QdrantKnowledgeBackend(
+        url="unused",
+        collection_name="knowledge_current",
+        embedding_provider=provider,
+        embedding_model="model-a",
+        embedding_dimension=8,
+        require_alias=True,
+        reranker=None,
+        reranker_enabled=False,
+        rerank_candidates=2,
+        final_context_count=2,
+        timeout_seconds=1.0,
+        reranker_timeout_seconds=1.0,
+        client=client,
+    )
+    backend_b = QdrantKnowledgeBackend(
+        url="unused",
+        collection_name="knowledge_current",
+        embedding_provider=provider,
+        embedding_model="model-b",
+        embedding_dimension=8,
+        require_alias=True,
+        reranker=None,
+        reranker_enabled=False,
+        rerank_candidates=2,
+        final_context_count=2,
+        timeout_seconds=1.0,
+        reranker_timeout_seconds=1.0,
+        client=client,
+    )
+    assert backend_a.is_ready() is True
+    assert backend_b.is_ready() is False
+    model_b.activate(snapshot_b.collection_name)
+    assert backend_b.is_ready() is True
+    assert backend_a.is_ready() is False
+    with pytest.raises(RuntimeError, match="incompatible with the configured runtime"):
+        model_b.rollback(snapshot_a.collection_name)
+    model_a.rollback(snapshot_a.collection_name)
+    assert backend_a.is_ready() is True
+
+
+def test_same_corpus_different_embedding_providers_have_distinct_snapshots() -> None:
+    class AlternateProvider(DeterministicEmbeddingProvider):
+        provider_type = "alternate"
+
+    client = QdrantClient(":memory:")
+    chunks = [snapshot_chunk("alpha", "alpha stable knowledge")]
+    first = QdrantKnowledgeStore(
+        "unused", "knowledge_current", DeterministicEmbeddingProvider(8), client=client
+    ).build_snapshot(chunks)
+    second = QdrantKnowledgeStore(
+        "unused", "knowledge_current", AlternateProvider(8), client=client
+    ).build_snapshot(chunks, activate=False)
+
+    assert first.corpus_hash == second.corpus_hash
+    assert first.snapshot_spec_hash != second.snapshot_spec_hash
+    assert first.collection_name != second.collection_name
+
+
+def test_same_corpus_different_embedding_dimensions_have_distinct_snapshots() -> None:
+    client = QdrantClient(":memory:")
+    chunks = [snapshot_chunk("alpha", "alpha stable knowledge")]
+    first = QdrantKnowledgeStore(
+        "unused", "knowledge_current", DeterministicEmbeddingProvider(8), client=client
+    ).build_snapshot(chunks)
+    second = QdrantKnowledgeStore(
+        "unused", "knowledge_current", DeterministicEmbeddingProvider(16), client=client
+    ).build_snapshot(chunks, activate=False)
+
+    assert first.corpus_hash == second.corpus_hash
+    assert first.snapshot_spec_hash != second.snapshot_spec_hash
+    assert first.collection_name != second.collection_name
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("schema_version", 99),
+        ("chunking_version", 99),
+        ("lexical_index_version", 99),
+    ],
+)
+def test_semantic_snapshot_spec_changes_physical_identity(field: str, value: int) -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    chunks = [snapshot_chunk("alpha", "alpha stable knowledge")]
+    base = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    changed = QdrantKnowledgeStore(
+        "unused",
+        "knowledge_current",
+        provider,
+        client=client,
+        **cast(dict[str, Any], {field: value}),
+    )
+
+    first = base.build_snapshot(chunks)
+    second = changed.build_snapshot(chunks, activate=False)
+
+    assert first.corpus_hash == second.corpus_hash
+    assert first.snapshot_spec_hash != second.snapshot_spec_hash
+    assert first.collection_name != second.collection_name
+    assert client.collection_exists(first.collection_name)
+    assert client.collection_exists(second.collection_name)
+
+
+def test_snapshot_identity_changes_when_corpus_changes() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+
+    first = store.build_snapshot([snapshot_chunk("alpha", "alpha stable knowledge")])
+    second = store.build_snapshot(
+        [snapshot_chunk("alpha", "alpha changed knowledge")], activate=False
+    )
+
+    assert first.corpus_hash != second.corpus_hash
+    assert first.snapshot_spec_hash != second.snapshot_spec_hash
+    assert first.collection_name != second.collection_name
+
+
+def test_snapshot_spec_full_hash_is_required_for_compatibility() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    snapshot = store.build_snapshot([snapshot_chunk("alpha", "alpha stable knowledge")])
+    collection = client.get_collection(snapshot.collection_name)
+    metadata = collection.config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    provenance["snapshot_spec_hash"] = "0" * 64
+    client.update_collection(collection_name=snapshot.collection_name, metadata=metadata)
+
+    with pytest.raises(RuntimeError, match="provenance validation"):
+        store.validate_snapshot(snapshot)
+
+
+def test_legacy_corpus_only_snapshot_is_not_ready_or_rollback_eligible() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore(
+        "unused", "knowledge_current", provider, client=client, embedding_model="model-a"
+    )
+    snapshot = store.build_snapshot([snapshot_chunk("alpha", "alpha stable knowledge")])
+    collection = client.get_collection(snapshot.collection_name)
+    metadata = collection.config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    for key in ("snapshot_spec_hash", "snapshot_spec_version"):
+        provenance.pop(key, None)
+    client.update_collection(collection_name=snapshot.collection_name, metadata=metadata)
+
+    backend = QdrantKnowledgeBackend(
+        url="unused",
+        collection_name="knowledge_current",
+        embedding_provider=provider,
+        embedding_model="model-a",
+        embedding_dimension=8,
+        require_alias=True,
+        reranker=None,
+        reranker_enabled=False,
+        rerank_candidates=2,
+        final_context_count=2,
+        timeout_seconds=1.0,
+        reranker_timeout_seconds=1.0,
+        client=client,
+    )
+    assert backend.is_ready() is False
+    with pytest.raises(ValueError, match="invalid snapshot provenance"):
+        store.rollback(snapshot.collection_name)
 
 
 def test_qdrant_snapshot_model_identity_mismatch_is_not_ready() -> None:

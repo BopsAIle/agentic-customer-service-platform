@@ -4,7 +4,7 @@ import logging
 import time
 from collections.abc import Sequence
 from enum import StrEnum
-from typing import Any
+from typing import Any, cast
 
 from pydantic import ValidationError
 
@@ -15,6 +15,7 @@ from app.rag.interfaces import KnowledgeFilter, RetrievalMetadata, RetrievalResu
 from app.rag.rerankers import Reranker
 from app.rag.retrieval.lexical import (
     LEXICAL_METADATA_KEY,
+    LEXICAL_SCHEMA_VERSION,
     LEXICAL_VECTOR_NAME,
     LexicalIndex,
 )
@@ -24,6 +25,9 @@ from app.rag.storage.qdrant import (
     KNOWLEDGE_SCHEMA_VERSION,
     QDRANT_DENSE_DISTANCE,
     SNAPSHOT_METADATA_KEY,
+    SNAPSHOT_SPEC_VERSION,
+    KnowledgeSnapshotSpec,
+    compute_snapshot_spec_hash,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,6 +66,7 @@ class QdrantKnowledgeBackend:
         require_alias: bool = False,
         schema_version: int = KNOWLEDGE_SCHEMA_VERSION,
         chunking_version: int = CHUNKING_VERSION,
+        lexical_index_version: int = LEXICAL_SCHEMA_VERSION,
         dense_top_k: int = 8,
         sparse_top_k: int = 8,
         filters: KnowledgeFilter | None = None,
@@ -90,6 +95,7 @@ class QdrantKnowledgeBackend:
         self.require_alias = require_alias
         self.schema_version = schema_version
         self.chunking_version = chunking_version
+        self.lexical_index_version = lexical_index_version
         self.dense_top_k = dense_top_k
         self.sparse_top_k = sparse_top_k
         self.filters = filters
@@ -273,7 +279,9 @@ class QdrantKnowledgeBackend:
             return False
         lexical_metadata = _field(metadata, LEXICAL_METADATA_KEY)
         try:
-            lexical_index = LexicalIndex.from_metadata(lexical_metadata)
+            lexical_index = LexicalIndex.from_metadata(
+                lexical_metadata, expected_version=self.lexical_index_version
+            )
         except ValueError:
             self._record_readiness_failure(QdrantReadinessCategory.VECTOR_SCHEMA_MISMATCH)
             return False
@@ -289,6 +297,8 @@ class QdrantKnowledgeBackend:
                 return False
             required_provenance = {
                 "snapshot_id",
+                "snapshot_spec_hash",
+                "snapshot_spec_version",
                 "corpus_hash",
                 "corpus_version",
                 "chunk_count",
@@ -299,21 +309,50 @@ class QdrantKnowledgeBackend:
                 "lexical_index_hash",
                 "schema_version",
                 "chunking_version",
+                "dense_distance",
+                "sparse_vector_name",
                 "created_at",
             }
             if not required_provenance.issubset(provenance):
                 self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
                 return False
+            raw_dimension = provenance.get("embedding_dimension")
+            if not isinstance(raw_dimension, int) or raw_dimension < 1:
+                self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
+                return False
+            stored_model = str(provenance["embedding_model"])
+            expected_model = (
+                self.embedding_model.strip() if self.embedding_model is not None else stored_model
+            )
+            expected_dimension = (
+                self.embedding_dimension if self.embedding_dimension is not None else raw_dimension
+            )
+            expected_dimension = int(cast(Any, expected_dimension))
+            expected_spec_hash = compute_snapshot_spec_hash(
+                KnowledgeSnapshotSpec(
+                    corpus_hash=str(provenance["corpus_hash"]),
+                    embedding_provider=self.embedding_provider.provider_type.strip().casefold(),
+                    embedding_model=expected_model,
+                    embedding_dimension=expected_dimension,
+                    schema_version=self.schema_version,
+                    chunking_version=self.chunking_version,
+                    lexical_index_version=self.lexical_index_version,
+                )
+            )
             expected_provenance = {
-                "embedding_provider": self.embedding_provider.provider_type,
-                "embedding_dimension": self.embedding_dimension,
+                "snapshot_id": expected_spec_hash,
+                "snapshot_spec_hash": expected_spec_hash,
+                "snapshot_spec_version": SNAPSHOT_SPEC_VERSION,
+                "embedding_provider": self.embedding_provider.provider_type.strip().casefold(),
+                "embedding_model": expected_model,
+                "embedding_dimension": expected_dimension,
                 "schema_version": self.schema_version,
                 "chunking_version": self.chunking_version,
-                "lexical_index_version": lexical_metadata.get("version"),
+                "lexical_index_version": self.lexical_index_version,
                 "lexical_index_hash": _metadata_hash(lexical_metadata),
+                "dense_distance": QDRANT_DENSE_DISTANCE,
+                "sparse_vector_name": LEXICAL_VECTOR_NAME,
             }
-            if self.embedding_model is not None:
-                expected_provenance["embedding_model"] = self.embedding_model
             if any(provenance.get(key) != value for key, value in expected_provenance.items()):
                 self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
                 return False
@@ -387,7 +426,9 @@ class QdrantKnowledgeBackend:
         config = _field(collection, "config")
         metadata = _field(config, "metadata")
         lexical_metadata = _field(metadata, LEXICAL_METADATA_KEY)
-        lexical_index = LexicalIndex.from_metadata(lexical_metadata)
+        lexical_index = LexicalIndex.from_metadata(
+            lexical_metadata, expected_version=self.lexical_index_version
+        )
         self._lexical_index = lexical_index
         return lexical_index
 

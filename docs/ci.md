@@ -72,6 +72,11 @@ logical knowledge alias before backend readiness. This keeps the deterministic h
 vocabulary consistent with every stored sparse vector and makes stale-document removal a snapshot
 property rather than an incremental delete operation.
 
+Snapshot identity tests separately verify canonical `corpus_hash` and semantic `snapshot_id` values:
+the same corpus/spec is idempotent, while model, dimension, schema, chunking, lexical-version, or
+corpus changes produce distinct physical collections. Full spec provenance is required for
+readiness, activation, and rollback; legacy corpus-only snapshots are rejected safely.
+
 ### Docker Build and Scan
 
 CI validates `docker compose config`, builds both application images, and scans each image for

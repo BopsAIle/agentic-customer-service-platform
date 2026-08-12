@@ -194,14 +194,24 @@ this table is not an immutable audit ledger. Development/test-only memory storag
 rejected by configuration in integration and production.
 
 Production knowledge ingestion is a complete-snapshot operation. `QDRANT_COLLECTION` is the stable
-logical alias; each build creates a new physical `*_v_<corpus-hash>` collection, computes lexical
-vocabulary/IDF from the full corpus, persists embedding and schema provenance, validates point
-count/schema, and atomically switches the alias. The active snapshot is never incrementally
-mutated or deleted by readiness/startup. Removed source documents disappear when the new snapshot
-is activated. Operators may inspect snapshots with `python -m scripts.rag_ingest list` and roll back
-with `python -m scripts.rag_ingest rollback <physical-collection>`; previous collections remain
-available until explicitly retired. A failed build or alias operation leaves the previous alias
-target authoritative.
+logical alias; each build creates a new physical `*_v_<snapshot-spec-hash-prefix>` collection.
+`corpus_hash` is the SHA-256 of canonical complete-corpus data. `snapshot_id`/`snapshot_spec_hash`
+is the SHA-256 of that corpus hash plus the embedding provider/model/dimension and the semantic
+dense/sparse, knowledge-schema, chunking, and lexical-index versions. This lets identical corpus
+contents coexist safely under different embedding/index specifications. The full spec hash is
+stored in provenance and the physical name uses only a 16-character prefix. Each build computes
+lexical vocabulary/IDF from the full corpus, persists embedding and schema provenance, validates
+point count/schema/spec identity, and atomically switches the alias. The active snapshot is never
+incrementally mutated or deleted by readiness/startup. Removed source documents disappear when the
+new snapshot is activated. Operators may inspect snapshots with `python -m scripts.rag_ingest list`
+and roll back with `python -m scripts.rag_ingest rollback <physical-collection>`; previous
+collections remain available until explicitly retired. A failed build or alias operation leaves
+the previous alias target authoritative. Legacy corpus-only collections without snapshot-spec
+provenance are rejected rather than silently reinterpreted. Rollback validates the target against
+the current runtime embedding provider/model and index specification; an embedding-model rollback
+therefore requires coordinated runtime configuration and alias changes. This repository provides
+artifact validation and atomic alias switching, not a deployment control plane for coordinating that
+rollout.
 Backend startup rejects disabled or local-demo
 authentication in production. Static opaque bearers are only the repository's current integration
 adapter, not a claim of production IAM; deployers must provide secret rotation/storage and their

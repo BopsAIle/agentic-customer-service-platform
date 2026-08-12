@@ -51,9 +51,9 @@ class LexicalIndex:
             values.append(counts[token] * idf)
         return indices, values
 
-    def to_metadata(self) -> dict[str, object]:
+    def to_metadata(self, *, version: int = LEXICAL_SCHEMA_VERSION) -> dict[str, object]:
         return {
-            "version": LEXICAL_SCHEMA_VERSION,
+            "version": version,
             "vocabulary": self.vocabulary,
             "inverse_document_frequency": self.inverse_document_frequency,
             "average_document_length": self.average_document_length,
@@ -61,10 +61,12 @@ class LexicalIndex:
         }
 
     @classmethod
-    def from_metadata(cls, metadata: object) -> LexicalIndex:
+    def from_metadata(
+        cls, metadata: object, *, expected_version: int = LEXICAL_SCHEMA_VERSION
+    ) -> LexicalIndex:
         if not isinstance(metadata, dict):
             raise ValueError("Qdrant lexical metadata is missing.")
-        if metadata.get("version") != LEXICAL_SCHEMA_VERSION:
+        if metadata.get("version") != expected_version:
             raise ValueError("Qdrant lexical metadata version is unsupported.")
         vocabulary = metadata.get("vocabulary")
         inverse_document_frequency = metadata.get("inverse_document_frequency")
