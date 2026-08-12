@@ -24,6 +24,7 @@ from app.rag.storage.qdrant import (
     CHUNKING_VERSION,
     KNOWLEDGE_SCHEMA_VERSION,
     QDRANT_DENSE_DISTANCE,
+    SNAPSHOT_BUILD_STATE_COMPLETE,
     SNAPSHOT_METADATA_KEY,
     SNAPSHOT_SPEC_VERSION,
     KnowledgeSnapshotSpec,
@@ -302,6 +303,7 @@ class QdrantKnowledgeBackend:
                 "corpus_hash",
                 "corpus_version",
                 "chunk_count",
+                "expected_chunk_count",
                 "embedding_provider",
                 "embedding_model",
                 "embedding_dimension",
@@ -312,8 +314,13 @@ class QdrantKnowledgeBackend:
                 "dense_distance",
                 "sparse_vector_name",
                 "created_at",
+                "build_state",
+                "completed_at",
             }
             if not required_provenance.issubset(provenance):
+                self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
+                return False
+            if provenance.get("build_state") != SNAPSHOT_BUILD_STATE_COMPLETE:
                 self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
                 return False
             raw_dimension = provenance.get("embedding_dimension")
@@ -357,6 +364,9 @@ class QdrantKnowledgeBackend:
                 self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
                 return False
             expected_point_count = provenance.get("chunk_count")
+            if provenance.get("expected_chunk_count") != expected_point_count:
+                self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
+                return False
             if not isinstance(expected_point_count, int) or expected_point_count < 1:
                 self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
                 return False

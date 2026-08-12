@@ -77,6 +77,10 @@ the same corpus/spec is idempotent, while model, dimension, schema, chunking, le
 corpus changes produce distinct physical collections. Full spec provenance is required for
 readiness, activation, and rollback; legacy corpus-only snapshots are rejected safely.
 
+Recovery tests cover partial inactive builds, failed-state retry/rebuild, complete snapshot reuse,
+active/unknown/full-hash collision protection, activation and rollback rejection for incomplete
+artifacts, deterministic identity across rebuilds, and complete-corpus lexical reconstruction.
+
 ### Docker Build and Scan
 
 CI validates `docker compose config`, builds both application images, and scans each image for

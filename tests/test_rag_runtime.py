@@ -27,8 +27,15 @@ from app.rag.retrieval.lexical import LEXICAL_METADATA_KEY, LEXICAL_VECTOR_NAME
 from app.rag.retrieval.service import build_knowledge_service
 from app.rag.schemas import DocumentChunk, RetrievedChunk
 from app.rag.storage.qdrant import (
+    SNAPSHOT_BUILD_STATE_BUILDING,
+    SNAPSHOT_BUILD_STATE_COMPLETE,
+    SNAPSHOT_BUILD_STATE_FAILED,
+    KnowledgeSnapshotSpec,
     QdrantKnowledgeStore,
+    _canonical_chunks,
+    _corpus_hash,
     build_dense_vector_params,
+    compute_snapshot_spec_hash,
 )
 from app.resilience.config import ResilienceConfig
 from evaluation.metrics.rag import evaluate_runtime_retrieval
@@ -481,6 +488,266 @@ def test_qdrant_snapshots_switch_atomically_and_support_rollback() -> None:
     store.rollback(first.collection_name)
     assert client.get_aliases().aliases[0].collection_name == first.collection_name
     assert client.get_collection("knowledge_current").points_count == 2
+
+
+def test_inactive_partial_snapshot_is_marked_failed_and_rebuilt_from_scratch(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.rag.storage.qdrant as qdrant_storage
+
+    monkeypatch.setattr(qdrant_storage, "SNAPSHOT_UPSERT_BATCH_SIZE", 2)
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    active = store.build_snapshot([snapshot_chunk("active", "active knowledge")])
+    chunks = [snapshot_chunk(str(index), f"knowledge {index}") for index in range(5)]
+    original_upsert = client.upsert
+    calls = 0
+
+    def fail_after_first_batch(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        if calls == 2:
+            raise RuntimeError("simulated qdrant dependency failure")
+        return original_upsert(*args, **kwargs)
+
+    client.upsert = fail_after_first_batch  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="simulated qdrant dependency failure"):
+        store.build_snapshot(chunks, activate=False)
+
+    failed_snapshot = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    # Recompute the deterministic target without relying on a build attempt to finish.
+    corpus_hash = _corpus_hash(_canonical_chunks(chunks))
+    spec = KnowledgeSnapshotSpec(
+        corpus_hash=corpus_hash,
+        embedding_provider="deterministic",
+        embedding_model="deterministic-deterministic",
+        embedding_dimension=8,
+        schema_version=2,
+        chunking_version=1,
+        lexical_index_version=1,
+    )
+    failed_name = f"knowledge_current_v_{compute_snapshot_spec_hash(spec)[:16]}"
+    failed_metadata = client.get_collection(failed_name).config.metadata
+    assert isinstance(failed_metadata, dict)
+    failed_provenance = failed_metadata["knowledge_snapshot"]
+    assert isinstance(failed_provenance, dict)
+    assert failed_provenance["build_state"] == SNAPSHOT_BUILD_STATE_FAILED
+    assert failed_provenance["expected_chunk_count"] == len(chunks)
+    assert client.get_aliases().aliases[0].collection_name == active.collection_name
+    with pytest.raises(RuntimeError, match="not complete"):
+        failed_snapshot.activate(failed_name)
+
+    client.upsert = original_upsert  # type: ignore[method-assign]
+    rebuilt = failed_snapshot.build_snapshot(chunks, activate=False)
+    assert rebuilt.collection_name == failed_name
+    assert rebuilt.snapshot_id == compute_snapshot_spec_hash(spec)
+    assert rebuilt.build_state == SNAPSHOT_BUILD_STATE_COMPLETE
+    assert client.get_collection(rebuilt.collection_name).points_count == len(chunks)
+    assert client.get_aliases().aliases[0].collection_name == active.collection_name
+    failed_snapshot.activate(rebuilt.collection_name)
+    assert client.get_aliases().aliases[0].collection_name == rebuilt.collection_name
+
+
+def test_complete_snapshot_is_reused_without_delete_or_reingest() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    chunks = [snapshot_chunk("reuse", "reusable knowledge")]
+    first = store.build_snapshot(chunks, activate=False)
+    original_delete = client.delete_collection
+    original_upsert = client.upsert
+    calls = 0
+
+    def fail_delete(*args: Any, **kwargs: Any) -> Any:
+        raise AssertionError("complete snapshot must not be deleted")
+
+    def count_upsert(*args: Any, **kwargs: Any) -> Any:
+        nonlocal calls
+        calls += 1
+        return original_upsert(*args, **kwargs)
+
+    client.delete_collection = fail_delete  # type: ignore[method-assign]
+    client.upsert = count_upsert  # type: ignore[method-assign]
+    repeated = store.build_snapshot(chunks, activate=False)
+    assert repeated.collection_name == first.collection_name
+    assert store.last_build_action == "reused"
+    assert calls == 0
+    client.delete_collection = original_delete  # type: ignore[method-assign]
+
+
+def test_active_incomplete_snapshot_is_never_rebuilt_or_deleted() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    chunks = [snapshot_chunk("active", "active knowledge")]
+    snapshot = store.build_snapshot(chunks)
+    metadata = client.get_collection(snapshot.collection_name).config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    provenance["build_state"] = SNAPSHOT_BUILD_STATE_FAILED
+    client.update_collection(collection_name=snapshot.collection_name, metadata=metadata)
+    deleted = False
+    original_delete = client.delete_collection
+
+    def track_delete(*args: Any, **kwargs: Any) -> Any:
+        nonlocal deleted
+        deleted = True
+        return original_delete(*args, **kwargs)
+
+    client.delete_collection = track_delete  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="active snapshot"):
+        store.build_snapshot(chunks, activate=False)
+    assert not deleted
+    assert client.collection_exists(snapshot.collection_name)
+    assert client.get_aliases().aliases[0].collection_name == snapshot.collection_name
+
+
+def test_unknown_collection_collision_is_never_deleted() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    chunks = [snapshot_chunk("collision", "collision knowledge")]
+    # Build once to obtain the deterministic managed name, then replace it with a foreign shape.
+    first = store.build_snapshot(chunks, activate=False)
+    client.delete_collection(first.collection_name)
+    client.create_collection(
+        collection_name=first.collection_name,
+        vectors_config=build_dense_vector_params(8),
+        sparse_vectors_config={},
+    )
+    deleted = False
+    original_delete = client.delete_collection
+
+    def track_delete(*args: Any, **kwargs: Any) -> Any:
+        nonlocal deleted
+        deleted = True
+        return original_delete(*args, **kwargs)
+
+    client.delete_collection = track_delete  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="without managed provenance"):
+        store.build_snapshot(chunks, activate=False)
+    assert not deleted
+    assert client.collection_exists(first.collection_name)
+
+
+def test_full_snapshot_hash_mismatch_is_never_deleted() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    chunks = [snapshot_chunk("hash", "hash collision knowledge")]
+    first = store.build_snapshot(chunks, activate=False)
+    metadata = client.get_collection(first.collection_name).config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    provenance["snapshot_id"] = "0" * 64
+    provenance["snapshot_spec_hash"] = "0" * 64
+    client.update_collection(collection_name=first.collection_name, metadata=metadata)
+    deleted = False
+    original_delete = client.delete_collection
+
+    def track_delete(*args: Any, **kwargs: Any) -> Any:
+        nonlocal deleted
+        deleted = True
+        return original_delete(*args, **kwargs)
+
+    client.delete_collection = track_delete  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError, match="incompatible provenance"):
+        store.build_snapshot(chunks, activate=False)
+    assert not deleted
+    assert client.collection_exists(first.collection_name)
+
+
+def test_legacy_lifecycle_metadata_is_rebuilt_only_when_inactive() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    chunks = [snapshot_chunk("legacy", "legacy lifecycle metadata")]
+    first = store.build_snapshot(chunks, activate=False)
+    metadata = client.get_collection(first.collection_name).config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    provenance.pop("build_state")
+    provenance.pop("completed_at")
+    provenance.pop("expected_chunk_count")
+    client.update_collection(collection_name=first.collection_name, metadata=metadata)
+
+    rebuilt = store.build_snapshot(chunks, activate=False)
+
+    assert rebuilt.collection_name == first.collection_name
+    assert rebuilt.snapshot_id == first.snapshot_id
+    assert rebuilt.build_state == SNAPSHOT_BUILD_STATE_COMPLETE
+
+
+def test_final_validation_failure_leaves_snapshot_incomplete_and_retryable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    chunks = [snapshot_chunk("validation", "validation failure knowledge")]
+    original_validate = store.validate_snapshot
+
+    def fail_initial_validation(snapshot: Any, *, require_complete: bool = True) -> None:
+        if not require_complete:
+            raise RuntimeError("simulated final validation failure")
+        original_validate(snapshot, require_complete=require_complete)
+
+    monkeypatch.setattr(store, "validate_snapshot", fail_initial_validation)
+    with pytest.raises(RuntimeError, match="simulated final validation failure"):
+        store.build_snapshot(chunks, activate=False)
+
+    records = store.list_snapshots()
+    assert len(records) == 1
+    assert records[0]["build_state"] == SNAPSHOT_BUILD_STATE_FAILED
+    with pytest.raises(RuntimeError, match="not complete"):
+        store.activate(str(records[0]["collection_name"]))
+
+    monkeypatch.setattr(store, "validate_snapshot", original_validate)
+    rebuilt = store.build_snapshot(chunks, activate=False)
+    assert rebuilt.build_state == SNAPSHOT_BUILD_STATE_COMPLETE
+
+
+def test_activation_and_rollback_reject_building_snapshot() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    snapshot = store.build_snapshot([snapshot_chunk("state", "state knowledge")], activate=False)
+    metadata = client.get_collection(snapshot.collection_name).config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    provenance["build_state"] = SNAPSHOT_BUILD_STATE_BUILDING
+    provenance.pop("completed_at", None)
+    client.update_collection(collection_name=snapshot.collection_name, metadata=metadata)
+
+    with pytest.raises(RuntimeError, match="not complete"):
+        store.activate(snapshot.collection_name)
+    with pytest.raises(RuntimeError, match="not complete"):
+        store.rollback(snapshot.collection_name)
+    assert not client.get_aliases().aliases
+
+
+def test_building_snapshot_rejects_concurrent_rebuild() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore("unused", "knowledge_current", provider, client=client)
+    chunks = [snapshot_chunk("concurrent", "concurrent build knowledge")]
+    snapshot = store.build_snapshot(chunks, activate=False)
+    metadata = client.get_collection(snapshot.collection_name).config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    provenance["build_state"] = SNAPSHOT_BUILD_STATE_BUILDING
+    provenance.pop("completed_at", None)
+    client.update_collection(collection_name=snapshot.collection_name, metadata=metadata)
+
+    with pytest.raises(RuntimeError, match="already building"):
+        store.build_snapshot(chunks, activate=False)
+    assert client.collection_exists(snapshot.collection_name)
 
 
 def test_same_corpus_different_embedding_models_have_distinct_snapshots() -> None:

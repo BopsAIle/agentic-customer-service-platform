@@ -220,6 +220,21 @@ the current runtime embedding provider/model and index specification; an embeddi
 therefore requires coordinated runtime configuration and alias changes. This repository provides
 artifact validation and atomic alias switching, not a deployment control plane for coordinating that
 rollout.
+
+Snapshot provenance also records `build_state` and `expected_chunk_count`. New builds remain
+`building` until the full dense/sparse collection, lexical metadata, exact point count, schema, and
+snapshot provenance validate; only then are they marked `complete` and eligible for alias activation
+or rollback. A normal retry after a failed build marks the exact inactive managed artifact failed,
+deletes only that artifact, and rebuilds the complete corpus from scratch. Complete compatible
+artifacts are reused without re-ingestion.
+
+Active snapshots are immutable: an invalid or incomplete active target causes readiness/activation
+to fail and is never automatically deleted or repaired. A collection with missing, foreign, or
+full-hash-mismatched provenance is a collision and is never deleted automatically. Concurrent
+independent builders for the same deterministic snapshot are not a supported operating mode; a
+visible `building` artifact is rejected so a competing builder cannot destroy it. Operators or CI
+should serialize snapshot builds; an interrupted process may require explicit operator cleanup or
+retry after confirming the artifact is no longer being built.
 Backend startup rejects disabled or local-demo
 authentication in production. Static opaque bearers are only the repository's current integration
 adapter, not a claim of production IAM; deployers must provide secret rotation/storage and their

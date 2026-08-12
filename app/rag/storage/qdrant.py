@@ -3,10 +3,10 @@ from __future__ import annotations
 import hashlib
 import json
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
-from uuid import NAMESPACE_URL, uuid5
+from uuid import NAMESPACE_URL, uuid4, uuid5
 
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.retrieval.lexical import (
@@ -21,6 +21,9 @@ from app.rag.schemas import DocumentChunk
 QDRANT_DENSE_DISTANCE = "Cosine"
 SNAPSHOT_METADATA_KEY = "knowledge_snapshot"
 SNAPSHOT_SPEC_VERSION = 1
+SNAPSHOT_BUILD_STATE_BUILDING = "building"
+SNAPSHOT_BUILD_STATE_FAILED = "failed"
+SNAPSHOT_BUILD_STATE_COMPLETE = "complete"
 KNOWLEDGE_SCHEMA_VERSION = 2
 CHUNKING_VERSION = 1
 SNAPSHOT_UPSERT_BATCH_SIZE = 128
@@ -41,6 +44,7 @@ class KnowledgeSnapshot:
     lexical_index_version: int
     lexical_index_hash: str
     created_at: str
+    build_state: str
 
 
 @dataclass(frozen=True)
@@ -136,6 +140,7 @@ class QdrantKnowledgeStore:
         self.chunking_version = chunking_version
         self.lexical_index_version = lexical_index_version
         self.timeout_seconds = timeout_seconds
+        self.last_build_action = "none"
 
     def upsert(self, chunks: Sequence[DocumentChunk]) -> int:
         """Compatibility entry point: always builds and activates a complete snapshot."""
@@ -183,6 +188,7 @@ class QdrantKnowledgeStore:
         snapshot_id = snapshot_spec_hash
         physical_name = f"{self.collection_name}_v_{snapshot_spec_hash[:16]}"
         created_at = datetime.now(UTC).isoformat()
+        build_id = str(uuid4())
         provenance = {
             "snapshot_id": snapshot_id,
             "snapshot_spec_hash": snapshot_spec_hash,
@@ -190,6 +196,7 @@ class QdrantKnowledgeStore:
             "corpus_hash": corpus_hash,
             "corpus_version": corpus_hash,
             "chunk_count": len(canonical_chunks),
+            "expected_chunk_count": len(canonical_chunks),
             "embedding_provider": self.embedding_provider_name,
             "embedding_model": self.embedding_model,
             "embedding_dimension": dimension,
@@ -200,22 +207,68 @@ class QdrantKnowledgeStore:
             "dense_distance": QDRANT_DENSE_DISTANCE,
             "sparse_vector_name": LEXICAL_VECTOR_NAME,
             "created_at": created_at,
+            "build_state": SNAPSHOT_BUILD_STATE_BUILDING,
+            "build_id": build_id,
         }
 
         if self.client.collection_exists(physical_name):
             existing = _collection_metadata(self.client.get_collection(physical_name))
             existing_provenance = existing.get(SNAPSHOT_METADATA_KEY)
-            if not isinstance(existing_provenance, dict) or not _same_provenance(
-                existing_provenance, provenance
-            ):
+            if not isinstance(existing_provenance, dict):
+                raise RuntimeError(
+                    "A physical snapshot collection exists without managed provenance; "
+                    "refusing automatic deletion."
+                )
+            if not _same_provenance(existing_provenance, provenance):
                 raise RuntimeError(
                     "A physical snapshot collection already exists with incompatible provenance."
                 )
-            provenance = existing_provenance
-            created_at = str(existing_provenance.get("created_at", created_at))
+            existing_state = existing_provenance.get("build_state")
+            active_collection = _alias_target(self.client, self.collection_name)
+            if existing_state == SNAPSHOT_BUILD_STATE_BUILDING:
+                raise RuntimeError(
+                    "The requested snapshot is already building; refusing a concurrent rebuild."
+                )
+            if existing_state == SNAPSHOT_BUILD_STATE_COMPLETE:
+                existing_snapshot = _snapshot_from_collection(self.client, physical_name)
+                try:
+                    self.validate_snapshot(existing_snapshot)
+                except Exception as error:
+                    if active_collection == physical_name:
+                        raise RuntimeError(
+                            "The active snapshot is invalid; refusing automatic rebuild."
+                        ) from error
+                    self._delete_inactive_managed_snapshot(
+                        physical_name, existing_provenance, provenance
+                    )
+                    self.last_build_action = "rebuilt"
+                else:
+                    self.last_build_action = "reused"
+                    if activate and active_collection != physical_name:
+                        self.activate(physical_name)
+                    return existing_snapshot
+            elif existing_state == SNAPSHOT_BUILD_STATE_FAILED:
+                if active_collection == physical_name:
+                    raise RuntimeError("The active snapshot is failed; refusing automatic rebuild.")
+                self._delete_inactive_managed_snapshot(
+                    physical_name, existing_provenance, provenance
+                )
+                self.last_build_action = "rebuilt"
+            else:
+                if active_collection == physical_name:
+                    raise RuntimeError(
+                        "The active snapshot has incomplete provenance; refusing automatic rebuild."
+                    )
+                self._delete_inactive_managed_snapshot(
+                    physical_name, existing_provenance, provenance
+                )
+                self.last_build_action = "rebuilt"
         else:
-            from qdrant_client.http import models
+            self.last_build_action = "created"
 
+        from qdrant_client.http import models
+
+        try:
             self.client.create_collection(
                 collection_name=physical_name,
                 vectors_config=build_dense_vector_params(dimension),
@@ -241,6 +294,9 @@ class QdrantKnowledgeStore:
                     points=points[offset : offset + SNAPSHOT_UPSERT_BATCH_SIZE],
                     timeout=_native_timeout(self.timeout_seconds),
                 )
+        except Exception:
+            self._mark_build_failed(physical_name, provenance)
+            raise
 
         snapshot = KnowledgeSnapshot(
             snapshot_id=snapshot_id,
@@ -256,13 +312,29 @@ class QdrantKnowledgeStore:
             lexical_index_version=self.lexical_index_version,
             lexical_index_hash=lexical_index_hash,
             created_at=created_at,
+            build_state=SNAPSHOT_BUILD_STATE_BUILDING,
         )
-        self.validate_snapshot(snapshot)
+        try:
+            self.validate_snapshot(snapshot, require_complete=False)
+            completed_at = datetime.now(UTC).isoformat()
+            provenance = {
+                **provenance,
+                "build_state": SNAPSHOT_BUILD_STATE_COMPLETE,
+                "completed_at": completed_at,
+            }
+            self._update_provenance(physical_name, provenance)
+            snapshot = replace(snapshot, build_state=SNAPSHOT_BUILD_STATE_COMPLETE)
+            self.validate_snapshot(snapshot)
+        except Exception:
+            self._mark_build_failed(physical_name, provenance)
+            raise
         if activate:
             self.activate(snapshot.collection_name)
         return snapshot
 
-    def validate_snapshot(self, snapshot: KnowledgeSnapshot) -> None:
+    def validate_snapshot(
+        self, snapshot: KnowledgeSnapshot, *, require_complete: bool = True
+    ) -> None:
         collection = self.client.get_collection(snapshot.collection_name)
         metadata = _collection_metadata(collection)
         provenance = metadata.get(SNAPSHOT_METADATA_KEY)
@@ -286,6 +358,7 @@ class QdrantKnowledgeStore:
             "snapshot_spec_version",
             "corpus_hash",
             "chunk_count",
+            "expected_chunk_count",
             "embedding_provider",
             "embedding_model",
             "embedding_dimension",
@@ -296,9 +369,26 @@ class QdrantKnowledgeStore:
             "dense_distance",
             "sparse_vector_name",
             "created_at",
+            "build_state",
         }
         if not required_provenance.issubset(provenance):
             raise RuntimeError("Qdrant snapshot provenance validation failed.")
+        build_state = provenance.get("build_state")
+        if build_state not in {
+            SNAPSHOT_BUILD_STATE_BUILDING,
+            SNAPSHOT_BUILD_STATE_FAILED,
+            SNAPSHOT_BUILD_STATE_COMPLETE,
+        }:
+            raise RuntimeError("Qdrant snapshot build state is invalid.")
+        if require_complete and build_state != SNAPSHOT_BUILD_STATE_COMPLETE:
+            raise RuntimeError("Qdrant snapshot is not complete.")
+        if (
+            provenance.get("expected_chunk_count") != snapshot.chunk_count
+            or provenance.get("chunk_count") != snapshot.chunk_count
+        ):
+            raise RuntimeError("Qdrant snapshot provenance validation failed.")
+        if require_complete and not isinstance(provenance.get("completed_at"), str):
+            raise RuntimeError("Qdrant snapshot completion provenance is missing.")
         expected_provenance = {
             "snapshot_id": snapshot.snapshot_id,
             "snapshot_spec_hash": expected_spec_hash,
@@ -313,6 +403,7 @@ class QdrantKnowledgeStore:
             "chunking_version": snapshot.chunking_version,
             "dense_distance": QDRANT_DENSE_DISTANCE,
             "sparse_vector_name": LEXICAL_VECTOR_NAME,
+            "build_state": snapshot.build_state,
         }
         if any(provenance.get(key) != value for key, value in expected_provenance.items()):
             raise RuntimeError("Qdrant snapshot provenance validation failed.")
@@ -323,8 +414,6 @@ class QdrantKnowledgeStore:
             or lexical_metadata.get("version") != snapshot.lexical_index_version
         ):
             raise RuntimeError("Qdrant snapshot lexical provenance validation failed.")
-        if provenance.get("chunk_count") != snapshot.chunk_count:
-            raise RuntimeError("Qdrant snapshot provenance validation failed.")
         point_count = _field(collection, "points_count")
         if not isinstance(point_count, int) or point_count != snapshot.chunk_count:
             raise RuntimeError("Qdrant snapshot point-count validation failed.")
@@ -408,6 +497,7 @@ class QdrantKnowledgeStore:
                 lexical_index_version=int(provenance["lexical_index_version"]),
                 lexical_index_hash=str(provenance["lexical_index_hash"]),
                 created_at=str(provenance["created_at"]),
+                build_state=str(provenance["build_state"]),
             )
         except (KeyError, TypeError, ValueError) as error:
             raise ValueError("Rollback target has invalid snapshot provenance.") from error
@@ -438,6 +528,54 @@ class QdrantKnowledgeStore:
 
     def close(self) -> None:
         self.client.close()
+
+    def _update_provenance(self, physical_collection: str, provenance: dict[str, object]) -> None:
+        metadata = _collection_metadata(self.client.get_collection(physical_collection))
+        metadata[SNAPSHOT_METADATA_KEY] = provenance
+        self.client.update_collection(
+            collection_name=physical_collection,
+            metadata=metadata,
+            timeout=_native_timeout(self.timeout_seconds),
+        )
+
+    def _mark_build_failed(
+        self, physical_collection: str, expected_provenance: dict[str, object]
+    ) -> None:
+        try:
+            if not self.client.collection_exists(physical_collection):
+                return
+            if _alias_target(self.client, self.collection_name) == physical_collection:
+                return
+            existing = _collection_metadata(self.client.get_collection(physical_collection)).get(
+                SNAPSHOT_METADATA_KEY
+            )
+            if not isinstance(existing, dict) or not _same_provenance(
+                existing, expected_provenance
+            ):
+                return
+            if existing.get("build_id") != expected_provenance.get("build_id"):
+                return
+            self._update_provenance(
+                physical_collection,
+                {**existing, "build_state": SNAPSHOT_BUILD_STATE_FAILED},
+            )
+        except Exception:
+            return
+
+    def _delete_inactive_managed_snapshot(
+        self,
+        physical_collection: str,
+        existing_provenance: dict[str, object],
+        expected_provenance: dict[str, object],
+    ) -> None:
+        if _alias_target(self.client, self.collection_name) == physical_collection:
+            raise RuntimeError("Refusing to delete the active Qdrant snapshot.")
+        if not _same_provenance(existing_provenance, expected_provenance):
+            raise RuntimeError("Qdrant snapshot provenance conflict; refusing automatic deletion.")
+        self.client.delete_collection(
+            collection_name=physical_collection,
+            timeout=_native_timeout(self.timeout_seconds),
+        )
 
     def _physical_collection_exists_without_alias(self) -> bool:
         return (
@@ -470,8 +608,18 @@ def _metadata_hash(metadata: dict[str, object]) -> str:
 
 
 def _same_provenance(first: dict[str, object], second: dict[str, object]) -> bool:
-    return {key: value for key, value in first.items() if key != "created_at"} == {
-        key: value for key, value in second.items() if key != "created_at"
+    # Lifecycle fields may be absent on a Fix 15 collection. The semantic
+    # snapshot identity and corpus size still have to match before recovery is
+    # allowed; lifecycle metadata is repaired by the rebuild.
+    ignored = {
+        "build_id",
+        "created_at",
+        "completed_at",
+        "build_state",
+        "expected_chunk_count",
+    }
+    return {key: value for key, value in first.items() if key not in ignored} == {
+        key: value for key, value in second.items() if key not in ignored
     }
 
 
@@ -495,6 +643,7 @@ def _snapshot_from_collection(client: Any, collection_name: str) -> KnowledgeSna
             lexical_index_version=int(provenance["lexical_index_version"]),
             lexical_index_hash=str(provenance["lexical_index_hash"]),
             created_at=str(provenance["created_at"]),
+            build_state=str(provenance["build_state"]),
         )
     except (KeyError, TypeError, ValueError) as error:
         raise ValueError("Qdrant collection has invalid snapshot provenance.") from error

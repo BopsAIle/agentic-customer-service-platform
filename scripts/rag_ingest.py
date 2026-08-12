@@ -1,4 +1,5 @@
 import argparse
+import sys
 from pathlib import Path
 
 import app as app_package
@@ -44,7 +45,9 @@ def main() -> None:
                     f"{snapshot_record.get('collection_name')} "
                     f"snapshot={snapshot_record.get('snapshot_id')} "
                     f"active={snapshot_record.get('active')} "
+                    f"state={snapshot_record.get('build_state')} "
                     f"points={snapshot_record.get('points_count')} "
+                    f"expected={snapshot_record.get('expected_chunk_count')} "
                     f"corpus={snapshot_record.get('corpus_hash')} "
                     f"embedding={snapshot_record.get('embedding_provider')}/"
                     f"{snapshot_record.get('embedding_model')} "
@@ -62,12 +65,21 @@ def main() -> None:
                 f"{settings.qdrant_collection}."
             )
             return
-        snapshot = store.build_snapshot(chunks, activate=True)
+        try:
+            snapshot = store.build_snapshot(chunks, activate=True)
+        except Exception as error:
+            print(
+                "Snapshot build/activation failed; the previous active alias was preserved "
+                "when activation could not complete.",
+                file=sys.stderr,
+            )
+            raise SystemExit(1) from error
         count = snapshot.chunk_count
     finally:
         store.close()
     print(
-        f"Built snapshot {snapshot.snapshot_id} with {count} chunks and activated "
+        f"Snapshot {snapshot.snapshot_id} {store.last_build_action} with {count} chunks "
+        "and activated "
         f"{settings.qdrant_collection} using "
         f"{settings.embedding_provider}/{settings.embedding_model}; "
         f"corpus={snapshot.corpus_hash}; physical={snapshot.collection_name}."

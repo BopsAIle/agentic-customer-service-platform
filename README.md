@@ -160,6 +160,13 @@ the full stored spec hash and runtime embedding compatibility. Legacy corpus-onl
 spec provenance are incompatible and require a controlled rebuild; they are never silently reused.
 Rollback across embedding-model versions also requires coordinated runtime embedding configuration.
 
+Snapshot builds record a safe Qdrant `build_state` (`building`, `failed`, or `complete`) and the
+expected point count in provenance. A retry can fully rebuild an exact, managed, inactive failed or
+incomplete snapshot; complete compatible snapshots are validated and reused. Active snapshots are
+never automatically repaired or deleted, and collections without matching managed provenance are
+treated as collisions rather than deletion candidates. This is deterministic operator-triggered
+rebuild/recovery, not background self-healing or automated snapshot pruning.
+
 ### Business Tools
 
 The explicit tool registry currently includes:
