@@ -132,6 +132,15 @@ and idempotency never consult it. The optional in-memory adapter is bounded and 
 tests/lightweight local runs. Database retention and pruning remain an operator responsibility;
 this is not a compliance-grade immutable ledger.
 
+The audit lifecycle covers every agent-originated mutating tool without persisting tool arguments
+or business free text. Risk 1 records policy allow, execution attempt, and success/failure/unknown
+outcome. Risk 2 records confirmation, revalidation, and the same execution outcomes. Risk 3 records
+the human-required policy decision plus the actual escalation persistence outcome. Execution event
+IDs are deterministic for a run/action/stage/outcome, so replayed observations do not create an
+unbounded duplicate trail. Audit is persisted before a protected write is attempted; audit and the
+business mutation are not one distributed transaction, so idempotency receipts remain authoritative
+when post-commit audit evidence is unavailable.
+
 Qdrant knowledge is deployed as immutable, versioned hybrid snapshots. The logical
 `QDRANT_COLLECTION` name is an atomic alias (for example, `customer_service_knowledge`) pointing
 to a physical `*_v_<snapshot>` collection. `scripts.rag_ingest` builds the complete corpus,

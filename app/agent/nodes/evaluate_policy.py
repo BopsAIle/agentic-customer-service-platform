@@ -7,7 +7,7 @@ from app.observability.metrics import get_metrics
 from app.observability.tracing import span
 from app.policies.confirmation import Clock
 from app.policies.engine import PolicyEngine
-from app.policies.models import PolicyAuditEvent, PolicyOutcome
+from app.policies.models import PolicyAuditEvent, PolicyOutcome, stable_policy_event_id
 from app.policies.repository import PolicyAuditRepository
 from app.resilience.errors import FailureCategory
 
@@ -56,6 +56,9 @@ def make_evaluate_policy_node(
         action_id = state.get("action_id") or f"act_{uuid4().hex}"
         audit_repository.append(
             PolicyAuditEvent(
+                event_id=stable_policy_event_id(
+                    state["agent_run_id"], action_id, "policy_evaluation", decision.outcome.value
+                ),
                 agent_run_id=state["agent_run_id"],
                 request_id=context.request_id,
                 conversation_id=context.conversation_id,

@@ -10,7 +10,13 @@ from app.agent.state import AgentState
 from app.agent.tool_catalog import get_agent_tool_definition
 from app.observability.tracing import span
 from app.policies.confirmation import Clock, belongs_to_context
-from app.policies.models import PendingAction, PendingActionStatus, PolicyAuditEvent, PolicyOutcome
+from app.policies.models import (
+    PendingAction,
+    PendingActionStatus,
+    PolicyAuditEvent,
+    PolicyOutcome,
+    stable_policy_event_id,
+)
 from app.policies.repository import PolicyAuditRepository
 from app.tools.base import ToolError
 from app.tools.orders import CancelOrderInput, validate_cancel_order
@@ -56,6 +62,12 @@ def _record_revalidation_event(
     allowed = result.get("error_category") is None
     audit_repository.append(
         PolicyAuditEvent(
+            event_id=stable_policy_event_id(
+                state["agent_run_id"],
+                action.action_id,
+                "policy_revalidation",
+                "allow" if allowed else "deny",
+            ),
             agent_run_id=state["agent_run_id"],
             request_id=context.request_id,
             conversation_id=context.conversation_id,

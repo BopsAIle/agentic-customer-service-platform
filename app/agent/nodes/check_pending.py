@@ -11,7 +11,12 @@ from app.policies.confirmation import (
     parse_confirmation,
     transition,
 )
-from app.policies.models import PendingActionStatus, PolicyAuditEvent, PolicyOutcome
+from app.policies.models import (
+    PendingActionStatus,
+    PolicyAuditEvent,
+    PolicyOutcome,
+    stable_policy_event_id,
+)
 from app.policies.repository import PolicyAuditRepository
 
 
@@ -47,6 +52,9 @@ def _record_confirmation_event(
         return
     audit_repository.append(
         PolicyAuditEvent(
+            event_id=stable_policy_event_id(
+                state["agent_run_id"], action.action_id, "confirmation", str(status)
+            ),
             agent_run_id=state["agent_run_id"],
             request_id=context.request_id,
             conversation_id=context.conversation_id,

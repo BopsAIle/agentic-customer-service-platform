@@ -57,8 +57,10 @@ deterministic harness and do not claim live-model accuracy.
 
 Integration Compose also forces PostgreSQL policy audit storage. The authenticated lifecycle smoke
 checks that policy evidence remains queryable after backend restart, is bounded and safely scoped,
-and contains no prompts, credentials, memory content, or raw business payloads. Audit persistence
-is observational and does not authorize or replay business actions.
+and contains no prompts, credentials, memory content, or raw business payloads. The focused audit
+matrix covers direct Risk-1 writes, confirmed Risk-2 writes, and Risk-3 escalation persistence,
+including failure and unknown outcomes. Audit persistence is observational and does not authorize
+or replay business actions; business idempotency remains the retry authority.
 
 The integration bootstrap builds a complete versioned Qdrant snapshot and atomically activates the
 logical knowledge alias before backend readiness. This keeps the deterministic hybrid lexical

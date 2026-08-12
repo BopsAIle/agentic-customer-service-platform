@@ -167,7 +167,14 @@ gateway, or enterprise login.
 It forces `POLICY_AUDIT_BACKEND=postgres`; production policy audit is a durable, bounded operational
 evidence trail. Audit rows contain structured policy lifecycle metadata only and are never used as
 an authorization or business-state source. Configure database retention/pruning operationally;
-the application does not claim immutable compliance-ledger guarantees.
+the application does not claim immutable compliance-ledger guarantees. Every agent-originated
+business write has policy and execution evidence: Risk 1 records allow plus execution outcome,
+Risk 2 records confirmation/revalidation plus execution outcome, and Risk 3 records the actual
+escalation persistence outcome. Execution outcomes distinguish success, failure, and unknown.
+Audit is written before a protected write is attempted, but audit persistence and the business
+mutation are not one atomic distributed transaction; idempotency receipts and business invariants
+remain authoritative for post-commit reconciliation. Raw prompts, tool payloads, and business free
+text are excluded from audit rows.
 
 Operator Console agent-run projections use the `agent_run_projections` PostgreSQL table in
 integration and production. They are a bounded, durable read model for inspection: a backend restart

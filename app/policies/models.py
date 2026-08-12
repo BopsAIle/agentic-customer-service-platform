@@ -1,3 +1,4 @@
+import hashlib
 from datetime import datetime
 from enum import StrEnum
 from typing import Any
@@ -64,3 +65,13 @@ class PolicyAuditEvent(BaseModel):
     confirmation_status: str | None = None
     revalidation: bool = False
     execution_status: str | None = None
+
+
+def stable_policy_event_id(
+    agent_run_id: str, action_id: str | None, stage: str, marker: str
+) -> str:
+    """Build an idempotent identity for one lifecycle observation."""
+
+    identity = "|".join((agent_run_id, action_id or "no-action", stage, marker))
+    digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+    return f"audit_{digest}"

@@ -351,7 +351,12 @@ def build_graph(
     )
     graph.add_node(
         "execute_human_escalation",
-        cast(Any, _instrument_node("escalate", make_human_escalation_node(session))),
+        cast(
+            Any,
+            _instrument_node(
+                "escalate", make_human_escalation_node(session, audit_repository, clock)
+            ),
+        ),
     )
     graph.add_node(
         "retrieve_knowledge",
