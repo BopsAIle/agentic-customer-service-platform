@@ -438,6 +438,11 @@ LLM_MODEL=qwen2.5:7b \
 LLM_API_KEY=ollama
 ```
 
+The OpenAI-compatible provider also accepts the optional `LLM_REASONING_EFFORT` setting with
+`none`, `low`, `medium`, or `high`. When unset, no reasoning override is sent and the provider's
+default behavior is preserved. For example, a local model can be run with
+`LLM_REASONING_EFFORT=none`; this is an opt-in provider setting, not a production recommendation.
+
 For the Compose backend on macOS, set `COMPOSE_LLM_BASE_URL=http://host.docker.internal:11434/v1`.
 The live smoke is opt-in and non-deterministic; `qwen2.5:7b` is a development baseline, not a
 production recommendation. Deterministic integration mode remains the default for CI and the

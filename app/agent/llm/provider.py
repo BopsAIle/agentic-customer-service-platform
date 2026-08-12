@@ -16,18 +16,23 @@ _PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "system.txt"
 class OpenAICompatibleProvider(StructuredDecisionProvider):
     def __init__(self, settings: Settings) -> None:
         self._system_prompt = _PROMPT_PATH.read_text(encoding="utf-8")
-        self._model = ChatOpenAI(
-            model=settings.llm_model,
-            base_url=settings.llm_base_url,
-            api_key=settings.llm_api_key or "not-needed",
-            temperature=settings.llm_temperature,
-            timeout=httpx.Timeout(
+        model_kwargs: dict[str, object] = {
+            "model": settings.llm_model,
+            "base_url": settings.llm_base_url,
+            "api_key": settings.llm_api_key or "not-needed",
+            "temperature": settings.llm_temperature,
+            "timeout": httpx.Timeout(
                 connect=settings.llm_connect_timeout_seconds,
                 read=settings.llm_timeout_seconds,
                 write=settings.llm_timeout_seconds,
                 pool=settings.llm_connect_timeout_seconds,
             ),
-            max_retries=0,
+            "max_retries": 0,
+        }
+        if settings.llm_reasoning_effort is not None:
+            model_kwargs["reasoning_effort"] = settings.llm_reasoning_effort
+        self._model = ChatOpenAI(
+            **model_kwargs,
         ).with_structured_output(StructuredDecision)
 
     def decide(

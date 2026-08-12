@@ -1,8 +1,9 @@
 import json
 from enum import StrEnum
 from functools import lru_cache
+from typing import Literal
 
-from pydantic import Field, SecretStr, ValidationError, model_validator
+from pydantic import Field, SecretStr, ValidationError, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.auth.models import Principal
@@ -19,6 +20,9 @@ class LLMProvider(StrEnum):
     DETERMINISTIC_INTEGRATION = "deterministic_integration"
 
 
+LLMReasoningEffort = Literal["none", "low", "medium", "high"]
+
+
 class Settings(BaseSettings):
     app_name: str = Field(default="Agentic Customer Service Platform")
     app_env: str = Field(default="development")
@@ -31,6 +35,7 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:11434/v1"
     llm_api_key: str | None = None
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    llm_reasoning_effort: LLMReasoningEffort | None = None
     llm_connect_timeout_seconds: float = Field(default=5.0, gt=0.0)
     llm_timeout_seconds: float = Field(default=30.0, gt=0.0)
     confirmation_ttl_seconds: int = Field(default=300, gt=0)
@@ -86,6 +91,11 @@ class Settings(BaseSettings):
     agent_run_projection_query_limit: int = Field(default=50, gt=0, le=100)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+
+    @field_validator("llm_reasoning_effort", mode="before")
+    @classmethod
+    def normalize_empty_reasoning_effort(cls, value: object) -> object:
+        return None if value == "" else value
 
     @model_validator(mode="after")
     def validate_authentication_mode(self) -> "Settings":

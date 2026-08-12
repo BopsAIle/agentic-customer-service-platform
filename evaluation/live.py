@@ -88,6 +88,7 @@ def _local_settings(args: argparse.Namespace) -> Settings:
         llm_base_url=args.base_url,
         llm_api_key=args.api_key or "ollama",
         llm_temperature=args.temperature,
+        llm_reasoning_effort=args.reasoning_effort,
         llm_connect_timeout_seconds=args.connect_timeout,
         llm_timeout_seconds=args.timeout,
         checkpoint_backend="memory",
@@ -396,6 +397,12 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--timeout", type=float, default=30.0)
     parser.add_argument("--connect-timeout", type=float, default=5.0)
     parser.add_argument("--temperature", type=float, default=0.0)
+    parser.add_argument(
+        "--reasoning-effort",
+        choices=["none", "low", "medium", "high"],
+        default=None,
+        help="Optional OpenAI-compatible reasoning effort override.",
+    )
     return parser
 
 
@@ -421,12 +428,17 @@ def _run(args: argparse.Namespace) -> int:
         "turkish_cases": case_metadata["turkish_cases"],
         "runs_per_case": args.runs_per_case,
         "temperature": args.temperature,
+        "reasoning_effort": args.reasoning_effort,
         "timeout_seconds": args.timeout,
         "warmup_performed": True,
         "usage_available": False,
         "cost": "local_not_applicable",
         "layer": args.layer,
-        "thinking_mode": "provider_default_unspecified",
+        "thinking_mode": (
+            "provider_default_unspecified"
+            if args.reasoning_effort is None
+            else "explicit_reasoning_effort"
+        ),
         **_prompt_metadata(),
     }
     report = build_report(attempts, metadata=metadata, safety=safety)

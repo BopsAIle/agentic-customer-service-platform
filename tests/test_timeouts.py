@@ -145,6 +145,54 @@ def test_llm_http_client_has_explicit_connect_and_request_timeouts(
     assert captured["max_retries"] == 0
 
 
+@pytest.mark.parametrize("effort", ["none", "low", "medium", "high"])
+def test_llm_reasoning_effort_is_forwarded_when_configured(
+    monkeypatch: pytest.MonkeyPatch, effort: str
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def with_structured_output(self, schema: object) -> object:
+            del schema
+            return object()
+
+    monkeypatch.setattr("app.agent.llm.provider.ChatOpenAI", FakeChatOpenAI)
+    OpenAICompatibleProvider(Settings(llm_reasoning_effort=effort))
+
+    assert captured["reasoning_effort"] == effort
+
+
+def test_llm_reasoning_effort_is_omitted_when_unset(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def with_structured_output(self, schema: object) -> object:
+            del schema
+            return object()
+
+    monkeypatch.setattr("app.agent.llm.provider.ChatOpenAI", FakeChatOpenAI)
+    OpenAICompatibleProvider(Settings())
+
+    assert "reasoning_effort" not in captured
+
+
+def test_invalid_llm_reasoning_effort_fails_settings_validation() -> None:
+    with pytest.raises(ValueError):
+        Settings(llm_reasoning_effort="extreme")
+
+
+def test_empty_llm_reasoning_effort_is_treated_as_unset() -> None:
+    assert Settings(llm_reasoning_effort="").llm_reasoning_effort is None
+
+
 def test_qdrant_http_client_has_an_explicit_request_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

@@ -139,6 +139,8 @@ For an optional local provider smoke with Ollama, install the development baseli
 and configure the host process with `LLM_PROVIDER=openai_compatible`,
 `LLM_BASE_URL=http://localhost:11434/v1`, `LLM_MODEL=qwen2.5:7b`, and `LLM_API_KEY=ollama`.
 Compose on macOS reaches the host through `COMPOSE_LLM_BASE_URL=http://host.docker.internal:11434/v1`.
+The optional `LLM_REASONING_EFFORT` setting accepts `none`, `low`, `medium`, or `high`. If it is
+unset, the OpenAI-compatible provider sends no reasoning override and preserves provider defaults.
 This is a non-deterministic development check only; deterministic integration mode remains the CI
 path and Ollama is not a production dependency.
 
