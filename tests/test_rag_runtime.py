@@ -3,6 +3,7 @@ from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
+from qdrant_client import QdrantClient
 from sqlalchemy.orm import Session
 
 from app.agent.llm.fake import FakeDecisionProvider
@@ -20,8 +21,10 @@ from app.rag.embeddings import (
 )
 from app.rag.interfaces import KnowledgeFilter, KnowledgeRetriever
 from app.rag.rerankers import Reranker
+from app.rag.retrieval.lexical import LEXICAL_METADATA_KEY, LEXICAL_VECTOR_NAME
 from app.rag.retrieval.service import build_knowledge_service
-from app.rag.schemas import RetrievedChunk
+from app.rag.schemas import DocumentChunk, RetrievedChunk
+from app.rag.storage.qdrant import QdrantKnowledgeStore, build_dense_vector_params
 from app.resilience.config import ResilienceConfig
 from evaluation.metrics.rag import evaluate_runtime_retrieval
 
@@ -74,13 +77,40 @@ class MissingCollectionError(Exception):
 
 
 def collection_info(
-    *, dimension: int = 32, distance: str = "Cosine", points_count: int = 1, named: bool = False
+    *,
+    dimension: int = 32,
+    distance: str = "Cosine",
+    points_count: int = 1,
+    named: bool = False,
+    sparse: bool = True,
+    metadata: object | None = None,
 ) -> object:
     vectors: object = SimpleNamespace(size=dimension, distance=distance)
     if named:
         vectors = {"default": vectors}
+    params: dict[str, object] = {"vectors": vectors}
+    if sparse:
+        params["sparse_vectors"] = {LEXICAL_VECTOR_NAME: SimpleNamespace(index=SimpleNamespace())}
+    collection_metadata = metadata
+    if collection_metadata is None:
+        collection_metadata = {
+            LEXICAL_METADATA_KEY: {
+                "version": 1,
+                "vocabulary": {"refund": 1, "policy": 2, "eligibility": 3},
+                "inverse_document_frequency": {
+                    "refund": 1.0,
+                    "policy": 1.0,
+                    "eligibility": 1.0,
+                },
+                "average_document_length": 3.0,
+                "document_count": 1,
+            }
+        }
     return SimpleNamespace(
-        config=SimpleNamespace(params=SimpleNamespace(vectors=vectors)),
+        config=SimpleNamespace(
+            params=SimpleNamespace(**params),
+            metadata=collection_metadata,
+        ),
         points_count=points_count,
     )
 
@@ -95,6 +125,88 @@ class SlowReranker(Reranker):
     def score(self, query: str, chunks: Sequence[RetrievedChunk]) -> list[float]:
         del query, chunks
         raise TimeoutError("native reranker deadline")
+
+
+class ControlledEmbeddingProvider:
+    provider_type = "controlled"
+    dimension = 2
+
+    _vectors = {
+        "specialterm exact lexical": [0.0, 1.0],
+        "related semantic": [1.0, 0.0],
+        "noise": [0.0, 0.0],
+        "specialterm": [1.0, 0.0],
+        "meaning": [1.0, 0.0],
+    }
+
+    def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
+        return [self._vectors[text] for text in texts]
+
+    def embed_query(self, text: str) -> list[float]:
+        return self._vectors[text]
+
+
+def hybrid_chunks(*, blocked_lexical: bool = False) -> list[DocumentChunk]:
+    return [
+        DocumentChunk(
+            chunk_id="lexical",
+            document_id="lexical",
+            title="Lexical",
+            category="blocked" if blocked_lexical else "allowed",
+            section="s",
+            source="lexical",
+            chunk_index=0,
+            content="specialterm exact lexical",
+        ),
+        DocumentChunk(
+            chunk_id="semantic",
+            document_id="semantic",
+            title="Semantic",
+            category="allowed",
+            section="s",
+            source="semantic",
+            chunk_index=0,
+            content="related semantic",
+        ),
+        DocumentChunk(
+            chunk_id="noise",
+            document_id="noise",
+            title="Noise",
+            category="allowed",
+            section="s",
+            source="noise",
+            chunk_index=0,
+            content="noise",
+        ),
+    ]
+
+
+def in_memory_hybrid_backend(
+    *,
+    blocked_lexical: bool = False,
+    filters: KnowledgeFilter | None = None,
+    reranker: Reranker | None = None,
+    reranker_enabled: bool = False,
+) -> QdrantKnowledgeBackend:
+    provider = ControlledEmbeddingProvider()
+    client = QdrantClient(":memory:")
+    store = QdrantKnowledgeStore("unused", "knowledge", provider, client=client)
+    store.upsert(hybrid_chunks(blocked_lexical=blocked_lexical))
+    return QdrantKnowledgeBackend(
+        url="unused",
+        collection_name="knowledge",
+        embedding_provider=provider,
+        reranker=reranker,
+        reranker_enabled=reranker_enabled,
+        rerank_candidates=3,
+        final_context_count=3,
+        timeout_seconds=2.0,
+        reranker_timeout_seconds=1.0,
+        dense_top_k=3,
+        sparse_top_k=3,
+        filters=filters,
+        client=client,
+    )
 
 
 def qdrant_backend(
@@ -173,6 +285,8 @@ def test_qdrant_readiness_rejects_missing_collection_without_mutation() -> None:
         (collection_info(dimension=16), "vector_dimension_mismatch"),
         (collection_info(distance="Dot"), "vector_schema_mismatch"),
         (collection_info(named=True), "vector_schema_mismatch"),
+        (collection_info(sparse=False), "vector_schema_mismatch"),
+        (collection_info(metadata={}), "vector_schema_mismatch"),
         (collection_info(points_count=0), "knowledge_not_ingested"),
     ],
 )
@@ -185,6 +299,65 @@ def test_qdrant_readiness_rejects_incompatible_or_incomplete_collections(
     assert backend.is_ready() is False
     assert backend.last_readiness_category == category
     assert client.calls == []
+
+
+def test_qdrant_hybrid_lexical_signal_can_beat_dense_only_ordering() -> None:
+    backend = in_memory_hybrid_backend()
+
+    results = backend.retrieve("specialterm")
+
+    assert [result.chunk_id for result in results[:2]] == ["lexical", "semantic"]
+    assert results[0].score > results[1].score
+
+
+def test_qdrant_hybrid_dense_signal_contributes_when_lexical_signal_is_empty() -> None:
+    backend = in_memory_hybrid_backend()
+
+    results = backend.retrieve("meaning")
+
+    assert results[0].chunk_id == "semantic"
+
+
+def test_qdrant_hybrid_fusion_order_is_deterministic() -> None:
+    backend = in_memory_hybrid_backend()
+
+    first = [result.chunk_id for result in backend.retrieve("specialterm")]
+    second = [result.chunk_id for result in backend.retrieve("specialterm")]
+
+    assert first == second == ["lexical", "semantic", "noise"]
+
+
+def test_qdrant_hybrid_filter_applies_to_both_branches() -> None:
+    backend = in_memory_hybrid_backend(
+        blocked_lexical=True,
+        filters=KnowledgeFilter(category="allowed"),
+    )
+
+    results = backend.retrieve("specialterm")
+
+    assert [result.chunk_id for result in results] == ["semantic", "noise"]
+
+
+def test_qdrant_hybrid_reranker_failure_preserves_fused_ordering() -> None:
+    backend = in_memory_hybrid_backend(reranker=SlowReranker(), reranker_enabled=True)
+
+    results = backend.retrieve("specialterm")
+
+    assert [result.chunk_id for result in results] == ["lexical", "semantic", "noise"]
+    assert backend.last_degraded_components == ["reranker"]
+
+
+def test_qdrant_ingestion_rejects_dense_only_collection_without_recreation() -> None:
+    provider = ControlledEmbeddingProvider()
+    client = QdrantClient(":memory:")
+    client.create_collection("knowledge", vectors_config=build_dense_vector_params(2))
+    store = QdrantKnowledgeStore("unused", "knowledge", provider, client=client)
+
+    with pytest.raises(RuntimeError, match="not production hybrid"):
+        store.upsert(hybrid_chunks())
+
+    collection = client.get_collection("knowledge")
+    assert collection.config.params.sparse_vectors is None
 
 
 def test_local_backend_readiness_does_not_require_qdrant() -> None:
@@ -220,7 +393,8 @@ def test_qdrant_runtime_retrieval_preserves_metadata_and_citation() -> None:
     assert results[0].citation_id == "refund-policy#eligibility"
     assert results[0].source == "knowledge/refund-policy.md"
     assert client.calls[0]["collection_name"] == "knowledge"
-    query_filter = cast(Any, client.calls[0]["query_filter"])
+    prefetch = cast(list[Any], client.calls[0]["prefetch"])
+    query_filter = cast(Any, prefetch[0].filter)
     assert query_filter is not None
     assert [condition.key for condition in query_filter.must] == ["category"]
     assert backend.last_metadata is not None

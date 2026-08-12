@@ -13,6 +13,11 @@ from app.observability.tracing import span
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.interfaces import KnowledgeFilter, RetrievalMetadata
 from app.rag.rerankers import Reranker
+from app.rag.retrieval.lexical import (
+    LEXICAL_METADATA_KEY,
+    LEXICAL_VECTOR_NAME,
+    LexicalIndex,
+)
 from app.rag.schemas import RetrievedChunk
 from app.rag.storage.qdrant import QDRANT_DENSE_DISTANCE
 
@@ -46,6 +51,8 @@ class QdrantKnowledgeBackend:
         timeout_seconds: float,
         reranker_timeout_seconds: float,
         embedding_dimension: int | None = None,
+        dense_top_k: int = 8,
+        sparse_top_k: int = 8,
         filters: KnowledgeFilter | None = None,
         client: Any | None = None,
     ) -> None:
@@ -68,10 +75,13 @@ class QdrantKnowledgeBackend:
         self.embedding_dimension = embedding_dimension or getattr(
             embedding_provider, "dimension", None
         )
+        self.dense_top_k = dense_top_k
+        self.sparse_top_k = sparse_top_k
         self.filters = filters
         self.last_degraded_components: list[str] = []
         self.last_metadata: RetrievalMetadata | None = None
         self.last_readiness_category = "not_checked"
+        self._lexical_index: LexicalIndex | None = None
 
     def retrieve(self, query: str) -> list[RetrievedChunk]:
         started = time.perf_counter()
@@ -87,15 +97,47 @@ class QdrantKnowledgeBackend:
             try:
                 with span("rag.embed_query"):
                     vector = self.embedding_provider.embed_query(query)
-                response = self.client.query_points(
-                    collection_name=self.collection_name,
-                    query=vector,
-                    query_filter=self._query_filter(),
-                    limit=self.rerank_candidates,
-                    with_payload=True,
-                    with_vectors=False,
-                    timeout=_native_timeout(self.timeout_seconds),
-                )
+                query_filter = self._query_filter()
+                with span("rag.dense_search") as dense_span:
+                    dense_prefetch = self._dense_prefetch(vector, query_filter)
+                    dense_span.set_attribute("rag.dense_candidates", self.dense_top_k)
+                lexical_index = self._lexical_index_for_query()
+                sparse_indices, sparse_values = lexical_index.encode_query(query)
+                if sparse_indices:
+                    from qdrant_client.http import models
+
+                    with span("rag.sparse_search") as sparse_span:
+                        sparse_prefetch = models.Prefetch(
+                            query=models.SparseVector(
+                                indices=sparse_indices,
+                                values=sparse_values,
+                            ),
+                            using=LEXICAL_VECTOR_NAME,
+                            filter=query_filter,
+                            limit=self.sparse_top_k,
+                        )
+                        sparse_span.set_attribute("rag.sparse_candidates", self.sparse_top_k)
+                    with span("rag.fusion") as fusion_span:
+                        response = self.client.query_points(
+                            collection_name=self.collection_name,
+                            query=models.FusionQuery(fusion=models.Fusion.RRF),
+                            prefetch=[dense_prefetch, sparse_prefetch],
+                            limit=self.rerank_candidates,
+                            with_payload=True,
+                            with_vectors=False,
+                            timeout=_native_timeout(self.timeout_seconds),
+                        )
+                        fusion_span.set_attribute("rag.fused_candidates", len(response.points))
+                else:
+                    response = self.client.query_points(
+                        collection_name=self.collection_name,
+                        query=vector,
+                        query_filter=query_filter,
+                        limit=self.rerank_candidates,
+                        with_payload=True,
+                        with_vectors=False,
+                        timeout=_native_timeout(self.timeout_seconds),
+                    )
                 results = self._validated_results(response.points)
                 if self.reranker_enabled and self.reranker is not None and results:
                     reranker = self.reranker
@@ -168,6 +210,14 @@ class QdrantKnowledgeBackend:
             self._record_readiness_failure(QdrantReadinessCategory.VECTOR_SCHEMA_MISMATCH)
             return False
 
+        sparse_vectors = _field(params, "sparse_vectors")
+        sparse_config = (
+            sparse_vectors.get(LEXICAL_VECTOR_NAME) if isinstance(sparse_vectors, dict) else None
+        )
+        if sparse_config is None or _field(sparse_config, "index") is None:
+            self._record_readiness_failure(QdrantReadinessCategory.VECTOR_SCHEMA_MISMATCH)
+            return False
+
         actual_dimension = _field(vectors, "size")
         if actual_dimension != self.embedding_dimension:
             self._record_readiness_failure(
@@ -185,6 +235,14 @@ class QdrantKnowledgeBackend:
             )
             return False
 
+        metadata = _field(config, "metadata")
+        lexical_metadata = _field(metadata, LEXICAL_METADATA_KEY)
+        try:
+            lexical_index = LexicalIndex.from_metadata(lexical_metadata)
+        except ValueError:
+            self._record_readiness_failure(QdrantReadinessCategory.VECTOR_SCHEMA_MISMATCH)
+            return False
+
         points_count = _field(collection, "points_count")
         if not isinstance(points_count, int) or points_count < 1:
             self._record_readiness_failure(
@@ -196,6 +254,7 @@ class QdrantKnowledgeBackend:
             return False
 
         self.last_readiness_category = QdrantReadinessCategory.READY.value
+        self._lexical_index = lexical_index
         return True
 
     def _record_readiness_failure(
@@ -230,6 +289,25 @@ class QdrantKnowledgeBackend:
             for key, value in self.filters.model_dump(exclude_none=True).items()
         ]
         return models.Filter(must=conditions) if conditions else None
+
+    def _dense_prefetch(self, vector: list[float], query_filter: Any | None) -> Any:
+        from qdrant_client.http import models
+
+        return models.Prefetch(
+            query=vector,
+            filter=query_filter,
+            limit=self.dense_top_k,
+        )
+
+    def _lexical_index_for_query(self) -> LexicalIndex:
+        if self._lexical_index is not None:
+            return self._lexical_index
+        collection = self.client.get_collection(self.collection_name)
+        config = _field(collection, "config")
+        metadata = _field(config, "metadata")
+        lexical_metadata = _field(metadata, LEXICAL_METADATA_KEY)
+        self._lexical_index = LexicalIndex.from_metadata(lexical_metadata)
+        return self._lexical_index
 
     @staticmethod
     def _validated_results(points: Sequence[Any]) -> list[RetrievedChunk]:

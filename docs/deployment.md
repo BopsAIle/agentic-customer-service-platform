@@ -32,13 +32,19 @@ stays healthy during dependency outages so an orchestrator does not restart an o
 process. The backend image healthcheck uses liveness; Compose uses readiness for service ordering.
 
 For `RAG_BACKEND=qdrant`, `/ready` is fail-closed until the configured collection exists and its
-metadata matches the runtime contract: one unnamed dense vector, `Distance.COSINE`, and
-`EMBEDDING_DIMENSION`. The collection must also contain at least one indexed knowledge point;
-this is the selected ingestion-completeness policy for the normal demo and production RAG path.
+metadata matches the runtime contract: one unnamed dense vector, a named `lexical` sparse vector,
+`Distance.COSINE`, and `EMBEDDING_DIMENSION`. The collection must also contain valid deterministic
+lexical metadata and at least one indexed knowledge point; this is the selected
+ingestion-completeness policy for the normal demo and production RAG path.
 Readiness only observes Qdrant metadata and never creates, recreates, upserts, or deletes a
 collection. `RAG_BACKEND=local` bypasses Qdrant readiness entirely. Matching dimensions are a
 structural check only; without persisted model identity they do not prove that historical vectors
-were produced by the currently configured embedding model.
+were produced by the currently configured embedding model. Production Qdrant retrieval fuses the
+dense and lexical branches using reciprocal-rank fusion before optional reranking. Existing
+dense-only collections must be re-ingested into a compatible hybrid collection; startup does not
+delete or upgrade them automatically. Provision a new collection (or explicitly replace the old
+one under an operator-controlled migration), set `QDRANT_COLLECTION`, and run
+`python -m scripts.rag_ingest` before switching traffic.
 
 ## Graceful shutdown
 

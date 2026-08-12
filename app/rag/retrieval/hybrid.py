@@ -1,5 +1,4 @@
 import math
-import re
 import time
 from collections import Counter
 from collections.abc import Sequence
@@ -9,6 +8,7 @@ from app.observability.tracing import span
 from app.rag.embeddings import EmbeddingProvider
 from app.rag.interfaces import RetrievalMetadata
 from app.rag.reranking.service import DeterministicReranker, Reranker
+from app.rag.retrieval.lexical import _tokens
 from app.rag.schemas import DocumentChunk, RetrievedChunk
 
 
@@ -174,10 +174,6 @@ class HybridRetriever:
                 score += idf * counts[token] * 2.5 / denominator
             scores.append((chunk_id, score))
         return sorted(scores, key=lambda item: item[1], reverse=True)
-
-
-def _tokens(text: str) -> list[str]:
-    return re.findall(r"[a-z0-9]+", text.casefold())
 
 
 def _cosine(left: Sequence[float], right: Sequence[float]) -> float:

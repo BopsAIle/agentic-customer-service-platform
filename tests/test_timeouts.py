@@ -168,6 +168,22 @@ def test_qdrant_request_uses_native_timeout_before_retry() -> None:
     calls = 0
 
     class FakeClient:
+        def get_collection(self, name: str) -> SimpleNamespace:
+            del name
+            return SimpleNamespace(
+                config=SimpleNamespace(
+                    metadata={
+                        "lexical_index": {
+                            "version": 1,
+                            "vocabulary": {"refund": 1},
+                            "inverse_document_frequency": {"refund": 1.0},
+                            "average_document_length": 1.0,
+                            "document_count": 1,
+                        }
+                    }
+                )
+            )
+
         def query_points(self, **kwargs: object) -> SimpleNamespace:
             nonlocal calls
             calls += 1

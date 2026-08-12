@@ -109,6 +109,8 @@ def build_knowledge_service(
             ),
             reranker_timeout_seconds=settings.rag_reranker_timeout_seconds,
             embedding_dimension=settings.embedding_dimension,
+            dense_top_k=settings.rag_dense_top_k,
+            sparse_top_k=settings.rag_sparse_top_k,
             client=qdrant_client,
         )
     service = KnowledgeService(retriever)
