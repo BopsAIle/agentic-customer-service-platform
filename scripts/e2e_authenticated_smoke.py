@@ -369,7 +369,7 @@ def run_smoke(stack: ComposeStack) -> None:
         "(select count(*) from support_tickets) || '|' || "
         "(select count(*) from memory_records);"
     )
-    expect(bootstrap == "20260812_0006|3|6|4|1", "Migration or demo seed state is incorrect.")
+    expect(bootstrap == "20260812_0007|3|6|4|1", "Migration or demo seed state is incorrect.")
     projection_schema = stack.database_scalar(
         "select (to_regclass('public.agent_run_projections') is not null)::text || '|' || "
         "(select count(*) from pg_indexes where tablename = 'agent_run_projections' "
@@ -488,8 +488,8 @@ def run_smoke(stack: ComposeStack) -> None:
     confirmation_run_id = confirmation.get("agent_run_id")
     expect(isinstance(confirmation_run_id, str), "Confirmation run ID is missing.")
     expect(
-        confirmation_run_id == initial_run_id,
-        "Confirmation did not preserve the pending run identity.",
+        confirmation_run_id != initial_run_id,
+        "Confirmation incorrectly reused the initial invocation run identity.",
     )
     projection_status, projection = request_json(
         base_url, f"/ui/agent-runs/{confirmation_run_id}", token=stack.token
@@ -497,6 +497,12 @@ def run_smoke(stack: ComposeStack) -> None:
     expect(projection_status == 200, "Confirmation inspector projection is unavailable.")
     assert_projection(projection, confirmation_run=True)
     assert_no_sensitive_projection_fields(projection)
+    expect(
+        initial_projection.get("run_id") != projection.get("run_id")
+        and initial_projection.get("request_id") != projection.get("request_id")
+        and initial_projection.get("action_id") == projection.get("action_id") == action_id,
+        "Invocation and stable action identities were not separated in projections.",
+    )
 
     replay_status, replay = request_json(
         base_url,

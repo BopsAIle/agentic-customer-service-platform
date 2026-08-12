@@ -332,12 +332,25 @@ policy. Removing the former operator-facing `content` field is an intentional pr
 contract change.
 
 Operator run projections are a durable PostgreSQL-backed read model in integration and production.
-They survive backend restart, are visible across backend instances, and keep one run identity while a
-pending confirmation is resumed. They are bounded operator inspection data—not authorization,
-business state, checkpoint state, idempotency state, or policy authority. Lightweight development and
-unit tests may use the bounded, thread-safe memory adapter. List queries are capped at 100 rows and
-projection retention/pruning remains an operator or database responsibility; policy audit remains the
-separate durable policy evidence trail.
+They survive backend restart and are visible across backend instances. Each row represents one graph
+invocation: a confirmation request creates a new `run_id`, `request_id`, and trace while retaining
+the same `conversation_id` and pending-action `action_id`. This keeps invocation duration and path
+data historical; policy audit correlates the complete action lifecycle across runs by `action_id`.
+They are bounded operator inspection data—not authorization, business state, checkpoint state,
+idempotency state, or policy authority. Lightweight development and unit tests may use the bounded,
+thread-safe memory adapter. List queries are capped at 100 rows and projection retention/pruning
+remains an operator or database responsibility; policy audit remains the separate durable policy
+evidence trail.
+
+Identity semantics are explicit: `request_id` identifies one inbound HTTP request, `run_id` identifies
+one graph invocation, and `trace_id` identifies that invocation's telemetry trace. `conversation_id`
+is the stable application conversation/checkpoint grouping, while `action_id` is the opaque stable
+correlation for one pending/destructive action across proposal, confirmation, revalidation, execution,
+restart, and replay. The checkpoint `thread_id` is conversation/workflow continuity, not a run ID.
+
+Consequently, an initial Risk-2 request and its confirmation produce separate run projections with
+independent request/trace/path/duration data. Policy audit remains the cross-invocation lifecycle
+evidence through `action_id`; it is not an authority source.
 
 ## Safety Model
 

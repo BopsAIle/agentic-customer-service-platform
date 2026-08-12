@@ -33,6 +33,7 @@ def projection(
         run_id=run_id,
         request_id=f"request-{run_id}",
         conversation_id=f"conversation-{customer_id}",
+        action_id=None,
         customer_id=customer_id,
         actor_id=f"actor-{customer_id}",
         actor_type="support_operator",
@@ -54,7 +55,9 @@ def test_sql_projection_upsert_is_durable_and_preserves_created_at(
 ) -> None:
     repository = SqlAlchemyAgentRunProjectionRepository(db_session)
     started_at = datetime(2026, 1, 1, tzinfo=UTC)
-    first = projection("run-durable", started_at=started_at, status="pending")
+    first = projection("run-durable", started_at=started_at, status="pending").model_copy(
+        update={"action_id": "action-durable"}
+    )
     repository.upsert(first)
     record = db_session.scalar(
         select(AgentRunProjectionRecord).where(AgentRunProjectionRecord.run_id == first.run_id)
@@ -67,6 +70,7 @@ def test_sql_projection_upsert_is_durable_and_preserves_created_at(
 
     assert second is not None
     assert second.status == "completed"
+    assert second.action_id == "action-durable"
     assert second.duration_ms == 20.0
     assert record.created_at == created_at
     assert record.updated_at > created_at

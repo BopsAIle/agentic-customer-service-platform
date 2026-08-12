@@ -7,6 +7,7 @@ export type ToolEvent = {
 };
 
 export type PolicyEvent = {
+  action_id: string | null;
   tool_name: string;
   risk_level: number;
   outcome: string;
@@ -39,7 +40,9 @@ export type TraceEvent = { name: string; status: string; duration_ms: number; ti
 
 export type AgentRun = {
   run_id: string;
+  request_id: string;
   conversation_id: string;
+  action_id: string | null;
   customer_id: number;
   intent: string;
   request_type: string;

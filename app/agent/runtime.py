@@ -110,7 +110,10 @@ class AgentRuntime:
         customer_id = execution_context.effective_customer_id
         thread_id = checkpoint_thread_id(execution_context)
         thread_id_hash = checkpoint_thread_id_hash(execution_context)
-        agent_run_id = _resumed_pending_run_id(self.checkpointer, thread_id) or str(uuid4())
+        # A checkpoint thread is conversation/workflow identity.  Every call to
+        # run(), including confirmation and replay requests, is a new graph
+        # invocation and therefore gets its own run identity.
+        agent_run_id = str(uuid4())
         metric = get_metrics()
         labels = {"status": "ok"}
         metric.agent_runs_total.add(1)
@@ -183,6 +186,12 @@ class AgentRuntime:
                         ),
                     )
                     response = _response_from_state(state)
+                    action_id = state.get("action_id")
+                    if not isinstance(action_id, str):
+                        pending_action = state.get("pending_action")
+                        action_id = pending_action.action_id if pending_action is not None else None
+                    if action_id is not None:
+                        root_span.set_attribute("agent.action_id", action_id)
                     try:
                         view = projection_store.build_view(
                             projection,
@@ -252,36 +261,6 @@ def _legacy_execution_context(
         ),
         effective_customer_id=customer_id,
     )
-
-
-def _resumed_pending_run_id(checkpointer: BaseCheckpointSaver[str], thread_id: str) -> str | None:
-    """Reuse the checkpoint's run identity only while resuming its pending action."""
-
-    get_tuple = getattr(checkpointer, "get_tuple", None)
-    if not callable(get_tuple):
-        return None
-    try:
-        checkpoint = get_tuple({"configurable": {"thread_id": thread_id}})
-    except Exception:
-        return None
-    if checkpoint is None:
-        return None
-    checkpoint_data = getattr(checkpoint, "checkpoint", None)
-    channel_values = (
-        checkpoint_data.get("channel_values") if isinstance(checkpoint_data, dict) else None
-    )
-    if not isinstance(channel_values, dict):
-        return None
-    pending_action = channel_values.get("pending_action")
-    status = (
-        pending_action.get("status")
-        if isinstance(pending_action, dict)
-        else getattr(pending_action, "status", None)
-    )
-    if getattr(status, "value", status) != "pending":
-        return None
-    run_id = channel_values.get("agent_run_id")
-    return run_id if isinstance(run_id, str) and run_id else None
 
 
 def _build_decision_provider(settings: Settings) -> StructuredDecisionProvider:

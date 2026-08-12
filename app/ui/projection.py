@@ -11,7 +11,7 @@ from app.agent.schemas import AgentResponse
 from app.agent.state import AgentState
 from app.core.config import get_settings
 from app.core.context import ExecutionContext
-from app.policies.models import PolicyAuditEvent
+from app.policies.models import PendingActionStatus, PolicyAuditEvent
 from app.ui.repository import InMemoryAgentRunProjectionRepository
 from app.ui.schemas import (
     AgentRunView,
@@ -125,6 +125,7 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
                 event_id=event.event_id,
                 request_id=event.request_id,
                 conversation_id=event.conversation_id,
+                action_id=event.action_id,
                 timestamp=event.timestamp,
                 stage=event.stage,
                 confirmation_status=event.confirmation_status,
@@ -187,17 +188,26 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             )
             for node in projection.nodes
         ]
+        pending_action = state.get("pending_action")
+        run_status = "error" if response.error_category else "completed"
+        if (
+            not response.error_category
+            and pending_action is not None
+            and pending_action.status == PendingActionStatus.PENDING
+        ):
+            run_status = "waiting_confirmation"
         view = AgentRunView(
             run_id=projection.run_id,
             request_id=projection.context.request_id,
             conversation_id=projection.context.conversation_id,
+            action_id=_action_id(state),
             customer_id=projection.context.effective_customer_id,
             actor_id=projection.context.principal.actor_id,
             actor_type=projection.context.principal.actor_type.value,
             roles=list(projection.context.principal.roles),
             intent=response.intent.value,
             request_type=response.request_type.value,
-            status="error" if response.error_category else "completed",
+            status=run_status,
             started_at=projection.started_at,
             duration_ms=duration_ms,
             trace_id=projection.trace_id,
@@ -242,6 +252,14 @@ def _risk_level(tool_name: str) -> int | None:
 
     metadata = TOOL_REGISTRY.get(tool_name)
     return int(metadata.risk_level) if metadata else None
+
+
+def _action_id(state: AgentState) -> str | None:
+    action_id = state.get("action_id")
+    if isinstance(action_id, str) and action_id:
+        return action_id
+    action = state.get("pending_action")
+    return action.action_id if action is not None else None
 
 
 _projection_store = UIProjectionStore(max_runs=get_settings().agent_run_projection_memory_limit)

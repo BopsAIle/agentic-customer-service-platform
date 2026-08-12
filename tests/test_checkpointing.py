@@ -251,7 +251,7 @@ def test_pending_action_survives_restart_and_confirmation_executes(
     order = db_session.get(Order, 3)
     assert pending.pending_action is not None
     assert pending.pending_action.status == PendingActionStatus.PENDING
-    assert confirmed.agent_run_id == pending.agent_run_id
+    assert confirmed.agent_run_id != pending.agent_run_id
     assert confirmed.pending_action is not None
     assert confirmed.pending_action.status == PendingActionStatus.EXECUTED
     assert confirmed.pending_action.action_id == pending.pending_action.action_id

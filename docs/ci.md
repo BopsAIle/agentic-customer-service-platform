@@ -92,11 +92,12 @@ The script uses a per-run Compose project and fresh volumes, layers
 - anonymous and invalid Bearer requests remain 401 while the demo support operator authenticates;
 - an authenticated request through frontend/nginx creates a Risk-2 order cancellation proposal;
 - the pending action is actor-, customer-, and conversation-bound and no early mutation occurs;
-- a backend restart preserves the PostgreSQL checkpoint and the durable PostgreSQL run projection;
-  confirmation resumes the real graph with the same run identity;
+- a backend restart preserves the PostgreSQL checkpoint and durable PostgreSQL run projection;
+  confirmation resumes the real graph with a new invocation run identity and the same action identity;
 - the cancellation commits once, stores one idempotency receipt, and confirmation replay is safe;
-- initial and resumed Operator Console projections expose bounded policy/tool metadata without the
-  credential or hidden reasoning, including after restart;
+- initial and resumed Operator Console projections remain separate invocation records, expose bounded
+  policy/tool metadata, and correlate the action without the credential or hidden reasoning, including
+  after restart;
 - the frontend-origin memory projection exposes seeded lifecycle metadata without persisted memory
   body text;
 - strict msgpack restoration emits no permissive unregistered-type warnings.

@@ -192,6 +192,7 @@ def _to_record(projection: AgentRunView) -> AgentRunProjectionRecord:
         run_id=projection.run_id,
         request_id=projection.request_id,
         conversation_id=projection.conversation_id,
+        action_id=projection.action_id,
         effective_customer_id=projection.customer_id,
         actor_id=projection.actor_id,
         actor_type=projection.actor_type,
@@ -229,6 +230,7 @@ def _update_record(record: AgentRunProjectionRecord, projection: AgentRunView) -
     for field in (
         "request_id",
         "conversation_id",
+        "action_id",
         "effective_customer_id",
         "actor_id",
         "actor_type",
@@ -261,6 +263,7 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
             "run_id": record.run_id,
             "request_id": record.request_id,
             "conversation_id": record.conversation_id,
+            "action_id": record.action_id,
             "customer_id": record.effective_customer_id,
             "actor_id": record.actor_id,
             "actor_type": record.actor_type,

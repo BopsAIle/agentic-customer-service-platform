@@ -212,6 +212,7 @@ class AgentRunProjectionRecord(Base):
     run_id: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
     request_id: Mapped[str] = mapped_column(String(200), nullable=False)
     conversation_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    action_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
     effective_customer_id: Mapped[int] = mapped_column(nullable=False)
     actor_id: Mapped[str] = mapped_column(String(200), nullable=False)
     actor_type: Mapped[str] = mapped_column(String(40), nullable=False)

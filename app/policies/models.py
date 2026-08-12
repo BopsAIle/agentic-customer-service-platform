@@ -70,8 +70,12 @@ class PolicyAuditEvent(BaseModel):
 def stable_policy_event_id(
     agent_run_id: str, action_id: str | None, stage: str, marker: str
 ) -> str:
-    """Build an idempotent identity for one lifecycle observation."""
+    """Build an idempotent identity for one invocation or action lifecycle observation.
 
-    identity = "|".join((agent_run_id, action_id or "no-action", stage, marker))
+    Action-bearing lifecycle events are stable across confirmation/replay
+    invocations. Events without an action remain scoped to their invocation.
+    """
+
+    identity = "|".join((action_id or agent_run_id, stage, marker))
     digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
     return f"audit_{digest}"

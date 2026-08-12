@@ -21,6 +21,7 @@ class UIPolicyEvent(BaseModel):
     event_id: str = ""
     request_id: str = ""
     conversation_id: str = ""
+    action_id: str | None = None
     timestamp: datetime | None = None
     stage: str = "policy_evaluation"
     confirmation_status: str | None = None
@@ -74,6 +75,7 @@ class AgentRunView(BaseModel):
     run_id: str
     request_id: str
     conversation_id: str
+    action_id: str | None = None
     customer_id: int
     actor_id: str
     actor_type: str

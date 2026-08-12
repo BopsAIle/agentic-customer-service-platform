@@ -165,7 +165,7 @@ def test_risk_two_execution_audit_is_not_duplicated_and_survives_resume(
     )
 
     assert pending.pending_action is not None
-    assert completed.agent_run_id == pending.agent_run_id
+    assert completed.agent_run_id != pending.agent_run_id
     assert [event.stage for event in log.events] == [
         "policy_evaluation",
         "confirmation",

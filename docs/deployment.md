@@ -186,12 +186,20 @@ operator error payload or persisted in the run projection/audit record.
 
 Operator Console agent-run projections use the `agent_run_projections` PostgreSQL table in
 integration and production. They are a bounded, durable read model for inspection: a backend restart
-or a second backend instance can read the same safe projection, and a pending confirmation resumes
-under the same run identity. Projection data is never consulted for authentication, authorization,
+or a second backend instance can read the same safe projection. Each projection row represents one
+graph invocation; a pending confirmation receives a new run/request/trace identity while retaining
+the same conversation and opaque action identity. Projection data is never consulted for authentication, authorization,
 confirmation validity, business state, checkpoint restoration, or idempotency. The default list limit
 is 50 and the hard maximum is 100. Projection retention/pruning is operator- or database-managed;
 this table is not an immutable audit ledger. Development/test-only memory storage is bounded and
 rejected by configuration in integration and production.
+
+The checkpoint `thread_id` remains the actor/customer/conversation-scoped workflow key. It is not
+reused as `run_id`: every HTTP request invokes a fresh graph run. `action_id` is the stable lifecycle
+correlation for a pending action, so a confirmation or lost-response retry can be related to the
+original proposal without mutating its historical invocation projection. A new trace is likewise
+created per request; this repository correlates related traces through safe conversation/action
+attributes rather than claiming cross-request trace continuation.
 
 Production knowledge ingestion is a complete-snapshot operation. `QDRANT_COLLECTION` is the stable
 logical alias; each build creates a new physical `*_v_<snapshot-spec-hash-prefix>` collection.
