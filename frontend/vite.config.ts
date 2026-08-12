@@ -12,12 +12,24 @@ export default defineConfig(({ mode }) => {
       process?: { env: Record<string, string | undefined> };
     }
   ).process?.env;
+  const configuredAuthMode =
+    runtimeEnvironment?.FRONTEND_AUTH_MODE ||
+    environment.FRONTEND_AUTH_MODE ||
+    (mode === "production" ? "external_session" : "local_demo");
+  const authMode = ["local_demo", "integration", "external_session"].includes(
+    configuredAuthMode,
+  )
+    ? configuredAuthMode
+    : "external_session";
   const demoToken =
-    runtimeEnvironment?.LOCAL_DEMO_AUTH_TOKEN || environment.LOCAL_DEMO_AUTH_TOKEN || "";
+    authMode === "local_demo" || authMode === "integration"
+      ? runtimeEnvironment?.LOCAL_DEMO_AUTH_TOKEN || environment.LOCAL_DEMO_AUTH_TOKEN || ""
+      : "";
 
   return {
     envDir: "..",
     define: {
+      "import.meta.env.VITE_AUTH_MODE": JSON.stringify(authMode),
       "import.meta.env.VITE_DEMO_AUTH_TOKEN": JSON.stringify(demoToken),
     },
     plugins: [react()],

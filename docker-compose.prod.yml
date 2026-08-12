@@ -54,6 +54,7 @@ services:
     build:
       args:
         LOCAL_DEMO_AUTH_TOKEN: ""
+        FRONTEND_AUTH_MODE: external_session
     restart: unless-stopped
     read_only: true
     tmpfs:

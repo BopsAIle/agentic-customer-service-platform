@@ -16,3 +16,8 @@ services:
       LLM_PROVIDER: deterministic_integration
       POLICY_AUDIT_BACKEND: postgres
       AGENT_RUN_PROJECTION_BACKEND: postgres
+
+  frontend:
+    build:
+      args:
+        FRONTEND_AUTH_MODE: integration

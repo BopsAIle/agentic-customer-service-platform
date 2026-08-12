@@ -16,9 +16,10 @@ responses are not cached, unknown application paths fall back to `index.html`, a
 are applied to static and proxied responses.
 
 Backend configuration is supplied at runtime. The local frontend build receives only the public,
-non-secret demo token so the static console can exercise authenticated routes; the production
-overlay explicitly builds without it. No real credentials or environment files are copied into
-either image.
+non-secret demo token so the static console can exercise authenticated routes. Integration receives
+an explicitly test-only credential. The production overlay builds with
+`FRONTEND_AUTH_MODE=external_session` and no credential, so its bundle is credential-free. No real
+credentials or environment files are copied into either image.
 
 ## Health contract
 
@@ -114,6 +115,15 @@ docker compose down
 principal. It does not make protected routes anonymous. The frontend holds that token in memory
 and sends it through nginx, which explicitly preserves `Authorization` for `/agent` and `/ui`.
 
+Frontend authentication has three deployment modes: `local_demo`, `integration`, and
+`external_session`. Production selects `external_session`; it does not silently use a demo or
+static backend token. Without a trusted external identity/session layer, the console displays
+“Production authentication is not configured” and does not call protected APIs. A future OIDC,
+OAuth2 Authorization Code + PKCE, BFF, auth gateway, or reverse-proxy identity integration can
+provide the `window.__OPERATOR_AUTH__` adapter. The adapter may establish an HTTP-only cookie
+session or provide an externally acquired access credential. The repository does not implement
+enterprise login or persist browser credentials.
+
 A real `/agent/chat` result additionally requires a reachable OpenAI-compatible LLM. The Compose
 default uses `http://host.docker.internal:11434/v1`; change `COMPOSE_LLM_BASE_URL`, `LLM_MODEL`, and
 `LLM_API_KEY` as needed. Do not report the agent path as validated if that runtime is absent.
@@ -145,7 +155,15 @@ CPU and memory defaults can be overridden with `BACKEND_CPU_LIMIT`, `BACKEND_MEM
 
 The production overlay sets `APP_ENV=production`, forces `AUTH_MODE=static`, requires a non-empty
 externally supplied principal map, removes the demo token from backend/setup containers, and builds
-the frontend without a bundled demo credential. It also forces `LANGGRAPH_STRICT_MSGPACK=true`.
+the frontend with `FRONTEND_AUTH_MODE=external_session` and no bundled browser credential. It also
+forces `LANGGRAPH_STRICT_MSGPACK=true`.
+
+The production Operator Console service is present by default but is intentionally fail-closed
+until a trusted external identity/session layer supplies the `window.__OPERATOR_AUTH__` adapter.
+Without that integration, it displays “Production authentication is not configured” and does not
+call protected APIs. Static bearer authentication remains a backend/service adapter, not browser
+IAM. The repository does not implement OIDC, OAuth2 Authorization Code + PKCE, a BFF, an auth
+gateway, or enterprise login.
 It forces `POLICY_AUDIT_BACKEND=postgres`; production policy audit is a durable, bounded operational
 evidence trail. Audit rows contain structured policy lifecycle metadata only and are never used as
 an authorization or business-state source. Configure database retention/pruning operationally;

@@ -49,6 +49,7 @@ def test_frontend_config_applies_security_and_cache_boundaries() -> None:
     assert "try_files $uri $uri/ /index.html" in nginx
     assert "server_tokens off" in nginx
     assert "proxy_set_header Authorization $http_authorization" in nginx
+    assert "proxy_set_header Cookie $http_cookie" in nginx
     assert "(agent|customers|orders|tickets|memories|escalations|ui)" in nginx
 
 
@@ -71,6 +72,10 @@ def test_compose_wires_demo_authentication_and_bootstrap_without_production_inhe
         == "postgres"
     )
     assert production["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
+    assert (
+        production["services"]["frontend"]["build"]["args"]["FRONTEND_AUTH_MODE"]
+        == "external_session"
+    )
 
 
 def test_integration_llm_provider_is_explicit_and_excluded_from_production_overlay() -> None:
@@ -85,6 +90,9 @@ def test_integration_llm_provider_is_explicit_and_excluded_from_production_overl
         "AGENT_RUN_PROJECTION_BACKEND": "postgres",
     }
     assert integration["services"]["demo-setup"]["environment"]["APP_ENV"] == "integration"
+    assert integration["services"]["frontend"]["build"]["args"]["FRONTEND_AUTH_MODE"] == (
+        "integration"
+    )
     assert (
         integration["services"]["demo-setup"]["environment"]["LANGGRAPH_STRICT_MSGPACK"] == "true"
     )

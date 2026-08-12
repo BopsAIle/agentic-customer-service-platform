@@ -370,8 +370,8 @@ step resets the demo business records each time it runs; it is not a production 
 `AUTH_MODE=local_demo` still authenticates every protected request through a real support-operator
 `Principal`. `LOCAL_DEMO_AUTH_TOKEN=local-demo-support-token` is public localhost/demo
 configuration, not a secret and not production IAM. Anonymous protected calls continue to return
-401. The token is held only in frontend module memory and is neither logged nor persisted to
-localStorage.
+401. `FRONTEND_AUTH_MODE=local_demo` selects the frontend's explicit in-memory demo provider; the
+token is neither logged nor persisted to localStorage.
 
 The default agent provider expects a real OpenAI-compatible LLM. For Compose, start an appropriate
 model on the host (the defaults expect Ollama model `llama3.1` at port 11434), or set
@@ -476,7 +476,11 @@ It forcibly disables the frontend demo credential and selects externally configu
 authentication. Application startup rejects disabled or `local_demo` authentication when
 `APP_ENV=production`, and rejects an empty static principal map. The static backend demonstrates
 the replaceable `Authenticator` boundary; it is not a substitute for an environment-specific IAM
-system or secret manager.
+system or secret manager. The production frontend is built with `FRONTEND_AUTH_MODE=external_session`
+and no browser credential. It remains fail-closed until a trusted external identity/session layer
+supplies the `window.__OPERATOR_AUTH__` provider adapter; this repository does not ship OIDC, OAuth2,
+BFF, gateway, or enterprise login code. Static bearer authentication remains a backend/service
+adapter and is not browser IAM.
 The production overlay runs migrations but does not seed demo records or ingest bundled knowledge;
 operators must provision the configured Qdrant collection and ingest knowledge separately before
 `/ready` can become healthy.

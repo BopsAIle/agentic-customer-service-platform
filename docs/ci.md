@@ -89,6 +89,10 @@ The script uses a per-run Compose project and fresh volumes, layers
   body text;
 - strict msgpack restoration emits no permissive unregistered-type warnings.
 
+Frontend auth tests cover the explicit local-demo, integration, and external-session provider modes,
+fail-closed production behavior without an auth source, 401/403 classification, in-memory-only
+credential handling, and production bundle scans for demo/integration/static credential sentinels.
+
 `LLM_PROVIDER=deterministic_integration` is available only with `APP_ENV=integration`. It supports
 only this canonical seeded scenario and is rejected by configuration elsewhere. The production
 Compose model excludes the integration override and CI checks the rendered model for leakage.

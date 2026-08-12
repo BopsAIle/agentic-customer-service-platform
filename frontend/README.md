@@ -32,9 +32,11 @@ npm ci
 npm run dev
 ```
 
-Vite reads `LOCAL_DEMO_AUTH_TOKEN` from the root `.env` and injects it only for the explicitly
-development/demo console. The API client retains it in module memory, centrally attaches the
-Bearer header, and does not write it to localStorage or include it in inspector projections. Set
+Vite reads `FRONTEND_AUTH_MODE` from the root `.env` and creates one explicit in-memory auth
+provider. In `local_demo` mode it reads the intentionally non-secret `LOCAL_DEMO_AUTH_TOKEN`, and
+in `integration` mode Compose supplies the deterministic CI credential. The API client centrally
+attaches the Bearer header and does not write credentials to localStorage or include them in
+inspector projections. Set
 `VITE_BACKEND_TARGET` to override the default `http://localhost:8000` proxy destination. The proxy
 covers `/agent`, `/ui`, `/customers`, `/orders`, `/tickets`, `/memories`, `/escalations`, `/health`,
 and `/ready` without changing frontend API contracts.
@@ -49,5 +51,13 @@ status, timestamps, and expiration. Memory content remains available internally 
 agent runtime according to memory policy; the console has no reveal path.
 
 `local-demo-support-token` is deterministic, public localhost/demo configuration. It must never be
-used as a production credential. The production Compose overlay builds the console without this
-token; a real deployment must integrate its own authenticated session/token acquisition mechanism.
+used as a production credential. The production Compose overlay builds with
+`FRONTEND_AUTH_MODE=external_session` and no demo token. Production therefore shows a fail-closed
+authentication state until a trusted external session/BFF integration supplies the documented
+`window.__OPERATOR_AUTH__` adapter. That adapter may use an HTTP-only session cookie or an
+externally acquired access credential; the repository does not ship an enterprise login flow.
+
+The frontend auth provider has four states: loading, authenticated, unauthenticated, and
+misconfigured. It gates protected API calls, distinguishes 401 from 403, clears in-memory operator
+data after a 401, and never persists credentials. The external adapter is the integration boundary
+for a future OIDC/OAuth2 PKCE flow, BFF, auth gateway, or reverse-proxy identity layer.

@@ -102,6 +102,7 @@ services:
       context: ./frontend
       args:
         LOCAL_DEMO_AUTH_TOKEN: ${LOCAL_DEMO_AUTH_TOKEN:-local-demo-support-token}
+        FRONTEND_AUTH_MODE: ${FRONTEND_AUTH_MODE:-local_demo}
     init: true
     stop_grace_period: 10s
     ports:

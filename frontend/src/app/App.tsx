@@ -1,12 +1,27 @@
 import { Activity, Bot, Clock3, Command, HeartPulse, ShieldCheck } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { api } from "../api/client";
+import { ApiError, api, getApiAuthSnapshot, initializeApiAuth } from "../api/client";
 import { Inspector } from "../components/Inspector";
 import { Playground } from "../components/Playground";
 import { ResiliencePanel } from "../components/ResiliencePanel";
 import { TraceTimeline } from "../components/TraceTimeline";
 import { Badge, DataRow, MetricCard, StatusIndicator } from "../components/ui";
 import type { AgentRun, ConversationTurn, Health, MemoryRecord } from "../types";
+import type { AuthSnapshot } from "../auth/provider";
+
+function AuthBoundary({ snapshot }: { snapshot: AuthSnapshot }) {
+  const loading = snapshot.status === "loading";
+  const message =
+    loading
+      ? "Establishing the operator authentication session…"
+      : snapshot.status === "misconfigured"
+      ? "Production authentication is not configured. Connect the console to an external identity or session provider before use."
+      : snapshot.status === "unauthenticated"
+        ? "Your operator session is missing or expired. Establish a session through the configured identity provider."
+        : "Authentication is required to use the Operator Console.";
+  const title = loading ? "Connecting authentication" : "Authentication required";
+  return <main className="flex min-h-screen items-center justify-center px-6"><section className="surface max-w-xl p-8 text-center"><div className="eyebrow">Operator Console</div><h1 className="section-title mt-2">{title}</h1><p className="mt-3 text-sm text-muted">{message}</p></section></main>;
+}
 
 function RunHeader({ run, conversationId }: { run: AgentRun | null; conversationId: string }) {
   const risk = run?.tools.reduce((max, tool) => Math.max(max, tool.risk_level ?? 0), 0) ?? 0;
@@ -24,11 +39,14 @@ export function App() {
   const [run, setRun] = useState<AgentRun | null>(null);
   const [memory, setMemory] = useState<MemoryRecord[]>([]);
   const [health, setHealth] = useState<Health | null>(null);
+  const [auth, setAuth] = useState<AuthSnapshot>(() => getApiAuthSnapshot());
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useEffect(() => { api.health().then(setHealth).catch(() => setHealth(null)); }, []);
-  useEffect(() => { api.memory(customerId).then(setMemory).catch(() => setMemory([])); }, [customerId]);
-  const send = async (message: string) => { setBusy(true); setError(null); try { const response = await api.chat(conversationId, customerId, message); setTurns((current) => [...current, { request: message, response }]); const nextRun = await api.run(response.agent_run_id); setRun(nextRun); setMemory(await api.memory(customerId)); setHealth(await api.health()); } catch (caught) { setError(caught instanceof Error ? caught.message : "The operator API is unavailable."); } finally { setBusy(false); } };
+  useEffect(() => { initializeApiAuth().then(setAuth); }, []);
+  useEffect(() => { if (auth.status !== "authenticated") return; api.health().then(setHealth).catch((caught: unknown) => { if (caught instanceof ApiError && caught.status === 401) setAuth(getApiAuthSnapshot()); else setHealth(null); }); }, [auth.status]);
+  useEffect(() => { if (auth.status !== "authenticated") return; api.memory(customerId).then(setMemory).catch((caught: unknown) => { if (caught instanceof ApiError && caught.status === 401) setAuth(getApiAuthSnapshot()); else setMemory([]); }); }, [auth.status, customerId]);
+  const send = async (message: string) => { setBusy(true); setError(null); try { const response = await api.chat(conversationId, customerId, message); setTurns((current) => [...current, { request: message, response }]); const nextRun = await api.run(response.agent_run_id); setRun(nextRun); setMemory(await api.memory(customerId)); setHealth(await api.health()); } catch (caught) { if (caught instanceof ApiError && caught.status === 401) { setAuth(getApiAuthSnapshot()); setTurns([]); setRun(null); setMemory([]); setHealth(null); } setError(caught instanceof Error ? caught.message : "The operator API is unavailable."); } finally { setBusy(false); } };
   const lastUpdated = useMemo(() => run ? new Date(run.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) : "—", [run]);
-  return <div className="min-h-screen"><header className="topbar"><div className="topbar-inner"><div className="flex items-center gap-3"><div className="brand-mark brand-mark-small"><Bot size={15} aria-hidden="true" /></div><span className="text-sm font-semibold tracking-[.12em] text-main">AGENTIC OPS</span><span className="hidden text-xs text-muted sm:inline">/ control plane</span></div><div className="flex items-center gap-4"><span className="hidden text-xs text-muted md:inline">Sprint 9 · operator workspace</span><StatusIndicator label="API connected" tone="success" compact /></div></div></header><main className="mx-auto max-w-[1680px] space-y-5 px-4 py-5 sm:px-6 lg:px-8"><RunHeader run={run} conversationId={conversationId} /><div className="workspace-grid"><Playground customerId={customerId} conversationId={conversationId} turns={turns} busy={busy} error={error} onCustomerChange={setCustomerId} onSend={send} /><Inspector run={run} memoryRecords={memory} /></div><div className="grid gap-5 xl:grid-cols-[1.1fr_1fr_1fr]"><TraceTimeline events={run?.trace ?? []} /><ResiliencePanel health={health} run={run} /><section className="surface p-5"><div className="eyebrow">Run context</div><h2 className="section-title mt-1">Correlation</h2><div className="mt-4 divide-y divide-border/70"><DataRow label="Last activity" value={<span className="inline-flex items-center gap-1"><Clock3 size={13} aria-hidden="true" />{lastUpdated}</span>} /><DataRow label="Conversation" value={conversationId} mono /><DataRow label="Scope" value={<span className="inline-flex items-center gap-1"><ShieldCheck size={13} aria-hidden="true" />customer #{customerId}</span>} /></div></section></div><SystemStrip health={health} /></main><footer className="mx-auto max-w-[1680px] px-4 pb-8 text-[11px] text-muted sm:px-6 lg:px-8">Operator surface for debugging and demonstrations · no prompts, raw payloads, or chain-of-thought are displayed.</footer></div>;
+  if (auth.status !== "authenticated") return <AuthBoundary snapshot={auth} />;
+  return <div className="min-h-screen"><header className="topbar"><div className="topbar-inner"><div className="flex items-center gap-3"><div className="brand-mark brand-mark-small"><Bot size={15} aria-hidden="true" /></div><span className="text-sm font-semibold tracking-[.12em] text-main">AGENTIC OPS</span><span className="hidden text-xs text-muted sm:inline">/ control plane</span></div><div className="flex items-center gap-4"><span className="hidden text-xs text-muted md:inline">Sprint 9 · operator workspace</span><StatusIndicator label="Authenticated" tone="success" compact /></div></div></header><main className="mx-auto max-w-[1680px] space-y-5 px-4 py-5 sm:px-6 lg:px-8"><RunHeader run={run} conversationId={conversationId} /><div className="workspace-grid"><Playground customerId={customerId} conversationId={conversationId} turns={turns} busy={busy} error={error} onCustomerChange={setCustomerId} onSend={send} /><Inspector run={run} memoryRecords={memory} /></div><div className="grid gap-5 xl:grid-cols-[1.1fr_1fr_1fr]"><TraceTimeline events={run?.trace ?? []} /><ResiliencePanel health={health} run={run} /><section className="surface p-5"><div className="eyebrow">Run context</div><h2 className="section-title mt-1">Correlation</h2><div className="mt-4 divide-y divide-border/70"><DataRow label="Last activity" value={<span className="inline-flex items-center gap-1"><Clock3 size={13} aria-hidden="true" />{lastUpdated}</span>} /><DataRow label="Conversation" value={conversationId} mono /><DataRow label="Scope" value={<span className="inline-flex items-center gap-1"><ShieldCheck size={13} aria-hidden="true" />customer #{customerId}</span>} /></div></section></div><SystemStrip health={health} /></main><footer className="mx-auto max-w-[1680px] px-4 pb-8 text-[11px] text-muted sm:px-6 lg:px-8">Operator surface for debugging and demonstrations · no prompts, raw payloads, or chain-of-thought are displayed.</footer></div>;
 }
