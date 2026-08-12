@@ -1,16 +1,25 @@
 from datetime import datetime, timedelta
 
 from langgraph.checkpoint.memory import MemorySaver
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
-from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
+from app.agent.schemas import AgentErrorCategory, AgentRequestType, Intent, StructuredDecision
 from app.memory.compaction import compact_customer_memory
 from app.memory.models import MemoryRecord
 from app.memory.policy import evaluate_candidate
-from app.memory.schemas import MemoryCandidate, MemoryStatus, MemoryType
+from app.memory.schemas import (
+    MemoryCandidate,
+    MemoryOperationResult,
+    MemorySource,
+    MemoryStatus,
+    MemoryType,
+)
 from app.memory.service import MemoryService
+
+MEMORY_FAILURE_SENTINEL = "MEMORY_FAILURE_PRIVATE_SENTINEL_18"
 
 
 def candidate(
@@ -26,6 +35,37 @@ def candidate(
         normalized_key=key,
         explicit_user_request=explicit,
     )
+
+
+class FailingMemoryService(MemoryService):
+    def __init__(self, operation: str, error: BaseException) -> None:
+        super().__init__()
+        self.operation = operation
+        self.error = error
+
+    def remember(
+        self,
+        session: Session,
+        customer_id: int,
+        candidate: MemoryCandidate,
+        *,
+        source: MemorySource = MemorySource.USER_EXPLICIT,
+        now: datetime | None = None,
+    ) -> MemoryOperationResult:
+        if self.operation == "remember":
+            raise self.error
+        return super().remember(session, customer_id, candidate, source=source, now=now)
+
+    def forget(
+        self,
+        session: Session,
+        customer_id: int,
+        normalized_key: str,
+        now: datetime | None = None,
+    ) -> MemoryOperationResult:
+        if self.operation == "forget":
+            raise self.error
+        return super().forget(session, customer_id, normalized_key, now=now)
 
 
 def test_memory_policy_rejects_sensitive_and_instruction_injection() -> None:
@@ -187,3 +227,94 @@ def test_disabled_memory_is_a_noop(db_session: Session) -> None:
     assert result.status == "disabled"
     assert service.retrieve(db_session, 1, "contact") == []
     assert db_session.query(MemoryRecord).count() == 0
+
+
+def test_remember_dependency_failure_is_safe_and_classified(db_session: Session) -> None:
+    runtime = AgentRuntime(
+        provider=FakeDecisionProvider(
+            [
+                StructuredDecision(
+                    intent=Intent.MEMORY_REMEMBER,
+                    request_type=AgentRequestType.MEMORY_ACTION,
+                )
+            ]
+        ),
+        checkpointer=MemorySaver(),
+        memory_service=FailingMemoryService(
+            "remember", OperationalError("write", {}, RuntimeError(MEMORY_FAILURE_SENTINEL))
+        ),
+    )
+
+    response = runtime.run(
+        conversation_id="memory-failure-remember",
+        customer_id=1,
+        message=f"Remember {MEMORY_FAILURE_SENTINEL}.",
+        session=db_session,
+    )
+
+    assert response.error_category == AgentErrorCategory.DEPENDENCY_ERROR
+    assert response.failure_category == "database_unavailable"
+    assert "couldn't" in response.message.lower() or "could not" in response.message.lower()
+    assert MEMORY_FAILURE_SENTINEL not in response.model_dump_json()
+    assert db_session.query(MemoryRecord).count() == 0
+
+
+def test_forget_dependency_failure_is_safe_and_classified(db_session: Session) -> None:
+    MemoryService().remember(db_session, 1, candidate())
+    runtime = AgentRuntime(
+        provider=FakeDecisionProvider(
+            [
+                StructuredDecision(
+                    intent=Intent.MEMORY_FORGET,
+                    request_type=AgentRequestType.MEMORY_ACTION,
+                    memory_key="contact_channel",
+                )
+            ]
+        ),
+        checkpointer=MemorySaver(),
+        memory_service=FailingMemoryService(
+            "forget", OperationalError("delete", {}, RuntimeError(MEMORY_FAILURE_SENTINEL))
+        ),
+    )
+
+    response = runtime.run(
+        conversation_id="memory-failure-forget",
+        customer_id=1,
+        message="Forget my email preference.",
+        session=db_session,
+    )
+
+    assert response.error_category == AgentErrorCategory.DEPENDENCY_ERROR
+    assert response.failure_category == "database_unavailable"
+    assert "forgot" not in response.message.lower()
+    assert MEMORY_FAILURE_SENTINEL not in response.model_dump_json()
+    assert len(MemoryService().retrieve(db_session, 1, "contact")) == 1
+
+
+def test_memory_internal_failure_is_not_dependency_or_llm_error(db_session: Session) -> None:
+    for operation, intent, message, memory_key in (
+        ("remember", Intent.MEMORY_REMEMBER, "Remember an internal failure.", None),
+        ("forget", Intent.MEMORY_FORGET, "Forget my email preference.", "contact_channel"),
+    ):
+        runtime = AgentRuntime(
+            provider=FakeDecisionProvider(
+                [
+                    StructuredDecision(
+                        intent=intent,
+                        request_type=AgentRequestType.MEMORY_ACTION,
+                        memory_key=memory_key,
+                    )
+                ]
+            ),
+            checkpointer=MemorySaver(),
+            memory_service=FailingMemoryService(operation, RuntimeError(MEMORY_FAILURE_SENTINEL)),
+        )
+        response = runtime.run(
+            conversation_id=f"memory-internal-{operation}",
+            customer_id=1,
+            message=message,
+            session=db_session,
+        )
+        assert response.error_category == AgentErrorCategory.INTERNAL_ERROR
+        assert response.failure_category == "internal_error"
+        assert MEMORY_FAILURE_SENTINEL not in response.model_dump_json()

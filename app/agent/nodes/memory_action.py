@@ -1,8 +1,13 @@
 from collections.abc import Callable
 
+from opentelemetry.trace import Span
 from sqlalchemy.orm import Session
 
-from app.agent.errors import RuntimeFailureSource, classify_runtime_error
+from app.agent.errors import (
+    RuntimeErrorClassification,
+    RuntimeFailureSource,
+    classify_runtime_error,
+)
 from app.agent.schemas import AgentErrorCategory, Intent
 from app.agent.state import AgentState
 from app.memory.schemas import MemorySource
@@ -30,25 +35,23 @@ def make_memory_action_node(
                     AgentErrorCategory.INVALID_TOOL_ARGUMENTS,
                     "A specific memory was not provided.",
                 )
-            try:
-                with span("memory.evaluate_candidate") as memory_span:
+            with span("memory.evaluate_candidate") as memory_span:
+                memory_span.set_attribute("memory.operation", "remember")
+                memory_span.set_attribute("memory.type", candidate.memory_type.value)
+                try:
                     result = service.remember(
                         session,
                         context.effective_customer_id,
                         candidate,
                         source=MemorySource.USER_EXPLICIT,
                     )
-            except Exception as error:
-                classification = classify_runtime_error(error, source=RuntimeFailureSource.MEMORY)
-                return {
-                    "memory_operation_status": "failed",
-                    "memory_policy_outcome": "failed",
-                    "failure_category": FailureCategory.MEMORY_FAILURE.value,
-                    "recovery_action": "fail_safely",
-                    "error_category": classification.category,
-                    "last_error": "Persistent memory could not be updated.",
-                }
-                memory_span.set_attribute("memory.type", candidate.memory_type.value)
+                except Exception as error:
+                    classification = classify_runtime_error(
+                        error, source=RuntimeFailureSource.MEMORY
+                    )
+                    _set_failure_telemetry(memory_span, "remember", classification)
+                    return _memory_failure(classification)
+                memory_span.set_attribute("memory.status", result.status)
                 memory_span.set_attribute("memory.policy_outcome", result.status)
             if result.status in {"persisted", "deduplicated"}:
                 with span(
@@ -80,9 +83,20 @@ def make_memory_action_node(
                     AgentErrorCategory.INVALID_TOOL_ARGUMENTS,
                     "Please specify which memory to forget.",
                 )
-            with span("memory.forget", attributes={"memory.key": key}) as memory_span:
-                result = service.forget(session, context.effective_customer_id, key)
+            with span(
+                "memory.forget",
+                attributes={"memory.operation": "forget", "memory.key": key},
+            ) as memory_span:
+                try:
+                    result = service.forget(session, context.effective_customer_id, key)
+                except Exception as error:
+                    classification = classify_runtime_error(
+                        error, source=RuntimeFailureSource.MEMORY
+                    )
+                    _set_failure_telemetry(memory_span, "forget", classification)
+                    return _memory_failure(classification)
                 memory_span.set_attribute("memory.status", result.status)
+                memory_span.set_attribute("memory.policy_outcome", result.status)
             if result.status == "forgotten":
                 get_metrics().memory_forgets_total.add(1, {"status": result.status})
             return {
@@ -96,6 +110,29 @@ def make_memory_action_node(
         return _failed(AgentErrorCategory.POLICY_DENIED, "Memory operation was not recognized.")
 
     return memory_action
+
+
+def _memory_failure(classification: RuntimeErrorClassification) -> AgentState:
+    failure_category = classification.failure_category or FailureCategory.MEMORY_FAILURE.value
+    return {
+        "memory_operation_status": "failed",
+        "memory_policy_outcome": "failed",
+        "failure_category": failure_category,
+        "recovery_action": "fail_safely",
+        "error_category": classification.category,
+        "last_error": "Persistent memory could not be updated.",
+    }
+
+
+def _set_failure_telemetry(
+    memory_span: Span, operation: str, classification: RuntimeErrorClassification
+) -> None:
+    memory_span.set_attribute("memory.operation", operation)
+    memory_span.set_attribute("memory.status", "failed")
+    memory_span.set_attribute("memory.policy_outcome", "failed")
+    memory_span.set_attribute("error.category", classification.category.value)
+    if classification.failure_category is not None:
+        memory_span.set_attribute("memory.failure_category", classification.failure_category)
 
 
 def _failed(category: AgentErrorCategory, message: str) -> AgentState:

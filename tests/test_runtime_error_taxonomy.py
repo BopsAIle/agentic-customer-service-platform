@@ -109,6 +109,20 @@ def test_classifier_keeps_small_source_aware_taxonomy() -> None:
     )
 
 
+def test_memory_source_distinguishes_dependency_and_internal_failures() -> None:
+    assert (
+        classify_runtime_error(
+            OperationalError("write", {}, RuntimeError(SENTINEL)),
+            source=RuntimeFailureSource.MEMORY,
+        ).category
+        == AgentErrorCategory.DEPENDENCY_ERROR
+    )
+    assert (
+        classify_runtime_error(RuntimeError(SENTINEL), source=RuntimeFailureSource.MEMORY).category
+        == AgentErrorCategory.INTERNAL_ERROR
+    )
+
+
 def test_genuine_llm_provider_failure_remains_llm_error(db_session: Session) -> None:
     class UnavailableProvider:
         def decide(self, **kwargs: object) -> StructuredDecision:

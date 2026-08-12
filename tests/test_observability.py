@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from datetime import datetime
 
 import pytest
 from opentelemetry import trace
@@ -7,11 +8,13 @@ from opentelemetry.sdk.metrics.export import InMemoryMetricReader
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
+from app.memory.schemas import MemoryCandidate, MemoryOperationResult, MemorySource
 from app.memory.service import MemoryService
 from app.observability import tracing
 from app.observability.metrics import configure_metrics
@@ -23,6 +26,37 @@ _SPAN_EXPORTER = InMemorySpanExporter()
 _TRACER_PROVIDER = TracerProvider()
 _TRACER_PROVIDER.add_span_processor(SimpleSpanProcessor(_SPAN_EXPORTER))
 _TRACER_CONFIGURED = False
+
+
+class FailingMemoryService(MemoryService):
+    def __init__(self, operation: str, error: BaseException) -> None:
+        super().__init__()
+        self.operation = operation
+        self.error = error
+
+    def remember(
+        self,
+        session: Session,
+        customer_id: int,
+        candidate: MemoryCandidate,
+        *,
+        source: MemorySource = MemorySource.USER_EXPLICIT,
+        now: datetime | None = None,
+    ) -> MemoryOperationResult:
+        if self.operation == "remember":
+            raise self.error
+        return super().remember(session, customer_id, candidate, source=source, now=now)
+
+    def forget(
+        self,
+        session: Session,
+        customer_id: int,
+        normalized_key: str,
+        now: datetime | None = None,
+    ) -> MemoryOperationResult:
+        if self.operation == "forget":
+            raise self.error
+        return super().forget(session, customer_id, normalized_key, now=now)
 
 
 @pytest.fixture
@@ -291,6 +325,111 @@ def test_memory_spans_include_outcomes_but_not_memory_content(
     assert "The customer prefers email updates." not in span_attributes(exporter)
     data = metric_reader.get_metrics_data()
     assert data is not None
+
+
+def test_memory_operation_spans_record_reachable_success_and_failure_outcomes(
+    db_session: Session, telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader]
+) -> None:
+    exporter, _ = telemetry
+    successful_service = MemoryService()
+    AgentRuntime(
+        provider=FakeDecisionProvider(
+            [
+                StructuredDecision(
+                    intent=Intent.MEMORY_REMEMBER,
+                    request_type=AgentRequestType.MEMORY_ACTION,
+                )
+            ]
+        ),
+        memory_service=successful_service,
+    ).run(
+        conversation_id="otel-memory-remember-success",
+        customer_id=1,
+        message="Remember that I prefer email updates.",
+        session=db_session,
+    )
+    AgentRuntime(
+        provider=FakeDecisionProvider(
+            [
+                StructuredDecision(
+                    intent=Intent.MEMORY_FORGET,
+                    request_type=AgentRequestType.MEMORY_ACTION,
+                    memory_key="contact_channel",
+                )
+            ]
+        ),
+        memory_service=successful_service,
+    ).run(
+        conversation_id="otel-memory-forget-success",
+        customer_id=1,
+        message="Forget my email preference.",
+        session=db_session,
+    )
+    sentinel = "MEMORY_TELEMETRY_PRIVATE_SENTINEL_18"
+    failing_remember = FailingMemoryService(
+        "remember", OperationalError("write", {}, RuntimeError(sentinel))
+    )
+    AgentRuntime(
+        provider=FakeDecisionProvider(
+            [
+                StructuredDecision(
+                    intent=Intent.MEMORY_REMEMBER,
+                    request_type=AgentRequestType.MEMORY_ACTION,
+                )
+            ]
+        ),
+        memory_service=failing_remember,
+    ).run(
+        conversation_id="otel-memory-remember-failure",
+        customer_id=1,
+        message=f"Remember {sentinel}.",
+        session=db_session,
+    )
+    failing_forget = FailingMemoryService(
+        "forget", OperationalError("delete", {}, RuntimeError(sentinel))
+    )
+    AgentRuntime(
+        provider=FakeDecisionProvider(
+            [
+                StructuredDecision(
+                    intent=Intent.MEMORY_FORGET,
+                    request_type=AgentRequestType.MEMORY_ACTION,
+                    memory_key="contact_channel",
+                )
+            ]
+        ),
+        memory_service=failing_forget,
+    ).run(
+        conversation_id="otel-memory-forget-failure",
+        customer_id=1,
+        message="Forget my email preference.",
+        session=db_session,
+    )
+
+    memory_spans = [
+        item
+        for item in exporter.get_finished_spans()
+        if item.name in {"memory.evaluate_candidate", "memory.forget"}
+    ]
+    operations = {(item.attributes or {}).get("memory.operation") for item in memory_spans}
+    assert operations == {"remember", "forget"}
+    assert any(
+        item.name == "memory.evaluate_candidate"
+        and (item.attributes or {}).get("memory.status") == "persisted"
+        for item in memory_spans
+    )
+    assert any(
+        item.name == "memory.forget" and (item.attributes or {}).get("memory.status") == "forgotten"
+        for item in memory_spans
+    )
+    failed = [
+        item for item in memory_spans if (item.attributes or {}).get("memory.status") == "failed"
+    ]
+    assert len(failed) == 2
+    assert all(
+        (item.attributes or {}).get("error.category") == "dependency_error" for item in failed
+    )
+    assert sentinel not in span_attributes(exporter)
 
 
 def test_resilience_retry_emits_bounded_trace_and_metric(

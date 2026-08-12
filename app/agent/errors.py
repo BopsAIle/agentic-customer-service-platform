@@ -111,7 +111,6 @@ def classify_runtime_error(
 
     if source in {
         RuntimeFailureSource.DEPENDENCY,
-        RuntimeFailureSource.MEMORY,
         RuntimeFailureSource.AUDIT,
         RuntimeFailureSource.PROJECTION,
         RuntimeFailureSource.CHECKPOINT,
@@ -119,6 +118,9 @@ def classify_runtime_error(
         return RuntimeErrorClassification(AgentErrorCategory.DEPENDENCY_ERROR)
 
     if source == RuntimeFailureSource.POLICY:
+        return RuntimeErrorClassification(AgentErrorCategory.INTERNAL_ERROR, "internal_error")
+
+    if source == RuntimeFailureSource.MEMORY:
         return RuntimeErrorClassification(AgentErrorCategory.INTERNAL_ERROR, "internal_error")
 
     return RuntimeErrorClassification(AgentErrorCategory.INTERNAL_ERROR, "internal_error")
