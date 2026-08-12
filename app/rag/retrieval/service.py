@@ -55,6 +55,11 @@ class KnowledgeService:
             return self.retriever.is_ready()
         return True
 
+    def readiness_category(self) -> str:
+        """Return a safe structural readiness category for operator health projection."""
+
+        return str(getattr(self.retriever, "last_readiness_category", "ready"))
+
     @property
     def backend_type(self) -> str:
         return str(getattr(self.retriever, "backend_type", "unknown"))

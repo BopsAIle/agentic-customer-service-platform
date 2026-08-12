@@ -396,6 +396,26 @@ def run_smoke(stack: ComposeStack) -> None:
         re.fullmatch(r"customer_service_knowledge_v_[0-9a-f]{16}", active_snapshot) is not None,
         "Qdrant runtime is not serving a versioned snapshot alias target.",
     )
+    health_status, health = request_json(base_url, "/ui/system-health", token=stack.token)
+    expect(health_status == 200, "Authenticated system health is unavailable.")
+    expect(health.get("status") == "ready", "System health disagrees with ready endpoint.")
+    health_components = {
+        expect_object(component, "system health component").get("name"): component
+        for component in expect_list(health.get("components"), "system health components")
+    }
+    for component_name in ("database", "checkpoint", "retriever"):
+        component = expect_object(health_components.get(component_name), component_name)
+        expect(
+            component.get("status") == "healthy",
+            f"System health reported {component_name} as unhealthy.",
+        )
+    llm_component = expect_object(health_components.get("llm"), "llm health component")
+    expect(llm_component.get("status") == "not_probed", "LLM health semantics are not honest.")
+    expect(
+        "local retrieval boundary available" not in json.dumps(health),
+        "Static retrieval health leaked.",
+    )
+    assert_no_sensitive_projection_fields(health)
 
     anonymous_status, _ = request_json(base_url, f"/ui/memory/{MEMORY_CUSTOMER_ID}")
     expect(anonymous_status == 401, "Anonymous operator memory request did not return 401.")

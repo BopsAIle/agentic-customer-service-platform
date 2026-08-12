@@ -115,8 +115,12 @@ def test_ui_read_endpoints_and_health_have_bounded_contract(
     missing = client.get("/ui/agent-runs/not-a-real-run")
 
     assert health.status_code == 200
+    assert health.json()["status"] == "ready"
     assert {component["name"] for component in health.json()["components"]} >= {
         "database",
+        "checkpoint",
+        "retriever",
+        "llm",
         "memory",
     }
     assert missing.status_code == 404

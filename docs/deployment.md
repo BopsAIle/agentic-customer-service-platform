@@ -27,10 +27,17 @@ credentials or environment files are copied into either image.
 | --- | --- | --- | --- |
 | `GET /health` | Process liveness | None | `{"status":"ok"}` |
 | `GET /ready` | Traffic readiness | PostgreSQL, checkpoint backend, configured RAG backend | `{"status":"ready"}` or `{"status":"not_ready"}` |
+| `GET /ui/system-health` | Authenticated component health snapshot | Same runtime checks as `/ready`, plus safe configuration state | `{"status":"ready|not_ready", "components":[...]}` |
 
 Readiness failures return HTTP 503 without naming the failed dependency. Liveness deliberately
 stays healthy during dependency outages so an orchestrator does not restart an otherwise healthy
 process. The backend image healthcheck uses liveness; Compose uses readiness for service ordering.
+
+`/ready` and authenticated `/ui/system-health` use one request-scoped runtime health model. The
+health view reports PostgreSQL, checkpoint, and retrieval checks as `healthy`, `unavailable`, or
+`incompatible`; it also reports LLM configuration as `not_probed` when no active provider probe has
+run. Configuration is not availability, so a configured LLM is never displayed as healthy without
+an actual health probe. `/health` remains lightweight process liveness and does not query dependencies.
 
 For `RAG_BACKEND=qdrant`, `/ready` is fail-closed until the configured alias exists and its active
 physical snapshot exists with

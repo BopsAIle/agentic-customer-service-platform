@@ -227,6 +227,11 @@ class QdrantKnowledgeBackend:
         if callable(close):
             close()
 
+    def readiness_category(self) -> str:
+        """Return the last bounded readiness result without probing or mutating Qdrant."""
+
+        return self.last_readiness_category
+
     def is_ready(self) -> bool:
         try:
             if self.require_alias and _alias_target(self.client, self.collection_name) is None:

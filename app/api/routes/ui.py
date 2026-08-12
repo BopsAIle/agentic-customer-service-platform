@@ -1,10 +1,10 @@
-from fastapi import APIRouter, Depends, HTTPException, Query, status
-from sqlalchemy import text
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_support_operator
 from app.core.config import get_settings
 from app.core.database import get_db
+from app.health import RuntimeHealthService
 from app.memory.service import MemoryService
 from app.policies.repository import SqlAlchemyPolicyAuditRepository
 from app.ui.repository import AgentRunProjectionRepository, build_agent_run_projection_repository
@@ -174,38 +174,22 @@ def memory(customer_id: int, session: Session = Depends(get_db)) -> list[MemoryV
 
 
 @router.get("/system-health", response_model=SystemHealthView)
-def system_health(session: Session = Depends(get_db)) -> SystemHealthView:
-    components: list[SystemComponentHealth] = []
-    try:
-        session.execute(text("SELECT 1"))
-        components.append(
-            SystemComponentHealth(name="database", status="healthy", detail="reachable")
-        )
-    except Exception:
-        components.append(
-            SystemComponentHealth(name="database", status="degraded", detail="unavailable")
-        )
+def system_health(request: Request, session: Session = Depends(get_db)) -> SystemHealthView:
     settings = get_settings()
-    components.extend(
-        [
-            SystemComponentHealth(
-                name="llm", status="configured", detail="provider boundary available"
-            ),
-            SystemComponentHealth(
-                name="retriever",
-                status="healthy",
-                detail="local retrieval boundary available",
-            ),
-            SystemComponentHealth(
-                name="memory",
-                status="healthy" if settings.memory_enabled else "disabled",
-                detail="persistent memory configuration",
-            ),
-        ]
+    snapshot = RuntimeHealthService(settings).snapshot(
+        session=session,
+        checkpoint_provider=request.app.state.checkpoint_provider,
+        runtime=request.app.state.agent_runtime,
+        accepting_requests=getattr(request.app.state, "accepting_requests", False),
     )
-    overall = (
-        "healthy"
-        if all(item.status in {"healthy", "configured", "disabled"} for item in components)
-        else "degraded"
+    return SystemHealthView(
+        status="ready" if snapshot.overall_ready else "not_ready",
+        components=[
+            SystemComponentHealth(
+                name=component.name,
+                status=component.status.value,
+                detail=component.detail,
+            )
+            for component in snapshot.components
+        ],
     )
-    return SystemHealthView(status=overall, components=components)

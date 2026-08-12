@@ -61,3 +61,9 @@ The frontend auth provider has four states: loading, authenticated, unauthentica
 misconfigured. It gates protected API calls, distinguishes 401 from 403, clears in-memory operator
 data after a 401, and never persists credentials. The external adapter is the integration boundary
 for a future OIDC/OAuth2 PKCE flow, BFF, auth gateway, or reverse-proxy identity layer.
+
+The console keeps authentication, API reachability, and backend runtime readiness separate. A
+successful authenticated `/ui/system-health` response is rendered as `ready` or `not ready` with
+component states such as `healthy`, `unavailable`, `incompatible`, `configured`, and `not_probed`.
+The console does not display a static “API connected” claim, and it does not label a configured LLM
+healthy because no active provider probe is performed.

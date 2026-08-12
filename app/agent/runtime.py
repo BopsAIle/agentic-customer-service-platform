@@ -96,6 +96,14 @@ class AgentRuntime:
             return self.knowledge_retriever.is_ready()
         return True
 
+    def readiness_category(self) -> str:
+        """Return the retrieval boundary's safe readiness category after a check."""
+
+        category = getattr(self.knowledge_retriever, "readiness_category", None)
+        if callable(category):
+            return str(category())
+        return str(getattr(self.knowledge_retriever, "last_readiness_category", "ready"))
+
     def run(
         self,
         *,

@@ -12,7 +12,7 @@ afterEach(() => {
 describe("authenticated API client", () => {
   it("attaches the configured bearer credential", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ status: "healthy", components: [] }), {
+      new Response(JSON.stringify({ status: "ready", components: [] }), {
         status: 200,
         headers: { "Content-Type": "application/json" },
       }),
@@ -83,7 +83,7 @@ describe("authenticated API client", () => {
     );
     await initializeApiAuth();
     const fetchMock = vi.fn().mockResolvedValue(
-      new Response(JSON.stringify({ status: "healthy", components: [] }), { status: 200 }),
+      new Response(JSON.stringify({ status: "ready", components: [] }), { status: 200 }),
     );
     vi.stubGlobal("fetch", fetchMock);
 

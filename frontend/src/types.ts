@@ -74,9 +74,17 @@ export type MemoryRecord = {
   expires_at: string | null;
 };
 
+export type HealthStatus = "ready" | "not_ready";
+export type ComponentHealthStatus =
+  | "healthy"
+  | "unavailable"
+  | "incompatible"
+  | "configured"
+  | "not_configured"
+  | "not_probed";
 export type Health = {
-  status: string;
-  components: { name: string; status: string; detail: string }[];
+  status: HealthStatus;
+  components: { name: string; status: ComponentHealthStatus; detail: string }[];
 };
 
 export type AgentResponse = {

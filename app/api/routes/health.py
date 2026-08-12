@@ -1,11 +1,11 @@
 import logging
 
 from fastapi import APIRouter, Depends, Request, Response, status
-from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.agent.runtime import AgentRuntime
+from app.core.config import get_settings
 from app.core.database import get_db
+from app.health import RuntimeHealthService
 from app.persistence.checkpoint import CheckpointProvider
 from app.schemas.health import HealthResponse, ReadinessResponse
 
@@ -28,24 +28,22 @@ def ready(
 ) -> ReadinessResponse:
     """Return a bounded dependency-readiness result without exposing internals."""
 
-    if not getattr(request.app.state, "accepting_requests", False):
-        return _not_ready(response, "lifecycle")
-    try:
-        session.execute(text("SELECT 1"))
-    except Exception:
-        return _not_ready(response, "database")
-
     checkpoint_provider: CheckpointProvider = request.app.state.checkpoint_provider
-    if not checkpoint_provider.is_ready():
-        return _not_ready(response, "checkpoint")
-
-    runtime: AgentRuntime = request.app.state.agent_runtime
-    try:
-        knowledge_ready = runtime.is_ready()
-    except Exception:
-        return _not_ready(response, "knowledge")
-    if not knowledge_ready:
-        return _not_ready(response, "knowledge")
+    runtime = request.app.state.agent_runtime
+    snapshot = RuntimeHealthService(get_settings()).snapshot(
+        session=session,
+        checkpoint_provider=checkpoint_provider,
+        runtime=runtime,
+        accepting_requests=getattr(request.app.state, "accepting_requests", False),
+    )
+    if not snapshot.overall_ready:
+        failed_components = [
+            item.name
+            for item in snapshot.components
+            if item.name in {"lifecycle", "database", "checkpoint", "retriever"}
+            and item.status != "healthy"
+        ]
+        return _not_ready(response, failed_components[0] if failed_components else "runtime")
     return ReadinessResponse(status="ready")
 
 

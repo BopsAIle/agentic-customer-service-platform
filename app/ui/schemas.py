@@ -1,6 +1,9 @@
 from datetime import datetime
+from typing import Literal
 
 from pydantic import BaseModel, Field
+
+from app.health import ComponentHealthStatus
 
 
 class UIMessageView(BaseModel):
@@ -120,10 +123,10 @@ class MemoryView(BaseModel):
 
 class SystemComponentHealth(BaseModel):
     name: str
-    status: str
+    status: ComponentHealthStatus
     detail: str
 
 
 class SystemHealthView(BaseModel):
-    status: str
+    status: Literal["ready", "not_ready"]
     components: list[SystemComponentHealth]
