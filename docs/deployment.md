@@ -257,3 +257,26 @@ environment-specific identity integration.
 For a real deployment, replace the local PostgreSQL and Qdrant services with managed or separately
 operated dependencies as appropriate, supply identity and observability configuration through the
 deployment environment, and terminate TLS at a trusted ingress or load balancer.
+
+## Optional live-model behavioral evaluation
+
+Live-model evaluation is an explicit development operation and is not part of normal CI. The local
+baseline uses the existing OpenAI-compatible boundary with Ollama:
+
+```bash
+ollama list
+python -m evaluation.live --model qwen2.5:7b-instruct \
+  --base-url http://localhost:11434/v1 --runs-per-case 3 --layer both
+```
+
+For a Compose backend reaching Ollama on macOS, use
+`http://host.docker.internal:11434/v1` as the base URL. The case set is versioned (`live_eval_v1`),
+and reports are written to the ignored `artifacts/live-eval/` directory. The decision layer only
+measures typed model proposals; the smaller control-plane layer verifies deterministic policy,
+confirmation, idempotency, and mutation safety. A model failure never silently falls back to the
+deterministic provider.
+
+The runner records safe metrics and does not persist API keys, authorization headers, hidden
+prompts, or raw model output by default. `qwen2.5:7b-instruct` is a local development baseline,
+not a production recommendation. Live results are non-deterministic and do not turn the global LLM
+health state into `healthy`; without an active probe it remains configured/not-probed.

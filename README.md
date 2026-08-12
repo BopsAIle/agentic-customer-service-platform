@@ -709,3 +709,31 @@ after the previous call has returned. The platform does not use detached daemon 
 cancellation. Local rerankers are allowed to finish; a provider-raised timeout or failure keeps
 the original fused ranking. A business write whose commit outcome is unknown remains
 `UnknownWriteOutcomeError` and is never automatically replayed.
+
+### Optional live-model evaluation
+
+The deterministic evaluation suites remain the CI quality and safety gates. An opt-in live
+behavioral runner is available for measuring a real provider without making Ollama a CI
+dependency:
+
+```bash
+ollama list
+python -m evaluation.live --model qwen2.5:7b-instruct \
+  --base-url http://localhost:11434/v1 --runs-per-case 3 --layer both
+```
+
+The runner uses the existing `OpenAICompatibleProvider`, freezes the current prompt for the
+baseline, and writes JSON/Markdown reports under `artifacts/live-eval/` (ignored by Git). Layer A
+scores model decisions without executing business mutations. Layer B runs a small isolated set of
+real control-plane scenarios and reports unsafe proposals separately from unsafe execution and
+confirmation bypass. Cases are versioned as `live_eval_v1`, and reports can be compared with:
+
+```bash
+python -m evaluation.live compare baseline.json candidate.json
+```
+
+The local `qwen2.5:7b-instruct` model is a development baseline, not a production recommendation.
+Live results are non-deterministic and latency is machine-dependent; they do not change global LLM
+health, which remains configured/not-probed unless an explicit health probe exists. Ollama is
+optional and must be configured explicitly; it is never a silent fallback for deterministic or
+hosted providers.
