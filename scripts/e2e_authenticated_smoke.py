@@ -137,6 +137,17 @@ class ComposeStack:
         result = self.run(("exec", "-T", "backend", "python", "-c", program), timeout=30)
         return expect_object(json.loads(result.stdout), "Qdrant collection response")
 
+    def qdrant_alias_target(self) -> str:
+        program = (
+            "from qdrant_client import QdrantClient; "
+            "client=QdrantClient('http://qdrant:6333'); "
+            "aliases=client.get_aliases().aliases; "
+            "print(next((a.collection_name for a in aliases "
+            "if a.alias_name == 'customer_service_knowledge'), ''))"
+        )
+        result = self.run(("exec", "-T", "backend", "python", "-c", program), timeout=30)
+        return result.stdout.strip()
+
     def restart_backend(self) -> None:
         self.run(("restart", "--timeout", "40", "backend"), timeout=90)
 
@@ -362,6 +373,11 @@ def run_smoke(stack: ComposeStack) -> None:
     collection = stack.qdrant_collection()
     expect(collection.get("status") == "green", "Qdrant collection is not green.")
     expect(collection.get("points_count") == 14, "Knowledge ingestion did not load 14 chunks.")
+    active_snapshot = stack.qdrant_alias_target()
+    expect(
+        active_snapshot.startswith("customer_service_knowledge_v_"),
+        "Qdrant runtime is not serving a versioned snapshot alias target.",
+    )
 
     anonymous_status, _ = request_json(base_url, f"/ui/memory/{MEMORY_CUSTOMER_ID}")
     expect(anonymous_status == 401, "Anonymous operator memory request did not return 401.")

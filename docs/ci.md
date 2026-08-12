@@ -60,6 +60,11 @@ checks that policy evidence remains queryable after backend restart, is bounded 
 and contains no prompts, credentials, memory content, or raw business payloads. Audit persistence
 is observational and does not authorize or replay business actions.
 
+The integration bootstrap builds a complete versioned Qdrant snapshot and atomically activates the
+logical knowledge alias before backend readiness. This keeps the deterministic hybrid lexical
+vocabulary consistent with every stored sparse vector and makes stale-document removal a snapshot
+property rather than an incremental delete operation.
+
 ### Docker Build and Scan
 
 CI validates `docker compose config`, builds both application images, and scans each image for

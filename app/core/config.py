@@ -46,7 +46,10 @@ class Settings(BaseSettings):
     embedding_timeout_seconds: float = Field(default=30.0, gt=0.0)
     reranker_enabled: bool = True
     qdrant_url: str = "http://localhost:6333"
+    # Logical alias; physical snapshot collections are managed by rag_ingest.py.
     qdrant_collection: str = "customer_service_knowledge"
+    qdrant_schema_version: int = Field(default=2, gt=0)
+    qdrant_chunking_version: int = Field(default=1, gt=0)
     rag_dense_top_k: int = Field(default=8, gt=0)
     rag_sparse_top_k: int = Field(default=8, gt=0)
     rag_rerank_candidates: int = Field(default=12, gt=0)

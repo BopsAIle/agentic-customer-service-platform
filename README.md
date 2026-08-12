@@ -132,6 +132,16 @@ and idempotency never consult it. The optional in-memory adapter is bounded and 
 tests/lightweight local runs. Database retention and pruning remain an operator responsibility;
 this is not a compliance-grade immutable ledger.
 
+Qdrant knowledge is deployed as immutable, versioned hybrid snapshots. The logical
+`QDRANT_COLLECTION` name is an atomic alias (for example, `customer_service_knowledge`) pointing
+to a physical `*_v_<snapshot>` collection. `scripts.rag_ingest` builds the complete corpus,
+derives lexical vocabulary/IDF from that corpus, validates dense+sparse schema and provenance,
+then switches the alias atomically. Incremental mutation of the active hybrid collection is not
+supported because lexical semantics belong to the complete snapshot. Use `python -m scripts.rag_ingest list`
+to inspect snapshots and `python -m scripts.rag_ingest rollback <physical-collection>` for a controlled
+rollback; old snapshots are retained until operators explicitly retire them. Readiness checks the
+stored embedding provider/model, schema, chunking, and lexical-index versions when available.
+
 ### Business Tools
 
 The explicit tool registry currently includes:

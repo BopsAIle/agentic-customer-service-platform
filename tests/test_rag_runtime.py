@@ -26,7 +26,10 @@ from app.rag.retrieval.hybrid import HybridRetriever
 from app.rag.retrieval.lexical import LEXICAL_METADATA_KEY, LEXICAL_VECTOR_NAME
 from app.rag.retrieval.service import build_knowledge_service
 from app.rag.schemas import DocumentChunk, RetrievedChunk
-from app.rag.storage.qdrant import QdrantKnowledgeStore, build_dense_vector_params
+from app.rag.storage.qdrant import (
+    QdrantKnowledgeStore,
+    build_dense_vector_params,
+)
 from app.resilience.config import ResilienceConfig
 from evaluation.metrics.rag import evaluate_runtime_retrieval
 
@@ -427,6 +430,208 @@ def test_qdrant_ingestion_rejects_dense_only_collection_without_recreation() -> 
 
     collection = client.get_collection("knowledge")
     assert collection.config.params.sparse_vectors is None
+
+
+def snapshot_chunk(chunk_id: str, content: str) -> DocumentChunk:
+    return DocumentChunk(
+        chunk_id=f"{chunk_id}#section#0",
+        document_id=chunk_id,
+        title=chunk_id,
+        category="policy",
+        section="section",
+        source=f"knowledge/{chunk_id}.md",
+        chunk_index=0,
+        content=content,
+    )
+
+
+def test_qdrant_snapshots_switch_atomically_and_support_rollback() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore(
+        "unused",
+        "knowledge_current",
+        provider,
+        client=client,
+        embedding_model="deterministic-v1",
+    )
+    first = store.build_snapshot(
+        [
+            snapshot_chunk("alpha", "alpha legacy knowledge"),
+            snapshot_chunk("beta", "beta knowledge"),
+        ]
+    )
+    repeated = store.build_snapshot(
+        [
+            snapshot_chunk("beta", "beta knowledge"),
+            snapshot_chunk("alpha", "alpha legacy knowledge"),
+        ],
+        activate=False,
+    )
+    assert repeated.collection_name == first.collection_name
+    second = store.build_snapshot([snapshot_chunk("alpha", "alpha replacement")], activate=False)
+
+    assert client.get_aliases().aliases[0].collection_name == first.collection_name
+    assert client.get_collection("knowledge_current").points_count == 2
+    store.activate(second.collection_name)
+    assert client.get_aliases().aliases[0].collection_name == second.collection_name
+    assert client.get_collection("knowledge_current").points_count == 1
+    store.rollback(first.collection_name)
+    assert client.get_aliases().aliases[0].collection_name == first.collection_name
+    assert client.get_collection("knowledge_current").points_count == 2
+
+
+def test_qdrant_snapshot_model_identity_mismatch_is_not_ready() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore(
+        "unused",
+        "knowledge_current",
+        provider,
+        client=client,
+        embedding_model="model-one",
+    )
+    store.build_snapshot([snapshot_chunk("alpha", "alpha knowledge")])
+    backend = QdrantKnowledgeBackend(
+        url="unused",
+        collection_name="knowledge_current",
+        embedding_provider=provider,
+        embedding_model="model-two",
+        require_alias=True,
+        reranker=None,
+        reranker_enabled=False,
+        rerank_candidates=2,
+        final_context_count=2,
+        timeout_seconds=1.0,
+        reranker_timeout_seconds=1.0,
+        embedding_dimension=8,
+        client=client,
+    )
+
+    assert backend.is_ready() is False
+    assert backend.last_readiness_category == "provenance_mismatch"
+
+
+def test_qdrant_snapshot_with_matching_provenance_is_ready() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore(
+        "unused",
+        "knowledge_current",
+        provider,
+        client=client,
+        embedding_model="model-one",
+    )
+    store.build_snapshot([snapshot_chunk("alpha", "alpha knowledge")])
+    backend = QdrantKnowledgeBackend(
+        url="unused",
+        collection_name="knowledge_current",
+        embedding_provider=provider,
+        embedding_model="model-one",
+        require_alias=True,
+        reranker=None,
+        reranker_enabled=False,
+        rerank_candidates=2,
+        final_context_count=2,
+        timeout_seconds=1.0,
+        reranker_timeout_seconds=1.0,
+        embedding_dimension=8,
+        client=client,
+    )
+
+    assert backend.is_ready() is True
+
+
+def test_qdrant_snapshot_point_count_mismatch_is_not_ready() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore(
+        "unused",
+        "knowledge_current",
+        provider,
+        client=client,
+        embedding_model="model-one",
+    )
+    snapshot = store.build_snapshot([snapshot_chunk("alpha", "alpha knowledge")])
+    collection = client.get_collection(snapshot.collection_name)
+    metadata = collection.config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    provenance["chunk_count"] = 2
+    client.update_collection(collection_name=snapshot.collection_name, metadata=metadata)
+    backend = QdrantKnowledgeBackend(
+        url="unused",
+        collection_name="knowledge_current",
+        embedding_provider=provider,
+        embedding_model="model-one",
+        require_alias=True,
+        reranker=None,
+        reranker_enabled=False,
+        rerank_candidates=2,
+        final_context_count=2,
+        timeout_seconds=1.0,
+        reranker_timeout_seconds=1.0,
+        embedding_dimension=8,
+        client=client,
+    )
+
+    assert backend.is_ready() is False
+    assert backend.last_readiness_category == "provenance_mismatch"
+
+
+def test_failed_snapshot_activation_preserves_existing_alias() -> None:
+    client = QdrantClient(":memory:")
+    original_switch = client.update_collection_aliases
+    fail_alias_switch = False
+
+    def switch_aliases(operations: Any, *, timeout: int | None = None) -> bool:
+        if fail_alias_switch:
+            raise RuntimeError("alias switch failed")
+        return original_switch(operations, timeout=timeout)
+
+    client.update_collection_aliases = switch_aliases  # type: ignore[assignment]
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore(
+        "unused",
+        "knowledge_current",
+        provider,
+        client=client,
+        embedding_model="model-one",
+    )
+    first = store.build_snapshot([snapshot_chunk("alpha", "alpha knowledge")])
+    second = store.build_snapshot([snapshot_chunk("beta", "beta knowledge")], activate=False)
+    fail_alias_switch = True
+
+    with pytest.raises(RuntimeError, match="alias switch failed"):
+        store.activate(second.collection_name)
+    assert client.get_aliases().aliases[0].collection_name == first.collection_name
+    assert client.collection_exists(second.collection_name)
+
+
+def test_rollback_rejects_incompatible_snapshot_before_alias_switch() -> None:
+    client = QdrantClient(":memory:")
+    provider = DeterministicEmbeddingProvider(8)
+    store = QdrantKnowledgeStore(
+        "unused",
+        "knowledge_current",
+        provider,
+        client=client,
+        embedding_model="model-one",
+    )
+    first = store.build_snapshot([snapshot_chunk("alpha", "alpha knowledge")])
+    second = store.build_snapshot([snapshot_chunk("beta", "beta knowledge")], activate=False)
+    collection = client.get_collection(second.collection_name)
+    metadata = collection.config.metadata
+    assert isinstance(metadata, dict)
+    provenance = metadata["knowledge_snapshot"]
+    assert isinstance(provenance, dict)
+    provenance["schema_version"] = 999
+    client.update_collection(collection_name=second.collection_name, metadata=metadata)
+
+    with pytest.raises(RuntimeError, match="provenance validation"):
+        store.rollback(second.collection_name)
+    assert client.get_aliases().aliases[0].collection_name == first.collection_name
 
 
 def test_local_backend_readiness_does_not_require_qdrant() -> None:

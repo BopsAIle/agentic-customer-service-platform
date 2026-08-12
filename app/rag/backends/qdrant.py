@@ -19,7 +19,12 @@ from app.rag.retrieval.lexical import (
     LexicalIndex,
 )
 from app.rag.schemas import RetrievedChunk
-from app.rag.storage.qdrant import QDRANT_DENSE_DISTANCE
+from app.rag.storage.qdrant import (
+    CHUNKING_VERSION,
+    KNOWLEDGE_SCHEMA_VERSION,
+    QDRANT_DENSE_DISTANCE,
+    SNAPSHOT_METADATA_KEY,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +36,8 @@ class QdrantReadinessCategory(StrEnum):
     VECTOR_SCHEMA_MISMATCH = "vector_schema_mismatch"
     VECTOR_DIMENSION_MISMATCH = "vector_dimension_mismatch"
     KNOWLEDGE_NOT_INGESTED = "knowledge_not_ingested"
+    ALIAS_MISSING = "alias_missing"
+    PROVENANCE_MISMATCH = "provenance_mismatch"
 
 
 class QdrantKnowledgeBackend:
@@ -51,6 +58,10 @@ class QdrantKnowledgeBackend:
         timeout_seconds: float,
         reranker_timeout_seconds: float,
         embedding_dimension: int | None = None,
+        embedding_model: str | None = None,
+        require_alias: bool = False,
+        schema_version: int = KNOWLEDGE_SCHEMA_VERSION,
+        chunking_version: int = CHUNKING_VERSION,
         dense_top_k: int = 8,
         sparse_top_k: int = 8,
         filters: KnowledgeFilter | None = None,
@@ -75,6 +86,10 @@ class QdrantKnowledgeBackend:
         self.embedding_dimension = embedding_dimension or getattr(
             embedding_provider, "dimension", None
         )
+        self.embedding_model = embedding_model
+        self.require_alias = require_alias
+        self.schema_version = schema_version
+        self.chunking_version = chunking_version
         self.dense_top_k = dense_top_k
         self.sparse_top_k = sparse_top_k
         self.filters = filters
@@ -207,6 +222,9 @@ class QdrantKnowledgeBackend:
 
     def is_ready(self) -> bool:
         try:
+            if self.require_alias and _alias_target(self.client, self.collection_name) is None:
+                self._record_readiness_failure(QdrantReadinessCategory.ALIAS_MISSING)
+                return False
             collection = self.client.get_collection(self.collection_name)
         except Exception as error:
             category = (
@@ -250,14 +268,65 @@ class QdrantKnowledgeBackend:
             return False
 
         metadata = _field(config, "metadata")
+        if not isinstance(metadata, dict):
+            self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
+            return False
         lexical_metadata = _field(metadata, LEXICAL_METADATA_KEY)
         try:
             lexical_index = LexicalIndex.from_metadata(lexical_metadata)
         except ValueError:
             self._record_readiness_failure(QdrantReadinessCategory.VECTOR_SCHEMA_MISMATCH)
             return False
+        if not isinstance(lexical_metadata, dict):
+            self._record_readiness_failure(QdrantReadinessCategory.VECTOR_SCHEMA_MISMATCH)
+            return False
 
         points_count = _field(collection, "points_count")
+        if self.require_alias:
+            provenance = _field(metadata, SNAPSHOT_METADATA_KEY)
+            if not isinstance(provenance, dict):
+                self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
+                return False
+            required_provenance = {
+                "snapshot_id",
+                "corpus_hash",
+                "corpus_version",
+                "chunk_count",
+                "embedding_provider",
+                "embedding_model",
+                "embedding_dimension",
+                "lexical_index_version",
+                "lexical_index_hash",
+                "schema_version",
+                "chunking_version",
+                "created_at",
+            }
+            if not required_provenance.issubset(provenance):
+                self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
+                return False
+            expected_provenance = {
+                "embedding_provider": self.embedding_provider.provider_type,
+                "embedding_dimension": self.embedding_dimension,
+                "schema_version": self.schema_version,
+                "chunking_version": self.chunking_version,
+                "lexical_index_version": lexical_metadata.get("version"),
+                "lexical_index_hash": _metadata_hash(lexical_metadata),
+            }
+            if self.embedding_model is not None:
+                expected_provenance["embedding_model"] = self.embedding_model
+            if any(provenance.get(key) != value for key, value in expected_provenance.items()):
+                self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
+                return False
+            expected_point_count = provenance.get("chunk_count")
+            if not isinstance(expected_point_count, int) or expected_point_count < 1:
+                self._record_readiness_failure(QdrantReadinessCategory.PROVENANCE_MISMATCH)
+                return False
+            if points_count != expected_point_count:
+                self._record_readiness_failure(
+                    QdrantReadinessCategory.PROVENANCE_MISMATCH,
+                    points_count=points_count,
+                )
+                return False
         if not isinstance(points_count, int) or points_count < 1:
             self._record_readiness_failure(
                 QdrantReadinessCategory.KNOWLEDGE_NOT_INGESTED,
@@ -314,14 +383,13 @@ class QdrantKnowledgeBackend:
         )
 
     def _lexical_index_for_query(self) -> LexicalIndex:
-        if self._lexical_index is not None:
-            return self._lexical_index
         collection = self.client.get_collection(self.collection_name)
         config = _field(collection, "config")
         metadata = _field(config, "metadata")
         lexical_metadata = _field(metadata, LEXICAL_METADATA_KEY)
-        self._lexical_index = LexicalIndex.from_metadata(lexical_metadata)
-        return self._lexical_index
+        lexical_index = LexicalIndex.from_metadata(lexical_metadata)
+        self._lexical_index = lexical_index
+        return lexical_index
 
     @staticmethod
     def _validated_results(points: Sequence[Any]) -> list[RetrievedChunk]:
@@ -355,3 +423,22 @@ def _enum_value(value: object) -> object:
 
 def _is_collection_missing(error: BaseException) -> bool:
     return getattr(error, "status_code", None) == 404 or "not found" in str(error).casefold()
+
+
+def _alias_target(client: Any, alias_name: str) -> str | None:
+    get_aliases = getattr(client, "get_aliases", None)
+    if not callable(get_aliases):
+        return None
+    for alias in getattr(get_aliases(), "aliases", []):
+        if _field(alias, "alias_name") == alias_name:
+            target = _field(alias, "collection_name")
+            return str(target) if target is not None else None
+    return None
+
+
+def _metadata_hash(metadata: object) -> str:
+    import hashlib
+    import json
+
+    encoded = json.dumps(metadata, sort_keys=True, separators=(",", ":")).encode()
+    return hashlib.sha256(encoded).hexdigest()

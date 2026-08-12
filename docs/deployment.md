@@ -31,15 +31,17 @@ Readiness failures return HTTP 503 without naming the failed dependency. Livenes
 stays healthy during dependency outages so an orchestrator does not restart an otherwise healthy
 process. The backend image healthcheck uses liveness; Compose uses readiness for service ordering.
 
-For `RAG_BACKEND=qdrant`, `/ready` is fail-closed until the configured collection exists and its
+For `RAG_BACKEND=qdrant`, `/ready` is fail-closed until the configured alias exists and its active
+physical snapshot exists with
 metadata matches the runtime contract: one unnamed dense vector, a named `lexical` sparse vector,
 `Distance.COSINE`, and `EMBEDDING_DIMENSION`. The collection must also contain valid deterministic
 lexical metadata and at least one indexed knowledge point; this is the selected
 ingestion-completeness policy for the normal demo and production RAG path.
 Readiness only observes Qdrant metadata and never creates, recreates, upserts, or deletes a
-collection. `RAG_BACKEND=local` bypasses Qdrant readiness entirely. Matching dimensions are a
-structural check only; without persisted model identity they do not prove that historical vectors
-were produced by the currently configured embedding model. Production Qdrant retrieval fuses the
+collection. It also checks persisted embedding provider/model identity and supported snapshot,
+chunking, and lexical-index versions. `RAG_BACKEND=local` bypasses Qdrant readiness entirely.
+For providers without a stable model identity, matching dimensions remain a structural check only
+and cannot prove semantic compatibility. Production Qdrant retrieval fuses the
 dense and lexical branches using reciprocal-rank fusion before optional reranking. Existing
 dense-only collections must be re-ingested into a compatible hybrid collection; startup does not
 delete or upgrade them automatically. Provision a new collection (or explicitly replace the old
@@ -148,6 +150,16 @@ It forces `POLICY_AUDIT_BACKEND=postgres`; production policy audit is a durable,
 evidence trail. Audit rows contain structured policy lifecycle metadata only and are never used as
 an authorization or business-state source. Configure database retention/pruning operationally;
 the application does not claim immutable compliance-ledger guarantees.
+
+Production knowledge ingestion is a complete-snapshot operation. `QDRANT_COLLECTION` is the stable
+logical alias; each build creates a new physical `*_v_<corpus-hash>` collection, computes lexical
+vocabulary/IDF from the full corpus, persists embedding and schema provenance, validates point
+count/schema, and atomically switches the alias. The active snapshot is never incrementally
+mutated or deleted by readiness/startup. Removed source documents disappear when the new snapshot
+is activated. Operators may inspect snapshots with `python -m scripts.rag_ingest list` and roll back
+with `python -m scripts.rag_ingest rollback <physical-collection>`; previous collections remain
+available until explicitly retired. A failed build or alias operation leaves the previous alias
+target authoritative.
 Backend startup rejects disabled or local-demo
 authentication in production. Static opaque bearers are only the repository's current integration
 adapter, not a claim of production IAM; deployers must provide secret rotation/storage and their

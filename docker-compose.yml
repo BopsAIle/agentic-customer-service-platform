@@ -37,6 +37,8 @@ services:
       POLICY_AUDIT_BACKEND: ${POLICY_AUDIT_BACKEND:-postgres}
       POLICY_AUDIT_QUERY_LIMIT: ${POLICY_AUDIT_QUERY_LIMIT:-50}
       QDRANT_URL: http://qdrant:6333
+      QDRANT_SCHEMA_VERSION: ${QDRANT_SCHEMA_VERSION:-2}
+      QDRANT_CHUNKING_VERSION: ${QDRANT_CHUNKING_VERSION:-1}
     depends_on:
       db:
         condition: service_healthy
