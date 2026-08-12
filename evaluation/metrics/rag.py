@@ -3,7 +3,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from app.rag.interfaces import KnowledgeRetriever, RetrievalMetadata
+from app.rag.interfaces import KnowledgeRetriever
 
 
 def citation_integrity(
@@ -30,7 +30,7 @@ def evaluate_runtime_retrieval(retriever: KnowledgeRetriever, query: str) -> Run
     """Provider-neutral runtime hook; it records no query or document content."""
     started = time.perf_counter()
     try:
-        chunks = retriever.retrieve(query)
+        result = retriever.retrieve(query)
     except Exception:
         return RuntimeRagEvaluation(
             retrieval_success=False,
@@ -40,18 +40,14 @@ def evaluate_runtime_retrieval(retriever: KnowledgeRetriever, query: str) -> Run
             latency_ms=(time.perf_counter() - started) * 1000,
             backend=str(getattr(retriever, "backend_type", "unknown")),
         )
-    metadata = getattr(retriever, "last_metadata", None)
-    safe_metadata = metadata if isinstance(metadata, RetrievalMetadata) else None
+    chunks = result.chunks
+    metadata = result.metadata
     return RuntimeRagEvaluation(
         retrieval_success=bool(chunks),
         citation_availability=bool(chunks)
         and all(bool(chunk.citation_id and chunk.source) for chunk in chunks),
         reranker_used=any(chunk.rerank_score is not None for chunk in chunks),
-        fallback_used=(safe_metadata is not None and safe_metadata.fallback_status != "none"),
+        fallback_used=(metadata.fallback_status != "none" or bool(result.degraded_components)),
         latency_ms=(time.perf_counter() - started) * 1000,
-        backend=(
-            safe_metadata.backend
-            if safe_metadata is not None
-            else str(getattr(retriever, "backend_type", "unknown"))
-        ),
+        backend=(metadata.backend),
     )

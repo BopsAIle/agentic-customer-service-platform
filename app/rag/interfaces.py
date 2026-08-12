@@ -19,6 +19,19 @@ class RetrievalMetadata:
     retrieval_count: int
     latency_seconds: float
     fallback_status: str = "none"
+    hybrid: bool = False
+    fusion_strategy: str = "none"
+    dense_candidate_count: int = 0
+    sparse_candidate_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class RetrievalResult:
+    """The complete, request-scoped output of one retrieval operation."""
+
+    chunks: tuple[RetrievedChunk, ...]
+    metadata: RetrievalMetadata
+    degraded_components: tuple[str, ...] = ()
 
 
 class KnowledgeFilter(BaseModel):
@@ -33,7 +46,7 @@ class KnowledgeFilter(BaseModel):
 class KnowledgeRetriever(Protocol):
     """Application boundary used by the agent for knowledge retrieval."""
 
-    def retrieve(self, query: str) -> list[RetrievedChunk]: ...
+    def retrieve(self, query: str) -> RetrievalResult: ...
 
 
 @runtime_checkable

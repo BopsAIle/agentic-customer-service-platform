@@ -19,7 +19,7 @@ def make_retrieve_node(
         query = state.get("knowledge_query") or _latest_user_message(state)
         timeout_seconds = (resilience_config or ResilienceConfig()).retrieval_timeout_seconds
         try:
-            chunks = run_with_retry(
+            retrieval = run_with_retry(
                 lambda: retriever.retrieve(query),
                 dependency="retrieval",
                 config=resilience_config,
@@ -49,10 +49,25 @@ def make_retrieve_node(
                 "recovery_action": "degraded",
                 "degraded_components": ["retrieval"],
             }
+        chunks = retrieval.chunks
+        degraded = retrieval.degraded_components
+        metadata = retrieval.metadata
+        retrieval_metadata = {
+            "backend": metadata.backend,
+            "embedding_provider": metadata.embedding_provider,
+            "reranker_enabled": metadata.reranker_enabled,
+            "retrieval_count": metadata.retrieval_count,
+            "latency_seconds": metadata.latency_seconds,
+            "fallback_status": metadata.fallback_status,
+            "hybrid": metadata.hybrid,
+            "fusion_strategy": metadata.fusion_strategy,
+            "dense_candidate_count": metadata.dense_candidate_count,
+            "sparse_candidate_count": metadata.sparse_candidate_count,
+        }
         grounded = generator.answer(query, chunks, state.get("tool_result"))
-        degraded = getattr(retriever, "last_degraded_components", [])
         return {
             "retrieved_chunks": [chunk.model_dump(mode="json") for chunk in chunks],
+            "retrieval_metadata": retrieval_metadata,
             "knowledge_answer": grounded.answer,
             "citations": [citation.model_dump(mode="json") for citation in grounded.citations],
             "degraded_components": list(degraded),

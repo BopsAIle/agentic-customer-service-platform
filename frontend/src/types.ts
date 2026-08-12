@@ -21,6 +21,19 @@ export type RagDocument = {
   score: number;
 };
 
+export type RetrievalMetadata = {
+  backend: string;
+  embedding_provider: string;
+  reranker_enabled: boolean;
+  retrieval_count: number;
+  latency_seconds: number;
+  fallback_status: string;
+  hybrid: boolean;
+  fusion_strategy: string;
+  dense_candidate_count: number;
+  sparse_candidate_count: number;
+};
+
 export type MemoryUsage = { item_count: number; keys: string[]; types: string[] };
 export type TraceEvent = { name: string; status: string; duration_ms: number; timestamp: string };
 
@@ -42,6 +55,7 @@ export type AgentRun = {
   tools: ToolEvent[];
   policy: PolicyEvent[];
   rag_documents: RagDocument[];
+  retrieval_metadata: RetrievalMetadata;
   trace: TraceEvent[];
 };
 

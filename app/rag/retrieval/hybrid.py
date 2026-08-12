@@ -6,7 +6,7 @@ from collections.abc import Sequence
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
 from app.rag.embeddings import EmbeddingProvider
-from app.rag.interfaces import RetrievalMetadata
+from app.rag.interfaces import RetrievalMetadata, RetrievalResult
 from app.rag.reranking.service import DeterministicReranker, Reranker
 from app.rag.retrieval.lexical import _tokens
 from app.rag.schemas import DocumentChunk, RetrievedChunk
@@ -36,8 +36,6 @@ class HybridRetriever:
         self.backend_type = "local"
         self._chunks: dict[str, DocumentChunk] = {}
         self._vectors: dict[str, list[float]] = {}
-        self.last_degraded_components: list[str] = []
-        self.last_metadata: RetrievalMetadata | None = None
 
     @property
     def chunk_count(self) -> int:
@@ -54,10 +52,12 @@ class HybridRetriever:
         self._chunks.clear()
         self._vectors.clear()
 
-    def retrieve(self, query: str) -> list[RetrievedChunk]:
+    def retrieve(self, query: str) -> RetrievalResult:
         started = time.perf_counter()
         status = "ok"
-        self.last_degraded_components = []
+        degraded_components: list[str] = []
+        dense_candidate_count = 0
+        sparse_candidate_count = 0
         attributes = {
             "rag.backend": self.backend_type,
             "rag.embedding_provider": self.embedding_provider.provider_type,
@@ -79,9 +79,11 @@ class HybridRetriever:
                             key=lambda item: item[1],
                             reverse=True,
                         )[: self.dense_top_k]
+                        dense_candidate_count = len(dense)
                         dense_span.set_attribute("rag.dense_candidates", len(dense))
                     with span("rag.sparse_search") as sparse_span:
                         sparse = self._bm25(query)[: self.sparse_top_k]
+                        sparse_candidate_count = len(sparse)
                         sparse_span.set_attribute("rag.sparse_candidates", len(sparse))
                     dense_scores = {chunk_id: score for chunk_id, score in dense}
                     sparse_scores = {chunk_id: score for chunk_id, score in sparse}
@@ -116,26 +118,34 @@ class HybridRetriever:
                                     reverse=True,
                                 )
                             except Exception:
-                                self.last_degraded_components.append("reranker")
+                                degraded_components.append("reranker")
                                 rerank_span.set_attribute("rag.fallback_status", "reranker")
                             rerank_span.set_attribute("rag.retrieval_count", len(results))
                     results = results[: self.final_context_count]
-                fallback = "reranker" if self.last_degraded_components else "none"
+                fallback = "reranker" if degraded_components else "none"
                 latency = time.perf_counter() - started
-                self.last_metadata = RetrievalMetadata(
+                metadata = RetrievalMetadata(
                     backend=self.backend_type,
                     embedding_provider=self.embedding_provider.provider_type,
                     reranker_enabled=self.reranker_enabled,
                     retrieval_count=len(results),
                     latency_seconds=latency,
                     fallback_status=fallback,
+                    hybrid=True,
+                    fusion_strategy="weighted_score",
+                    dense_candidate_count=dense_candidate_count,
+                    sparse_candidate_count=sparse_candidate_count,
                 )
                 retrieval_span.set_attribute("rag.retrieval_count", len(results))
                 retrieval_span.set_attribute("rag.fallback_status", fallback)
                 get_metrics().rag_requests_total.add(
                     1, {"status": "ok", "backend": self.backend_type}
                 )
-                return results
+                return RetrievalResult(
+                    chunks=tuple(results),
+                    metadata=metadata,
+                    degraded_components=tuple(degraded_components),
+                )
             except Exception:
                 status = "error"
                 retrieval_span.set_attribute("rag.status", "error")

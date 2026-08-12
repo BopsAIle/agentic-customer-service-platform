@@ -25,7 +25,7 @@ from app.memory.service import MemoryService
 from app.models import Escalation, Order
 from app.persistence.checkpoint import MemoryCheckpointProvider
 from app.policies.engine import PolicyEngine
-from app.rag.interfaces import KnowledgeRetriever
+from app.rag.interfaces import KnowledgeRetriever, RetrievalMetadata, RetrievalResult
 from app.rag.retrieval.service import build_knowledge_service
 from app.rag.schemas import RetrievedChunk
 from app.resilience.config import ResilienceConfig
@@ -66,13 +66,25 @@ class FixedRetriever:
         self.chunks = list(chunks)
         self.failure = failure
         self.remaining = times
-        self.last_degraded_components = list(degraded_components)
+        self.degraded_components = tuple(degraded_components)
 
-    def retrieve(self, query: str) -> list[RetrievedChunk]:
+    def retrieve(self, query: str) -> RetrievalResult:
         if self.failure is not None and self.remaining > 0:
             self.remaining -= 1
             raise ResilienceError(self.failure, "simulated retrieval fault")
-        return list(self.chunks)
+        degraded = self.degraded_components
+        return RetrievalResult(
+            chunks=tuple(self.chunks),
+            metadata=RetrievalMetadata(
+                backend="evaluation",
+                embedding_provider="deterministic",
+                reranker_enabled=bool(degraded),
+                retrieval_count=len(self.chunks),
+                latency_seconds=0.0,
+                fallback_status="reranker" if degraded else "none",
+            ),
+            degraded_components=degraded,
+        )
 
 
 class FaultingProvider:

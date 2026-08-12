@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from threading import Event, Thread
 from types import SimpleNamespace
 from typing import Any, cast
 
@@ -19,8 +20,9 @@ from app.rag.embeddings import (
     OpenAIEmbeddingProvider,
     build_embedding_provider,
 )
-from app.rag.interfaces import KnowledgeFilter, KnowledgeRetriever
+from app.rag.interfaces import KnowledgeFilter, KnowledgeRetriever, RetrievalResult
 from app.rag.rerankers import Reranker
+from app.rag.retrieval.hybrid import HybridRetriever
 from app.rag.retrieval.lexical import LEXICAL_METADATA_KEY, LEXICAL_VECTOR_NAME
 from app.rag.retrieval.service import build_knowledge_service
 from app.rag.schemas import DocumentChunk, RetrievedChunk
@@ -127,6 +129,20 @@ class SlowReranker(Reranker):
         raise TimeoutError("native reranker deadline")
 
 
+class CoordinatedReranker(Reranker):
+    """Make two requests overlap at the reranker without relying on sleeps."""
+
+    def __init__(self) -> None:
+        self.request_b_started = Event()
+
+    def score(self, query: str, chunks: Sequence[RetrievedChunk]) -> list[float]:
+        if query == "request-a":
+            assert self.request_b_started.wait(timeout=2)
+            return [1.0] * len(chunks)
+        self.request_b_started.set()
+        raise TimeoutError("request-b reranker deadline")
+
+
 class ControlledEmbeddingProvider:
     provider_type = "controlled"
     dimension = 2
@@ -137,6 +153,8 @@ class ControlledEmbeddingProvider:
         "noise": [0.0, 0.0],
         "specialterm": [1.0, 0.0],
         "meaning": [1.0, 0.0],
+        "request-a": [1.0, 0.0],
+        "request-b": [1.0, 0.0],
     }
 
     def embed_documents(self, texts: Sequence[str]) -> list[list[float]]:
@@ -304,7 +322,7 @@ def test_qdrant_readiness_rejects_incompatible_or_incomplete_collections(
 def test_qdrant_hybrid_lexical_signal_can_beat_dense_only_ordering() -> None:
     backend = in_memory_hybrid_backend()
 
-    results = backend.retrieve("specialterm")
+    results = backend.retrieve("specialterm").chunks
 
     assert [result.chunk_id for result in results[:2]] == ["lexical", "semantic"]
     assert results[0].score > results[1].score
@@ -313,7 +331,7 @@ def test_qdrant_hybrid_lexical_signal_can_beat_dense_only_ordering() -> None:
 def test_qdrant_hybrid_dense_signal_contributes_when_lexical_signal_is_empty() -> None:
     backend = in_memory_hybrid_backend()
 
-    results = backend.retrieve("meaning")
+    results = backend.retrieve("meaning").chunks
 
     assert results[0].chunk_id == "semantic"
 
@@ -321,8 +339,8 @@ def test_qdrant_hybrid_dense_signal_contributes_when_lexical_signal_is_empty() -
 def test_qdrant_hybrid_fusion_order_is_deterministic() -> None:
     backend = in_memory_hybrid_backend()
 
-    first = [result.chunk_id for result in backend.retrieve("specialterm")]
-    second = [result.chunk_id for result in backend.retrieve("specialterm")]
+    first = [result.chunk_id for result in backend.retrieve("specialterm").chunks]
+    second = [result.chunk_id for result in backend.retrieve("specialterm").chunks]
 
     assert first == second == ["lexical", "semantic", "noise"]
 
@@ -333,7 +351,7 @@ def test_qdrant_hybrid_filter_applies_to_both_branches() -> None:
         filters=KnowledgeFilter(category="allowed"),
     )
 
-    results = backend.retrieve("specialterm")
+    results = backend.retrieve("specialterm").chunks
 
     assert [result.chunk_id for result in results] == ["semantic", "noise"]
 
@@ -341,10 +359,61 @@ def test_qdrant_hybrid_filter_applies_to_both_branches() -> None:
 def test_qdrant_hybrid_reranker_failure_preserves_fused_ordering() -> None:
     backend = in_memory_hybrid_backend(reranker=SlowReranker(), reranker_enabled=True)
 
-    results = backend.retrieve("specialterm")
+    retrieval = backend.retrieve("specialterm")
+    results = retrieval.chunks
 
     assert [result.chunk_id for result in results] == ["lexical", "semantic", "noise"]
-    assert backend.last_degraded_components == ["reranker"]
+    assert retrieval.degraded_components == ("reranker",)
+
+
+def test_concurrent_retrieval_results_keep_metadata_and_degradation_request_scoped() -> None:
+    reranker = CoordinatedReranker()
+    retriever = HybridRetriever(
+        ControlledEmbeddingProvider(),
+        reranker=reranker,
+        reranker_enabled=True,
+        dense_top_k=3,
+        sparse_top_k=3,
+        rerank_candidates=3,
+        final_context_count=3,
+    )
+    retriever.upsert(hybrid_chunks())
+    results: dict[str, RetrievalResult] = {}
+
+    def retrieve(name: str) -> None:
+        results[name] = retriever.retrieve(name)
+
+    first = Thread(target=retrieve, args=("request-a",))
+    second = Thread(target=retrieve, args=("request-b",))
+    first.start()
+    second.start()
+    first.join(timeout=3)
+    second.join(timeout=3)
+
+    assert not first.is_alive()
+    assert not second.is_alive()
+    result_a = results["request-a"]
+    result_b = results["request-b"]
+    assert result_a.metadata.backend == "local"
+    assert result_b.metadata.backend == "local"
+    assert result_a.degraded_components == ()
+    assert result_b.degraded_components == ("reranker",)
+
+
+def test_retrieval_result_is_immutable_and_qdrant_metadata_is_request_scoped() -> None:
+    backend = in_memory_hybrid_backend()
+
+    result = backend.retrieve("specialterm")
+
+    assert result.metadata.hybrid is True
+    assert result.metadata.fusion_strategy == "rrf"
+    assert result.metadata.dense_candidate_count == 3
+    assert result.metadata.sparse_candidate_count == 3
+    assert isinstance(result.chunks, tuple)
+    assert not hasattr(backend, "last_metadata")
+    assert not hasattr(backend, "last_degraded_components")
+    with pytest.raises(AttributeError):
+        result.metadata = result.metadata  # type: ignore[misc]
 
 
 def test_qdrant_ingestion_rejects_dense_only_collection_without_recreation() -> None:
@@ -387,7 +456,8 @@ def test_qdrant_runtime_retrieval_preserves_metadata_and_citation() -> None:
     client = FakeQdrantClient([point])
     backend = qdrant_backend(client, filters=KnowledgeFilter(category="refund"))
 
-    results = backend.retrieve("refund eligibility")
+    retrieval = backend.retrieve("refund eligibility")
+    results = retrieval.chunks
 
     assert len(results) == 1
     assert results[0].citation_id == "refund-policy#eligibility"
@@ -397,8 +467,7 @@ def test_qdrant_runtime_retrieval_preserves_metadata_and_citation() -> None:
     query_filter = cast(Any, prefetch[0].filter)
     assert query_filter is not None
     assert [condition.key for condition in query_filter.must] == ["category"]
-    assert backend.last_metadata is not None
-    assert backend.last_metadata.retrieval_count == 1
+    assert retrieval.metadata.retrieval_count == 1
 
 
 def test_disabled_reranker_keeps_qdrant_ranking() -> None:
@@ -415,12 +484,12 @@ def test_disabled_reranker_keeps_qdrant_ranking() -> None:
     ]
     backend = qdrant_backend(FakeQdrantClient(points), reranker_enabled=False)
 
-    results = backend.retrieve("refund")
+    retrieval = backend.retrieve("refund")
+    results = retrieval.chunks
 
     assert [result.score for result in results] == [0.9, 0.8]
     assert all(result.rerank_score is None for result in results)
-    assert backend.last_metadata is not None
-    assert backend.last_metadata.reranker_enabled is False
+    assert retrieval.metadata.reranker_enabled is False
 
 
 def test_qdrant_skips_malformed_payload_without_fabricating_citations() -> None:
@@ -428,7 +497,7 @@ def test_qdrant_skips_malformed_payload_without_fabricating_citations() -> None:
         FakeQdrantClient([SimpleNamespace(payload={"content": "missing metadata"}, score=1.0)])
     )
 
-    assert backend.retrieve("refund") == []
+    assert backend.retrieve("refund").chunks == ()
 
 
 def test_qdrant_reranker_timeout_returns_original_results_with_fallback_metadata() -> None:
@@ -438,13 +507,13 @@ def test_qdrant_reranker_timeout_returns_original_results_with_fallback_metadata
         reranker_enabled=True,
     )
 
-    results = backend.retrieve("refund")
+    retrieval = backend.retrieve("refund")
+    results = retrieval.chunks
 
     assert results
     assert results[0].rerank_score is None
-    assert backend.last_degraded_components == ["reranker"]
-    assert backend.last_metadata is not None
-    assert backend.last_metadata.fallback_status == "reranker"
+    assert retrieval.degraded_components == ("reranker",)
+    assert retrieval.metadata.fallback_status == "reranker"
 
 
 def test_qdrant_outage_degrades_agent_without_citations_or_actions(db_session: Session) -> None:

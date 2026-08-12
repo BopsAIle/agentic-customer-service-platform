@@ -11,7 +11,7 @@ from pydantic import ValidationError
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
 from app.rag.embeddings import EmbeddingProvider
-from app.rag.interfaces import KnowledgeFilter, RetrievalMetadata
+from app.rag.interfaces import KnowledgeFilter, RetrievalMetadata, RetrievalResult
 from app.rag.rerankers import Reranker
 from app.rag.retrieval.lexical import (
     LEXICAL_METADATA_KEY,
@@ -78,16 +78,18 @@ class QdrantKnowledgeBackend:
         self.dense_top_k = dense_top_k
         self.sparse_top_k = sparse_top_k
         self.filters = filters
-        self.last_degraded_components: list[str] = []
-        self.last_metadata: RetrievalMetadata | None = None
         self.last_readiness_category = "not_checked"
         self._lexical_index: LexicalIndex | None = None
 
-    def retrieve(self, query: str) -> list[RetrievedChunk]:
+    def retrieve(self, query: str) -> RetrievalResult:
         started = time.perf_counter()
         status = "ok"
         fallback = "none"
-        self.last_degraded_components = []
+        degraded_components: list[str] = []
+        dense_candidate_count = 0
+        sparse_candidate_count = 0
+        hybrid = False
+        fusion_strategy = "none"
         attributes = {
             "rag.backend": self.backend_type,
             "rag.embedding_provider": self.embedding_provider.provider_type,
@@ -100,10 +102,14 @@ class QdrantKnowledgeBackend:
                 query_filter = self._query_filter()
                 with span("rag.dense_search") as dense_span:
                     dense_prefetch = self._dense_prefetch(vector, query_filter)
-                    dense_span.set_attribute("rag.dense_candidates", self.dense_top_k)
+                    dense_candidate_count = self.dense_top_k
+                    dense_span.set_attribute("rag.dense_candidates", dense_candidate_count)
                 lexical_index = self._lexical_index_for_query()
                 sparse_indices, sparse_values = lexical_index.encode_query(query)
                 if sparse_indices:
+                    hybrid = True
+                    fusion_strategy = "rrf"
+                    sparse_candidate_count = self.sparse_top_k
                     from qdrant_client.http import models
 
                     with span("rag.sparse_search") as sparse_span:
@@ -116,7 +122,7 @@ class QdrantKnowledgeBackend:
                             filter=query_filter,
                             limit=self.sparse_top_k,
                         )
-                        sparse_span.set_attribute("rag.sparse_candidates", self.sparse_top_k)
+                        sparse_span.set_attribute("rag.sparse_candidates", sparse_candidate_count)
                     with span("rag.fusion") as fusion_span:
                         response = self.client.query_points(
                             collection_name=self.collection_name,
@@ -155,24 +161,32 @@ class QdrantKnowledgeBackend:
                             )
                         except Exception:
                             fallback = "reranker"
-                            self.last_degraded_components.append("reranker")
+                            degraded_components.append("reranker")
                             rerank_span.set_attribute("rag.fallback_status", fallback)
                 results = results[: self.final_context_count]
                 latency = time.perf_counter() - started
-                self.last_metadata = RetrievalMetadata(
+                metadata = RetrievalMetadata(
                     backend=self.backend_type,
                     embedding_provider=self.embedding_provider.provider_type,
                     reranker_enabled=self.reranker_enabled,
                     retrieval_count=len(results),
                     latency_seconds=latency,
                     fallback_status=fallback,
+                    hybrid=hybrid,
+                    fusion_strategy=fusion_strategy,
+                    dense_candidate_count=dense_candidate_count,
+                    sparse_candidate_count=sparse_candidate_count,
                 )
                 retrieval_span.set_attribute("rag.retrieval_count", len(results))
                 retrieval_span.set_attribute("rag.fallback_status", fallback)
                 get_metrics().rag_requests_total.add(
                     1, {"status": status, "backend": self.backend_type}
                 )
-                return results
+                return RetrievalResult(
+                    chunks=tuple(results),
+                    metadata=metadata,
+                    degraded_components=tuple(degraded_components),
+                )
             except Exception:
                 status = "error"
                 retrieval_span.set_attribute("rag.status", status)

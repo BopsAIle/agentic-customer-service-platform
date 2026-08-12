@@ -35,6 +35,7 @@ class AgentState(TypedDict, total=False):
     requires_retrieval: bool
     knowledge_query: str | None
     retrieved_chunks: list[dict[str, object]]
+    retrieval_metadata: dict[str, object]
     knowledge_answer: str | None
     citations: list[dict[str, object]]
     retry_count: int

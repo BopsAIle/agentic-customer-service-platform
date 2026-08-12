@@ -36,6 +36,19 @@ class UIRagDocument(BaseModel):
     score: float
 
 
+class UIRetrievalMetadata(BaseModel):
+    backend: str = "unknown"
+    embedding_provider: str = "unknown"
+    reranker_enabled: bool = False
+    retrieval_count: int = 0
+    latency_seconds: float = 0.0
+    fallback_status: str = "none"
+    hybrid: bool = False
+    fusion_strategy: str = "none"
+    dense_candidate_count: int = 0
+    sparse_candidate_count: int = 0
+
+
 class UIMemoryUsage(BaseModel):
     item_count: int
     keys: list[str] = Field(default_factory=list)
@@ -71,6 +84,7 @@ class AgentRunView(BaseModel):
     tools: list[UIToolEvent] = Field(default_factory=list)
     policy: list[UIPolicyEvent] = Field(default_factory=list)
     rag_documents: list[UIRagDocument] = Field(default_factory=list)
+    retrieval_metadata: UIRetrievalMetadata = Field(default_factory=UIRetrievalMetadata)
     trace: list[UITraceEvent] = Field(default_factory=list)
 
 

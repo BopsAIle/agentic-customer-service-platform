@@ -9,6 +9,7 @@ from app.models import Order
 from app.models.entities import OrderStatus
 from app.rag.embeddings import DeterministicEmbeddingProvider
 from app.rag.generation.grounded import GroundedAnswerGenerator
+from app.rag.interfaces import RetrievalMetadata, RetrievalResult
 from app.rag.reranking.service import Reranker
 from app.rag.retrieval.hybrid import HybridRetriever
 from app.rag.retrieval.service import KnowledgeService
@@ -20,13 +21,22 @@ class FixedRetriever:
         self.chunks = list(chunks)
         self.queries: list[str] = []
 
-    def retrieve(self, query: str) -> list[RetrievedChunk]:
+    def retrieve(self, query: str) -> RetrievalResult:
         self.queries.append(query)
-        return list(self.chunks)
+        return RetrievalResult(
+            chunks=tuple(self.chunks),
+            metadata=RetrievalMetadata(
+                backend="test",
+                embedding_provider="deterministic",
+                reranker_enabled=False,
+                retrieval_count=len(self.chunks),
+                latency_seconds=0.0,
+            ),
+        )
 
 
 class FailingRetriever:
-    def retrieve(self, query: str) -> list[RetrievedChunk]:
+    def retrieve(self, query: str) -> RetrievalResult:
         raise AssertionError(f"action-only request unexpectedly retrieved: {query}")
 
 
@@ -89,8 +99,8 @@ def test_ingestion_is_deterministic_and_idempotent() -> None:
     assert first_count == second_count == 1
     assert retriever.chunk_count == 1
     result = retriever.retrieve("delivered order refund eligibility")
-    assert result[0].document_id == "refund-policy"
-    assert result[0].section == "eligibility"
+    assert result.chunks[0].document_id == "refund-policy"
+    assert result.chunks[0].section == "eligibility"
 
 
 def test_hybrid_retrieval_preserves_metadata_and_reranker_order() -> None:
@@ -123,10 +133,10 @@ def test_hybrid_retrieval_preserves_metadata_and_reranker_order() -> None:
     )
     retriever.upsert(documents)
     results = retriever.retrieve("refund eligibility")
-    assert len(results) == 2
-    assert results[0].rerank_score is not None
-    assert results[0].citation_id == "shipping-policy#delays"
-    assert results[0].source == "knowledge/shipping-policy.md"
+    assert len(results.chunks) == 2
+    assert results.chunks[0].rerank_score is not None
+    assert results.chunks[0].citation_id == "shipping-policy#delays"
+    assert results.chunks[0].source == "knowledge/shipping-policy.md"
 
 
 def test_grounded_generation_emits_only_retrieved_citations_and_bounded_fallback() -> None:

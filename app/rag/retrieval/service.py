@@ -14,9 +14,10 @@ from app.rag.interfaces import (
     KnowledgeRetriever,
     ManagedKnowledgeRetriever,
     ReadyKnowledgeRetriever,
+    RetrievalResult,
 )
 from app.rag.rerankers import DeterministicReranker
-from app.rag.schemas import DocumentChunk, KnowledgeDocument, RetrievedChunk
+from app.rag.schemas import DocumentChunk, KnowledgeDocument
 
 
 class KnowledgeService:
@@ -37,7 +38,7 @@ class KnowledgeService:
             raise RuntimeError("The configured knowledge backend does not support ingestion.")
         return self.retriever.upsert(chunks)
 
-    def retrieve(self, query: str) -> list[RetrievedChunk]:
+    def retrieve(self, query: str) -> RetrievalResult:
         return self.retriever.retrieve(query)
 
     def reset(self) -> None:
@@ -53,14 +54,6 @@ class KnowledgeService:
         if isinstance(self.retriever, ReadyKnowledgeRetriever):
             return self.retriever.is_ready()
         return True
-
-    @property
-    def last_degraded_components(self) -> list[str]:
-        return list(getattr(self.retriever, "last_degraded_components", []))
-
-    @property
-    def last_metadata(self) -> object | None:
-        return getattr(self.retriever, "last_metadata", None)
 
     @property
     def backend_type(self) -> str:
@@ -127,6 +120,7 @@ def build_default_knowledge_service(settings: Settings) -> KnowledgeService:
 __all__ = [
     "KnowledgeRetriever",
     "KnowledgeService",
+    "RetrievalResult",
     "build_default_knowledge_service",
     "build_knowledge_service",
 ]

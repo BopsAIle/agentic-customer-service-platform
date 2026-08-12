@@ -146,6 +146,7 @@ def _load_context(state: AgentState) -> AgentState:
         "tool_arguments": {},
         "tool_result": None,
         "retrieved_chunks": [],
+        "retrieval_metadata": {},
         "knowledge_answer": None,
         "citations": [],
         "requires_retrieval": False,

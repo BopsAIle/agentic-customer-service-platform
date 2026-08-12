@@ -350,5 +350,5 @@ def test_reranker_failure_degrades_to_fused_results() -> None:
         ]
     )
     results = retriever.retrieve("delivered refund")
-    assert results
-    assert retriever.last_degraded_components == ["reranker"]
+    assert results.chunks
+    assert results.degraded_components == ("reranker",)

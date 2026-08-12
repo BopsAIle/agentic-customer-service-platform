@@ -16,6 +16,7 @@ from app.ui.schemas import (
     UIMemoryUsage,
     UIPolicyEvent,
     UIRagDocument,
+    UIRetrievalMetadata,
     UIToolEvent,
     UITraceEvent,
 )
@@ -144,6 +145,9 @@ class UIProjectionStore:
                 if isinstance(item, dict) and item.get("memory_type")
             )[:10],
         )
+        retrieval_metadata = UIRetrievalMetadata.model_validate(
+            state.get("retrieval_metadata") or {}
+        )
         trace = [
             UITraceEvent(
                 name=node.name,
@@ -175,6 +179,7 @@ class UIProjectionStore:
             tools=tools,
             policy=policy,
             rag_documents=rag_documents,
+            retrieval_metadata=retrieval_metadata,
             trace=trace,
         )
         self._runs[view.run_id] = view

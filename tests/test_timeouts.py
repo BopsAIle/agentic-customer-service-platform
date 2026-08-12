@@ -15,6 +15,7 @@ from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
 from app.core import database
 from app.core.config import Settings
 from app.rag.embeddings import DeterministicEmbeddingProvider
+from app.rag.interfaces import RetrievalResult
 from app.rag.reranking.service import Reranker
 from app.rag.retrieval.hybrid import HybridRetriever
 from app.rag.schemas import DocumentChunk, RetrievedChunk
@@ -43,7 +44,7 @@ class SlowDecisionProvider:
 
 
 class SlowRetriever:
-    def retrieve(self, query: str) -> list[RetrievedChunk]:
+    def retrieve(self, query: str) -> RetrievalResult:
         del query
         raise TimeoutError("native retrieval request deadline")
 
@@ -115,8 +116,9 @@ def test_reranker_timeout_degrades_to_fused_results() -> None:
         ]
     )
 
-    assert retriever.retrieve("refund")
-    assert retriever.last_degraded_components == ["reranker"]
+    result = retriever.retrieve("refund")
+    assert result.chunks
+    assert result.degraded_components == ("reranker",)
 
 
 def test_llm_http_client_has_explicit_connect_and_request_timeouts(
@@ -221,7 +223,7 @@ def test_qdrant_request_uses_native_timeout_before_retry() -> None:
         sleeper=lambda _: None,
     )
 
-    assert result == []
+    assert result.chunks == ()
     assert events == ["start:1:1", "end:1", "start:2:1", "end:2"]
 
 
