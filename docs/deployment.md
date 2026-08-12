@@ -135,6 +135,13 @@ A real `/agent/chat` result additionally requires a reachable OpenAI-compatible 
 default uses `http://host.docker.internal:11434/v1`; change `COMPOSE_LLM_BASE_URL`, `LLM_MODEL`, and
 `LLM_API_KEY` as needed. Do not report the agent path as validated if that runtime is absent.
 
+For an optional local provider smoke with Ollama, install the development baseline `qwen2.5:7b`
+and configure the host process with `LLM_PROVIDER=openai_compatible`,
+`LLM_BASE_URL=http://localhost:11434/v1`, `LLM_MODEL=qwen2.5:7b`, and `LLM_API_KEY=ollama`.
+Compose on macOS reaches the host through `COMPOSE_LLM_BASE_URL=http://host.docker.internal:11434/v1`.
+This is a non-deterministic development check only; deterministic integration mode remains the CI
+path and Ollama is not a production dependency.
+
 For a hermetic integration proof instead of a live-model demo, run
 `python3 scripts/e2e_authenticated_smoke.py`. It uses a separate Compose project and fresh volumes,
 selects the explicit integration-only deterministic decision provider, and tears all isolated

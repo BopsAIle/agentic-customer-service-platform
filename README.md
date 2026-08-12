@@ -426,6 +426,23 @@ model on the host (the defaults expect Ollama model `llama3.1` at port 11434), o
 health, readiness, authentication, operator reads, PostgreSQL, and Qdrant remain testable, but a
 successful real-agent conversation is not available.
 
+### Optional Ollama provider smoke
+
+The local real-provider smoke uses the existing `OpenAICompatibleProvider`; Ollama is not a CI or
+production dependency. Install and run the development baseline `qwen2.5:7b` in Ollama, then use:
+
+```bash
+LLM_PROVIDER=openai_compatible \
+LLM_BASE_URL=http://localhost:11434/v1 \
+LLM_MODEL=qwen2.5:7b \
+LLM_API_KEY=ollama
+```
+
+For the Compose backend on macOS, set `COMPOSE_LLM_BASE_URL=http://host.docker.internal:11434/v1`.
+The live smoke is opt-in and non-deterministic; `qwen2.5:7b` is a development baseline, not a
+production recommendation. Deterministic integration mode remains the default for CI and the
+canonical authenticated smoke.
+
 ### Deterministic authenticated integration smoke
 
 CI and local integration verification do not depend on Ollama, OpenAI, API keys, or a developer
