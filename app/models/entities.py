@@ -186,3 +186,53 @@ class PolicyAuditRecord(Base):
     revalidation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     execution_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
+
+
+class AgentRunProjectionRecord(Base):
+    """Durable operator read model; never an authorization or execution source."""
+
+    __tablename__ = "agent_run_projections"
+    __table_args__ = (
+        Index(
+            "ix_agent_run_projection_conversation_created",
+            "conversation_id",
+            "created_at",
+            "id",
+        ),
+        Index(
+            "ix_agent_run_projection_customer_created",
+            "effective_customer_id",
+            "created_at",
+            "id",
+        ),
+        Index("ix_agent_run_projection_created", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    run_id: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    conversation_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    effective_customer_id: Mapped[int] = mapped_column(nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    actor_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    roles: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    intent: Mapped[str] = mapped_column(String(80), nullable=False)
+    request_type: Mapped[str] = mapped_column(String(80), nullable=False)
+    status: Mapped[str] = mapped_column(String(40), nullable=False)
+    started_at: Mapped[datetime] = mapped_column(nullable=False)
+    duration_ms: Mapped[float] = mapped_column(Numeric(14, 3), nullable=False)
+    trace_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    path: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    failure_category: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    degraded_components: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    recovery_action: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    memory_item_count: Mapped[int] = mapped_column(nullable=False)
+    memory_keys: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    memory_types: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    tools: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False)
+    policy: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False)
+    rag_documents: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False)
+    retrieval_metadata: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
+    trace: Mapped[list[dict[str, object]]] = mapped_column(JSON, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(nullable=False)

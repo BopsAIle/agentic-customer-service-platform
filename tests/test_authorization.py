@@ -17,12 +17,14 @@ def test_health_endpoints_are_public_while_business_routes_require_authenticatio
         readiness = anonymous.get("/ready")
         protected = anonymous.get("/customers/1")
         operator_memory = anonymous.get("/ui/memory/1")
+        operator_runs = anonymous.get("/ui/agent-runs")
 
     assert health.status_code == 200
     assert readiness.status_code == 200
     assert protected.status_code == 401
     assert protected.headers["www-authenticate"] == "Bearer"
     assert operator_memory.status_code == 401
+    assert operator_runs.status_code == 401
 
 
 def test_invalid_token_is_rejected(client: TestClient) -> None:
@@ -68,9 +70,13 @@ def test_operator_resource_read_requires_explicit_customer_scope(client: TestCli
 def test_customer_cannot_access_operator_ui(client: TestClient) -> None:
     response = client.get("/ui/system-health", headers=_customer_headers())
     memory = client.get("/ui/memory/1", headers=_customer_headers())
+    run_list = client.get("/ui/agent-runs", headers=_customer_headers())
+    run_detail = client.get("/ui/agent-runs/not-a-real-run", headers=_customer_headers())
 
     assert response.status_code == 403
     assert memory.status_code == 403
+    assert run_list.status_code == 403
+    assert run_detail.status_code == 403
 
 
 def test_policy_audit_projection_preserves_operator_authorization_boundary(

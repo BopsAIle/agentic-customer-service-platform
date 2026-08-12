@@ -66,6 +66,10 @@ def test_compose_wires_demo_authentication_and_bootstrap_without_production_inhe
     assert production["services"]["backend"]["environment"]["LLM_PROVIDER"] == ("openai_compatible")
     assert production["services"]["backend"]["environment"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
     assert production["services"]["backend"]["environment"]["POLICY_AUDIT_BACKEND"] == "postgres"
+    assert (
+        production["services"]["backend"]["environment"]["AGENT_RUN_PROJECTION_BACKEND"]
+        == "postgres"
+    )
     assert production["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
 
 
@@ -78,6 +82,7 @@ def test_integration_llm_provider_is_explicit_and_excluded_from_production_overl
         "LANGGRAPH_STRICT_MSGPACK": "true",
         "LLM_PROVIDER": "deterministic_integration",
         "POLICY_AUDIT_BACKEND": "postgres",
+        "AGENT_RUN_PROJECTION_BACKEND": "postgres",
     }
     assert integration["services"]["demo-setup"]["environment"]["APP_ENV"] == "integration"
     assert (

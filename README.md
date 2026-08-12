@@ -304,6 +304,14 @@ Memory content remains internal to the agent runtime under the existing customer
 policy. Removing the former operator-facing `content` field is an intentional privacy-hardening API
 contract change.
 
+Operator run projections are a durable PostgreSQL-backed read model in integration and production.
+They survive backend restart, are visible across backend instances, and keep one run identity while a
+pending confirmation is resumed. They are bounded operator inspection data—not authorization,
+business state, checkpoint state, idempotency state, or policy authority. Lightweight development and
+unit tests may use the bounded, thread-safe memory adapter. List queries are capped at 100 rows and
+projection retention/pruning remains an operator or database responsibility; policy audit remains the
+separate durable policy evidence trail.
+
 ## Safety Model
 
 The platform separates model reasoning from authority:

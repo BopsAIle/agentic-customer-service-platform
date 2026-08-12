@@ -1,3 +1,4 @@
+import logging
 from typing import cast
 from uuid import uuid4
 
@@ -38,6 +39,9 @@ from app.rag.interfaces import (
 from app.rag.retrieval.service import build_default_knowledge_service
 from app.resilience.config import ResilienceConfig
 from app.ui.projection import get_projection_store
+from app.ui.repository import AgentRunProjectionRepository, build_agent_run_projection_repository
+
+logger = logging.getLogger(__name__)
 
 
 class AgentRuntime:
@@ -54,6 +58,7 @@ class AgentRuntime:
         grounded_generator: GroundedAnswerGenerator | None = None,
         memory_service: MemoryService | None = None,
         resilience_config: ResilienceConfig | None = None,
+        projection_repository: AgentRunProjectionRepository | None = None,
     ) -> None:
         settings = get_settings()
         self.settings = settings
@@ -79,6 +84,7 @@ class AgentRuntime:
             support_context_ttl_days=settings.memory_support_context_ttl_days,
         )
         self.resilience_config = resilience_config or ResilienceConfig.from_settings(settings)
+        self.projection_repository_override = projection_repository
 
     def close(self) -> None:
         if isinstance(self.knowledge_retriever, ManagedKnowledgeRetriever):
@@ -103,7 +109,7 @@ class AgentRuntime:
         customer_id = execution_context.effective_customer_id
         thread_id = checkpoint_thread_id(execution_context)
         thread_id_hash = checkpoint_thread_id_hash(execution_context)
-        agent_run_id = str(uuid4())
+        agent_run_id = _resumed_pending_run_id(self.checkpointer, thread_id) or str(uuid4())
         metric = get_metrics()
         labels = {"status": "ok"}
         metric.agent_runs_total.add(1)
@@ -128,6 +134,9 @@ class AgentRuntime:
                 current_span = trace.get_current_span().get_span_context()
                 trace_id = f"{current_span.trace_id:032x}" if current_span.is_valid else None
                 projection_store = get_projection_store()
+                projection_repository = self.projection_repository_override or (
+                    build_agent_run_projection_repository(self.settings, session)
+                )
                 audit_repository = self.audit_repository_override or build_policy_audit_repository(
                     self.settings, session
                 )
@@ -173,13 +182,26 @@ class AgentRuntime:
                         ),
                     )
                     response = _response_from_state(state)
-                    projection_store.finish(
-                        projection,
-                        response=response,
-                        state=state,
-                        policy_events=audit_repository.list_for_agent_run(agent_run_id),
-                        duration_ms=(time.perf_counter() - started) * 1000,
-                    )
+                    try:
+                        view = projection_store.build_view(
+                            projection,
+                            response=response,
+                            state=state,
+                            policy_events=audit_repository.list_for_agent_run(agent_run_id),
+                            duration_ms=(time.perf_counter() - started) * 1000,
+                        )
+                        projection.view = view
+                        projection_repository.upsert(view)
+                    except Exception as error:
+                        # The projection is observational. Never turn a committed business
+                        # result into a replayable failure because its read model is unavailable.
+                        logger.warning(
+                            "Agent run projection persistence failed.",
+                            extra={
+                                "projection_error_type": type(error).__name__,
+                                "agent_run_id": agent_run_id,
+                            },
+                        )
                 root_span.set_attribute("agent.intent", response.intent.value)
                 root_span.set_attribute("agent.request_type", response.request_type.value)
                 if response.error_category is not None:
@@ -222,6 +244,36 @@ def _legacy_execution_context(
         ),
         effective_customer_id=customer_id,
     )
+
+
+def _resumed_pending_run_id(checkpointer: BaseCheckpointSaver[str], thread_id: str) -> str | None:
+    """Reuse the checkpoint's run identity only while resuming its pending action."""
+
+    get_tuple = getattr(checkpointer, "get_tuple", None)
+    if not callable(get_tuple):
+        return None
+    try:
+        checkpoint = get_tuple({"configurable": {"thread_id": thread_id}})
+    except Exception:
+        return None
+    if checkpoint is None:
+        return None
+    checkpoint_data = getattr(checkpoint, "checkpoint", None)
+    channel_values = (
+        checkpoint_data.get("channel_values") if isinstance(checkpoint_data, dict) else None
+    )
+    if not isinstance(channel_values, dict):
+        return None
+    pending_action = channel_values.get("pending_action")
+    status = (
+        pending_action.get("status")
+        if isinstance(pending_action, dict)
+        else getattr(pending_action, "status", None)
+    )
+    if getattr(status, "value", status) != "pending":
+        return None
+    run_id = channel_values.get("agent_run_id")
+    return run_id if isinstance(run_id, str) and run_id else None
 
 
 def _build_decision_provider(settings: Settings) -> StructuredDecisionProvider:

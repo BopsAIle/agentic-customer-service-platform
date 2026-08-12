@@ -151,6 +151,15 @@ evidence trail. Audit rows contain structured policy lifecycle metadata only and
 an authorization or business-state source. Configure database retention/pruning operationally;
 the application does not claim immutable compliance-ledger guarantees.
 
+Operator Console agent-run projections use the `agent_run_projections` PostgreSQL table in
+integration and production. They are a bounded, durable read model for inspection: a backend restart
+or a second backend instance can read the same safe projection, and a pending confirmation resumes
+under the same run identity. Projection data is never consulted for authentication, authorization,
+confirmation validity, business state, checkpoint restoration, or idempotency. The default list limit
+is 50 and the hard maximum is 100. Projection retention/pruning is operator- or database-managed;
+this table is not an immutable audit ledger. Development/test-only memory storage is bounded and
+rejected by configuration in integration and production.
+
 Production knowledge ingestion is a complete-snapshot operation. `QDRANT_COLLECTION` is the stable
 logical alias; each build creates a new physical `*_v_<corpus-hash>` collection, computes lexical
 vocabulary/IDF from the full corpus, persists embedding and schema provenance, validates point

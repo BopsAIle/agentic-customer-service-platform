@@ -1,5 +1,6 @@
 from app.memory.models import MemoryRecord
 from app.models.entities import (
+    AgentRunProjectionRecord,
     BusinessActionReceipt,
     Customer,
     Escalation,
@@ -16,6 +17,7 @@ from app.models.entities import (
 
 __all__ = [
     "BusinessActionReceipt",
+    "AgentRunProjectionRecord",
     "Customer",
     "Escalation",
     "EscalationPriority",

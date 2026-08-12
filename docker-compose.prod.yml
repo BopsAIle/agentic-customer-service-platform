@@ -21,6 +21,7 @@ services:
       LOCAL_DEMO_AUTH_TOKEN: ""
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
       POLICY_AUDIT_BACKEND: postgres
+      AGENT_RUN_PROJECTION_BACKEND: postgres
     command: ["alembic", "upgrade", "head"]
 
   backend:
@@ -42,6 +43,7 @@ services:
       DEBUG: "false"
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
       POLICY_AUDIT_BACKEND: postgres
+      AGENT_RUN_PROJECTION_BACKEND: postgres
     deploy:
       resources:
         limits:

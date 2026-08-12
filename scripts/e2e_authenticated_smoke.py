@@ -369,7 +369,16 @@ def run_smoke(stack: ComposeStack) -> None:
         "(select count(*) from support_tickets) || '|' || "
         "(select count(*) from memory_records);"
     )
-    expect(bootstrap == "20260812_0005|3|6|4|1", "Migration or demo seed state is incorrect.")
+    expect(bootstrap == "20260812_0006|3|6|4|1", "Migration or demo seed state is incorrect.")
+    projection_schema = stack.database_scalar(
+        "select (to_regclass('public.agent_run_projections') is not null)::text || '|' || "
+        "(select count(*) from pg_indexes where tablename = 'agent_run_projections' "
+        "and indexname in ('ix_agent_run_projection_conversation_created', "
+        "'ix_agent_run_projection_customer_created', 'ix_agent_run_projection_created')) || '|' || "
+        "(select count(*) from pg_constraint where conrelid = 'agent_run_projections'::regclass "
+        "and contype = 'u');"
+    )
+    expect(projection_schema == "true|3|1", "Projection schema or indexes are incorrect.")
     collection = stack.qdrant_collection()
     expect(collection.get("status") == "green", "Qdrant collection is not green.")
     expect(collection.get("points_count") == 14, "Knowledge ingestion did not load 14 chunks.")
@@ -428,6 +437,20 @@ def run_smoke(stack: ComposeStack) -> None:
     stack.restart_backend()
     wait_for_ready(base_url)
 
+    restarted_projection_status, restarted_projection = request_json(
+        base_url, f"/ui/agent-runs/{initial_run_id}", token=stack.token
+    )
+    expect(
+        restarted_projection_status == 200,
+        "Durable inspector projection did not survive the backend restart.",
+    )
+    expect(
+        restarted_projection.get("run_id") == initial_run_id,
+        "Restarted inspector projection changed the run identity.",
+    )
+    assert_projection(restarted_projection, confirmation_run=False)
+    assert_no_sensitive_projection_fields(restarted_projection)
+
     confirmation_status, confirmation = request_json(
         base_url,
         "/agent/chat",
@@ -455,6 +478,10 @@ def run_smoke(stack: ComposeStack) -> None:
 
     confirmation_run_id = confirmation.get("agent_run_id")
     expect(isinstance(confirmation_run_id, str), "Confirmation run ID is missing.")
+    expect(
+        confirmation_run_id == initial_run_id,
+        "Confirmation did not preserve the pending run identity.",
+    )
     projection_status, projection = request_json(
         base_url, f"/ui/agent-runs/{confirmation_run_id}", token=stack.token
     )

@@ -9,8 +9,10 @@ from time import perf_counter
 
 from app.agent.schemas import AgentResponse
 from app.agent.state import AgentState
+from app.core.config import get_settings
 from app.core.context import ExecutionContext
 from app.policies.models import PolicyAuditEvent
+from app.ui.repository import InMemoryAgentRunProjectionRepository
 from app.ui.schemas import (
     AgentRunView,
     UIMemoryUsage,
@@ -43,11 +45,9 @@ class _RunProjection:
 _current_run: ContextVar[_RunProjection | None] = ContextVar("ui_current_run", default=None)
 
 
-class UIProjectionStore:
+class UIProjectionStore(InMemoryAgentRunProjectionRepository):
     def __init__(self, max_runs: int = 200) -> None:
-        self.max_runs = max_runs
-        self._runs: dict[str, AgentRunView] = {}
-        self._order: list[str] = []
+        super().__init__(max_projections=max_runs)
 
     @contextmanager
     def capture(
@@ -75,6 +75,28 @@ class UIProjectionStore:
             current.nodes.append(_NodeEvent(name, status, duration_ms, datetime.now(UTC)))
 
     def finish(
+        self,
+        projection: _RunProjection,
+        *,
+        response: AgentResponse,
+        state: AgentState,
+        policy_events: list[PolicyAuditEvent],
+        duration_ms: float,
+        persist: bool = True,
+    ) -> AgentRunView:
+        view = self.build_view(
+            projection,
+            response=response,
+            state=state,
+            policy_events=policy_events,
+            duration_ms=duration_ms,
+        )
+        if persist:
+            self.upsert(view)
+        projection.view = view
+        return view
+
+    def build_view(
         self,
         projection: _RunProjection,
         *,
@@ -190,22 +212,13 @@ class UIProjectionStore:
             retrieval_metadata=retrieval_metadata,
             trace=trace,
         )
-        self._runs[view.run_id] = view
-        self._order.append(view.run_id)
-        while len(self._order) > self.max_runs:
-            self._runs.pop(self._order.pop(0), None)
-        projection.view = view
         return view
 
     def get_run(self, run_id: str) -> AgentRunView | None:
-        return self._runs.get(run_id)
+        return self.get_by_run_id(run_id)
 
     def conversation(self, conversation_id: str) -> list[AgentRunView]:
-        return [
-            self._runs[run_id]
-            for run_id in self._order
-            if self._runs[run_id].conversation_id == conversation_id
-        ]
+        return self.list_for_conversation(conversation_id)
 
 
 def record_node(name: str, status: str, started: float) -> None:
@@ -231,7 +244,7 @@ def _risk_level(tool_name: str) -> int | None:
     return int(metadata.risk_level) if metadata else None
 
 
-_projection_store = UIProjectionStore()
+_projection_store = UIProjectionStore(max_runs=get_settings().agent_run_projection_memory_limit)
 
 
 def get_projection_store() -> UIProjectionStore:

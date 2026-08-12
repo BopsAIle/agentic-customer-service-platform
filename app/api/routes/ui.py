@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
@@ -7,7 +7,7 @@ from app.core.config import get_settings
 from app.core.database import get_db
 from app.memory.service import MemoryService
 from app.policies.repository import SqlAlchemyPolicyAuditRepository
-from app.ui.projection import get_projection_store
+from app.ui.repository import AgentRunProjectionRepository, build_agent_run_projection_repository
 from app.ui.schemas import (
     AgentRunView,
     ConversationView,
@@ -27,11 +27,23 @@ router = APIRouter(
 )
 
 
-def _run_or_404(run_id: str) -> AgentRunView:
-    run = get_projection_store().get_run(run_id)
+def _run_or_404(run_id: str, repository: AgentRunProjectionRepository) -> AgentRunView:
+    run = repository.get_by_run_id(run_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
     return run
+
+
+@router.get("/agent-runs", response_model=list[AgentRunView])
+def agent_runs(
+    customer_id: int | None = None,
+    limit: int = Query(default=50, ge=1, le=100),
+    session: Session = Depends(get_db),
+) -> list[AgentRunView]:
+    repository = build_agent_run_projection_repository(get_settings(), session)
+    if customer_id is not None:
+        return repository.list_for_customer(customer_id, limit=limit)
+    return repository.list_recent(limit=limit)
 
 
 @router.get(
@@ -39,8 +51,11 @@ def _run_or_404(run_id: str) -> AgentRunView:
     response_model=ConversationView,
     response_model_exclude_none=True,
 )
-def conversation(conversation_id: str) -> ConversationView:
-    runs = get_projection_store().conversation(conversation_id)
+def conversation(conversation_id: str, session: Session = Depends(get_db)) -> ConversationView:
+    repository = build_agent_run_projection_repository(get_settings(), session)
+    runs = repository.list_for_conversation(
+        conversation_id, limit=get_settings().agent_run_projection_query_limit
+    )
     if not runs:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
     messages = [
@@ -57,13 +72,15 @@ def conversation(conversation_id: str) -> ConversationView:
 
 
 @router.get("/agent-runs/{agent_run_id}", response_model=AgentRunView)
-def agent_run(agent_run_id: str) -> AgentRunView:
-    return _run_or_404(agent_run_id)
+def agent_run(agent_run_id: str, session: Session = Depends(get_db)) -> AgentRunView:
+    return _run_or_404(agent_run_id, build_agent_run_projection_repository(get_settings(), session))
 
 
 @router.get("/tool-events/{agent_run_id}", response_model=list[UIToolEvent])
-def tool_events(agent_run_id: str) -> list[UIToolEvent]:
-    return _run_or_404(agent_run_id).tools
+def tool_events(agent_run_id: str, session: Session = Depends(get_db)) -> list[UIToolEvent]:
+    return _run_or_404(
+        agent_run_id, build_agent_run_projection_repository(get_settings(), session)
+    ).tools
 
 
 @router.get("/policy-events/{agent_run_id}", response_model=list[UIPolicyEvent])
@@ -114,13 +131,17 @@ def _policy_event_view(event: object) -> UIPolicyEvent:
 
 
 @router.get("/rag-events/{agent_run_id}", response_model=list[UIRagDocument])
-def rag_events(agent_run_id: str) -> list[UIRagDocument]:
-    return _run_or_404(agent_run_id).rag_documents
+def rag_events(agent_run_id: str, session: Session = Depends(get_db)) -> list[UIRagDocument]:
+    return _run_or_404(
+        agent_run_id, build_agent_run_projection_repository(get_settings(), session)
+    ).rag_documents
 
 
 @router.get("/traces/{agent_run_id}", response_model=list[UITraceEvent])
-def traces(agent_run_id: str) -> list[UITraceEvent]:
-    return _run_or_404(agent_run_id).trace
+def traces(agent_run_id: str, session: Session = Depends(get_db)) -> list[UITraceEvent]:
+    return _run_or_404(
+        agent_run_id, build_agent_run_projection_repository(get_settings(), session)
+    ).trace
 
 
 @router.get("/memory/{customer_id}", response_model=list[MemoryView])

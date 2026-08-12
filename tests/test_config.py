@@ -44,6 +44,7 @@ def test_deterministic_integration_provider_rejects_static_authentication() -> N
                 '"actor_type":"support_operator","roles":["support_operator"]}}'
             ),
             llm_provider=LLMProvider.DETERMINISTIC_INTEGRATION,
+            agent_run_projection_backend="postgres",
         )
 
 
@@ -54,6 +55,19 @@ def test_integration_environment_explicitly_accepts_test_provider_and_demo_auth(
         auth_mode=AuthenticationMode.LOCAL_DEMO,
         local_demo_auth_token="integration-only-token",
         llm_provider=LLMProvider.DETERMINISTIC_INTEGRATION,
+        agent_run_projection_backend="postgres",
     )
 
     assert settings.llm_provider == LLMProvider.DETERMINISTIC_INTEGRATION
+
+
+def test_integration_rejects_process_local_run_projection_storage() -> None:
+    with pytest.raises(ValidationError, match="agent-run projection storage"):
+        Settings(
+            _env_file=None,
+            app_env="integration",
+            auth_mode=AuthenticationMode.LOCAL_DEMO,
+            local_demo_auth_token="integration-only-token",
+            llm_provider=LLMProvider.DETERMINISTIC_INTEGRATION,
+            agent_run_projection_backend="memory",
+        )
