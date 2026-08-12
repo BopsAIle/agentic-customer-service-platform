@@ -6,6 +6,7 @@ from app.auth.dependencies import require_support_operator
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.memory.service import MemoryService
+from app.policies.repository import SqlAlchemyPolicyAuditRepository
 from app.ui.projection import get_projection_store
 from app.ui.schemas import (
     AgentRunView,
@@ -66,8 +67,50 @@ def tool_events(agent_run_id: str) -> list[UIToolEvent]:
 
 
 @router.get("/policy-events/{agent_run_id}", response_model=list[UIPolicyEvent])
-def policy_events(agent_run_id: str) -> list[UIPolicyEvent]:
-    return _run_or_404(agent_run_id).policy
+def policy_events(agent_run_id: str, session: Session = Depends(get_db)) -> list[UIPolicyEvent]:
+    events = SqlAlchemyPolicyAuditRepository(session).list_for_agent_run(
+        agent_run_id, limit=get_settings().policy_audit_query_limit
+    )
+    if not events:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy audit not found")
+    return [_policy_event_view(event) for event in events]
+
+
+@router.get("/policy-audit/{conversation_id}", response_model=list[UIPolicyEvent])
+def policy_audit(conversation_id: str, session: Session = Depends(get_db)) -> list[UIPolicyEvent]:
+    events = SqlAlchemyPolicyAuditRepository(session).list_for_conversation(
+        conversation_id, limit=get_settings().policy_audit_query_limit
+    )
+    if not events:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy audit not found")
+    return [_policy_event_view(event) for event in events]
+
+
+def _policy_event_view(event: object) -> UIPolicyEvent:
+    from app.policies.models import PolicyAuditEvent
+
+    if not isinstance(event, PolicyAuditEvent):
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid audit event"
+        )
+    return UIPolicyEvent(
+        event_id=event.event_id,
+        request_id=event.request_id,
+        conversation_id=event.conversation_id,
+        timestamp=event.timestamp,
+        stage=event.stage,
+        confirmation_status=event.confirmation_status,
+        revalidation=event.revalidation,
+        execution_status=event.execution_status,
+        actor_id=event.actor_id,
+        actor_type=event.actor_type.value,
+        roles=list(event.roles),
+        effective_customer_id=event.effective_customer_id,
+        tool_name=event.tool_name,
+        risk_level=event.risk_level,
+        outcome=event.policy_outcome.value,
+        reason_codes=event.reason_codes[:10],
+    )
 
 
 @router.get("/rag-events/{agent_run_id}", response_model=list[UIRagDocument])

@@ -6,9 +6,11 @@ services:
       APP_ENV: integration
       LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: deterministic_integration
+      POLICY_AUDIT_BACKEND: postgres
 
   backend:
     environment:
       APP_ENV: integration
       LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: deterministic_integration
+      POLICY_AUDIT_BACKEND: postgres

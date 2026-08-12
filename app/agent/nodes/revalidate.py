@@ -9,14 +9,19 @@ from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.agent.tool_catalog import get_agent_tool_definition
 from app.observability.tracing import span
-from app.policies.confirmation import belongs_to_context
-from app.policies.models import PendingAction, PendingActionStatus
+from app.policies.confirmation import Clock, belongs_to_context
+from app.policies.models import PendingAction, PendingActionStatus, PolicyAuditEvent, PolicyOutcome
+from app.policies.repository import PolicyAuditRepository
 from app.tools.base import ToolError
 from app.tools.orders import CancelOrderInput, validate_cancel_order
 from app.tools.refunds import RequestRefundInput, validate_refund_request
 
 
-def make_revalidate_node(session: Session) -> Callable[[AgentState], AgentState]:
+def make_revalidate_node(
+    session: Session,
+    audit_repository: PolicyAuditRepository,
+    clock: Clock,
+) -> Callable[[AgentState], AgentState]:
     def revalidate(state: AgentState) -> AgentState:
         action = state.get("pending_action")
         with span(
@@ -30,9 +35,45 @@ def make_revalidate_node(session: Session) -> Callable[[AgentState], AgentState]
                     AgentErrorCategory.POLICY_DENIED,
                     "There is no confirmable pending action.",
                 )
-            return _revalidate_action(state, session, action, policy_span)
+            result = _revalidate_action(state, session, action, policy_span)
+            _record_revalidation_event(state, result, action, audit_repository, clock)
+            return result
 
     return revalidate
+
+
+def _record_revalidation_event(
+    state: AgentState,
+    result: AgentState,
+    action: PendingAction,
+    audit_repository: PolicyAuditRepository,
+    clock: Clock,
+) -> None:
+    context = state.get("execution_context")
+    if context is None:
+        return
+    now = clock.now()
+    allowed = result.get("error_category") is None
+    audit_repository.append(
+        PolicyAuditEvent(
+            agent_run_id=state["agent_run_id"],
+            request_id=context.request_id,
+            conversation_id=context.conversation_id,
+            actor_id=context.principal.actor_id,
+            actor_type=context.principal.actor_type,
+            roles=list(context.principal.roles),
+            effective_customer_id=context.effective_customer_id,
+            action_id=action.action_id,
+            tool_name=action.tool_name,
+            risk_level=action.risk_level,
+            policy_outcome=PolicyOutcome.ALLOW if allowed else PolicyOutcome.DENY,
+            reason_codes=["revalidated" if allowed else "revalidation_denied"],
+            timestamp=now,
+            stage="policy_revalidation",
+            confirmation_status="confirmed",
+            revalidation=True,
+        )
+    )
 
 
 def _revalidate_action(

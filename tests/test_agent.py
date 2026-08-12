@@ -18,6 +18,7 @@ from app.models import Escalation, Order
 from app.models.entities import OrderStatus
 from app.policies.confirmation import Clock
 from app.policies.models import PendingActionStatus
+from app.policies.repository import InMemoryPolicyAuditLog
 
 
 class FakeClock(Clock):
@@ -180,7 +181,8 @@ def test_confirmation_executes_exact_pending_action_and_is_idempotent(db_session
             )
         ]
     )
-    runtime = AgentRuntime(provider=provider)
+    audit_log = InMemoryPolicyAuditLog()
+    runtime = AgentRuntime(provider=provider, audit_log=audit_log)
     pending = runtime.run(
         conversation_id="confirm-1",
         customer_id=1,
@@ -211,7 +213,7 @@ def test_confirmation_executes_exact_pending_action_and_is_idempotent(db_session
     assert repeated.pending_action.status == PendingActionStatus.EXECUTED
     assert repeated.tool_call is None
     assert len(provider.calls) == 1
-    assert runtime.audit_log.events[0].action_id == pending.pending_action.action_id
+    assert audit_log.events[0].action_id == pending.pending_action.action_id
     assert_order_status(db_session, 3, OrderStatus.CANCELLED)
 
 

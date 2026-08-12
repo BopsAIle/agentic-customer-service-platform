@@ -75,6 +75,9 @@ class Settings(BaseSettings):
     local_demo_actor_id: str = Field(default="operator-local-demo", min_length=1, max_length=200)
     auth_tokens_json: SecretStr = SecretStr("{}")
     checkpoint_backend: str = Field(default="postgres", pattern="^(postgres|memory)$")
+    policy_audit_backend: str = Field(default="postgres", pattern="^(postgres|memory)$")
+    policy_audit_memory_limit: int = Field(default=500, gt=0, le=5000)
+    policy_audit_query_limit: int = Field(default=50, gt=0, le=100)
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
 
@@ -108,6 +111,8 @@ class Settings(BaseSettings):
                 ) from None
         if environment == "production" and self.auth_mode != AuthenticationMode.STATIC:
             raise ValueError("production requires an explicitly configured authentication backend")
+        if environment in {"production", "integration"} and self.policy_audit_backend != "postgres":
+            raise ValueError("production and integration require PostgreSQL policy audit storage")
         if self.llm_provider == LLMProvider.DETERMINISTIC_INTEGRATION and (
             environment != "integration" or self.auth_mode != AuthenticationMode.LOCAL_DEMO
         ):

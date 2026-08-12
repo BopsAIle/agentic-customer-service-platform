@@ -73,6 +73,19 @@ def test_customer_cannot_access_operator_ui(client: TestClient) -> None:
     assert memory.status_code == 403
 
 
+def test_policy_audit_projection_preserves_operator_authorization_boundary(
+    client: TestClient,
+) -> None:
+    with TestClient(app) as anonymous:
+        anonymous_response = anonymous.get("/ui/policy-audit/a-conversation")
+    customer_response = client.get("/ui/policy-audit/a-conversation", headers=_customer_headers())
+    operator_response = client.get("/ui/policy-audit/a-conversation")
+
+    assert anonymous_response.status_code == 401
+    assert customer_response.status_code == 403
+    assert operator_response.status_code == 404
+
+
 def test_customer_cannot_use_direct_business_write_routes(client: TestClient) -> None:
     headers = _customer_headers()
 

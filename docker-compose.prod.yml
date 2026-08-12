@@ -20,6 +20,7 @@ services:
       AUTH_TOKENS_JSON: ${PRODUCTION_AUTH_TOKENS_JSON:?PRODUCTION_AUTH_TOKENS_JSON must be set}
       LOCAL_DEMO_AUTH_TOKEN: ""
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      POLICY_AUDIT_BACKEND: postgres
     command: ["alembic", "upgrade", "head"]
 
   backend:
@@ -40,6 +41,7 @@ services:
       LOCAL_DEMO_AUTH_TOKEN: ""
       DEBUG: "false"
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
+      POLICY_AUDIT_BACKEND: postgres
     deploy:
       resources:
         limits:

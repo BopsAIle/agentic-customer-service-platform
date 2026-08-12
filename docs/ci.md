@@ -55,6 +55,11 @@ The full, safety, and resilience datasets run independently of live LLM, Qdrant,
 services by forcing the local RAG and in-memory checkpoint backends. These results measure the
 deterministic harness and do not claim live-model accuracy.
 
+Integration Compose also forces PostgreSQL policy audit storage. The authenticated lifecycle smoke
+checks that policy evidence remains queryable after backend restart, is bounded and safely scoped,
+and contains no prompts, credentials, memory content, or raw business payloads. Audit persistence
+is observational and does not authorize or replay business actions.
+
 ### Docker Build and Scan
 
 CI validates `docker compose config`, builds both application images, and scans each image for

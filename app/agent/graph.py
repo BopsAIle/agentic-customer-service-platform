@@ -28,7 +28,7 @@ from app.observability.tracing import span
 from app.policies.confirmation import Clock
 from app.policies.engine import PolicyEngine
 from app.policies.models import PolicyOutcome
-from app.policies.registry import InMemoryPolicyAuditLog
+from app.policies.repository import PolicyAuditRepository
 from app.rag.generation.grounded import GroundedAnswerGenerator
 from app.rag.interfaces import KnowledgeRetriever
 from app.resilience.config import ResilienceConfig
@@ -255,7 +255,7 @@ def build_graph(
     policy_engine: PolicyEngine,
     clock: Clock,
     ttl_seconds: int,
-    audit_log: InMemoryPolicyAuditLog,
+    audit_repository: PolicyAuditRepository,
     knowledge_retriever: KnowledgeRetriever,
     grounded_generator: GroundedAnswerGenerator,
     memory_service: MemoryService,
@@ -267,7 +267,10 @@ def build_graph(
         "check_pending_action",
         cast(
             Any,
-            _instrument_node("check_pending_action", make_check_pending_node(clock, ttl_seconds)),
+            _instrument_node(
+                "check_pending_action",
+                make_check_pending_node(clock, ttl_seconds, audit_repository),
+            ),
         ),
     )
     graph.add_node(
@@ -305,7 +308,7 @@ def build_graph(
         cast(
             Any,
             _instrument_node(
-                "evaluate_policy", make_evaluate_policy_node(policy_engine, audit_log, clock)
+                "evaluate_policy", make_evaluate_policy_node(policy_engine, audit_repository, clock)
             ),
         ),
     )
@@ -314,19 +317,25 @@ def build_graph(
         "create_pending_action",
         cast(
             Any,
-            _instrument_node("create_pending_action", make_create_pending_node(clock, audit_log)),
+            _instrument_node("create_pending_action", make_create_pending_node(clock)),
         ),
     )
     graph.add_node(
         "policy_revalidation",
-        cast(Any, _instrument_node("policy_revalidate", make_revalidate_node(session))),
+        cast(
+            Any,
+            _instrument_node(
+                "policy_revalidate", make_revalidate_node(session, audit_repository, clock)
+            ),
+        ),
     )
     graph.add_node(
         "execute_tool",
         cast(
             Any,
             _instrument_node(
-                "execute_tool", make_confirmed_execution_node(session, resilience_config)
+                "execute_tool",
+                make_confirmed_execution_node(session, resilience_config, audit_repository, clock),
             ),
         ),
     )
@@ -335,7 +344,8 @@ def build_graph(
         cast(
             Any,
             _instrument_node(
-                "execute_tool", make_confirmed_execution_node(session, resilience_config)
+                "execute_tool",
+                make_confirmed_execution_node(session, resilience_config, audit_repository, clock),
             ),
         ),
     )

@@ -7,6 +7,7 @@ from app.models.entities import (
     EscalationStatus,
     Order,
     OrderStatus,
+    PolicyAuditRecord,
     RefundRequest,
     RefundStatus,
     SupportTicket,
@@ -26,4 +27,5 @@ __all__ = [
     "SupportTicket",
     "TicketStatus",
     "MemoryRecord",
+    "PolicyAuditRecord",
 ]

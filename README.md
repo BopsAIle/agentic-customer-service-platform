@@ -124,6 +124,14 @@ serialized format is unchanged and every intentional application state type is a
 `CHECKPOINT_BACKEND=memory` keeps tests and lightweight local runs deterministic. Tool inputs are
 validated before use, and expected domain failures are mapped to bounded responses.
 
+Policy decisions emit a durable operational audit trail to PostgreSQL when
+`POLICY_AUDIT_BACKEND=postgres` (the production and integration requirement). Events contain only
+bounded policy lifecycle metadata and are queried in deterministic, limited windows. Audit is
+observational evidence: authentication, authorization, confirmation validity, business state,
+and idempotency never consult it. The optional in-memory adapter is bounded and intended only for
+tests/lightweight local runs. Database retention and pruning remain an operator responsibility;
+this is not a compliance-grade immutable ledger.
+
 ### Business Tools
 
 The explicit tool registry currently includes:

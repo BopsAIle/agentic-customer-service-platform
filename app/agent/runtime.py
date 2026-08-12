@@ -25,7 +25,10 @@ from app.persistence.checkpoint import (
 )
 from app.policies.confirmation import Clock, SystemClock
 from app.policies.engine import PolicyEngine
-from app.policies.registry import InMemoryPolicyAuditLog
+from app.policies.repository import (
+    PolicyAuditRepository,
+    build_policy_audit_repository,
+)
 from app.rag.generation.grounded import GroundedAnswerGenerator
 from app.rag.interfaces import (
     KnowledgeRetriever,
@@ -45,7 +48,7 @@ class AgentRuntime:
         checkpoint_backend: CheckpointBackend = CheckpointBackend.MEMORY,
         policy_engine: PolicyEngine | None = None,
         clock: Clock | None = None,
-        audit_log: InMemoryPolicyAuditLog | None = None,
+        audit_log: PolicyAuditRepository | None = None,
         confirmation_ttl_seconds: int | None = None,
         knowledge_retriever: KnowledgeRetriever | None = None,
         grounded_generator: GroundedAnswerGenerator | None = None,
@@ -53,12 +56,15 @@ class AgentRuntime:
         resilience_config: ResilienceConfig | None = None,
     ) -> None:
         settings = get_settings()
+        self.settings = settings
         self.provider = provider or _build_decision_provider(settings)
         self.checkpointer = checkpointer or MemoryCheckpointProvider().checkpointer
         self.checkpoint_backend = checkpoint_backend
         self.policy_engine = policy_engine or PolicyEngine()
         self.clock = clock or SystemClock()
-        self.audit_log = audit_log or InMemoryPolicyAuditLog()
+        self.audit_repository_override = audit_log
+        # Exposed only when an explicit bounded test/local adapter is injected.
+        self.audit_log = audit_log
         self.confirmation_ttl_seconds = (
             confirmation_ttl_seconds or settings.confirmation_ttl_seconds
         )
@@ -122,6 +128,9 @@ class AgentRuntime:
                 current_span = trace.get_current_span().get_span_context()
                 trace_id = f"{current_span.trace_id:032x}" if current_span.is_valid else None
                 projection_store = get_projection_store()
+                audit_repository = self.audit_repository_override or build_policy_audit_repository(
+                    self.settings, session
+                )
                 graph = build_graph(
                     self.provider,
                     session,
@@ -129,7 +138,7 @@ class AgentRuntime:
                     policy_engine=self.policy_engine,
                     clock=self.clock,
                     ttl_seconds=self.confirmation_ttl_seconds,
-                    audit_log=self.audit_log,
+                    audit_repository=audit_repository,
                     knowledge_retriever=self.knowledge_retriever,
                     grounded_generator=self.grounded_generator,
                     memory_service=self.memory_service,
@@ -168,7 +177,7 @@ class AgentRuntime:
                         projection,
                         response=response,
                         state=state,
-                        policy_events=self.audit_log.events,
+                        policy_events=audit_repository.list_for_agent_run(agent_run_id),
                         duration_ms=(time.perf_counter() - started) * 1000,
                     )
                 root_span.set_attribute("agent.intent", response.intent.value)

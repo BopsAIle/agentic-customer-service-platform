@@ -100,6 +100,14 @@ class UIProjectionStore:
             )
         policy = [
             UIPolicyEvent(
+                event_id=event.event_id,
+                request_id=event.request_id,
+                conversation_id=event.conversation_id,
+                timestamp=event.timestamp,
+                stage=event.stage,
+                confirmation_status=event.confirmation_status,
+                revalidation=event.revalidation,
+                execution_status=event.execution_status,
                 actor_id=event.actor_id,
                 actor_type=event.actor_type.value,
                 roles=list(event.roles),

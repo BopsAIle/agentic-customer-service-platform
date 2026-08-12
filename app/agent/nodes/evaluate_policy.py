@@ -8,12 +8,12 @@ from app.observability.tracing import span
 from app.policies.confirmation import Clock
 from app.policies.engine import PolicyEngine
 from app.policies.models import PolicyAuditEvent, PolicyOutcome
-from app.policies.registry import InMemoryPolicyAuditLog
+from app.policies.repository import PolicyAuditRepository
 from app.resilience.errors import FailureCategory
 
 
 def make_evaluate_policy_node(
-    engine: PolicyEngine, audit_log: InMemoryPolicyAuditLog, clock: Clock
+    engine: PolicyEngine, audit_repository: PolicyAuditRepository, clock: Clock
 ) -> Callable[[AgentState], AgentState]:
     def evaluate_policy(state: AgentState) -> AgentState:
         tool_name = state.get("selected_tool")
@@ -54,7 +54,7 @@ def make_evaluate_policy_node(
             {"policy_outcome": decision.outcome.value, "risk_level": str(decision.risk_level)},
         )
         action_id = state.get("action_id") or f"act_{uuid4().hex}"
-        audit_log.append(
+        audit_repository.append(
             PolicyAuditEvent(
                 agent_run_id=state["agent_run_id"],
                 request_id=context.request_id,
@@ -69,6 +69,10 @@ def make_evaluate_policy_node(
                 policy_outcome=decision.outcome,
                 reason_codes=decision.reasons,
                 timestamp=clock.now(),
+                stage="policy_evaluation",
+                confirmation_status=(
+                    "required" if decision.outcome == PolicyOutcome.REQUIRE_CONFIRMATION else None
+                ),
             )
         )
         result: AgentState = {"policy_decision": decision, "action_id": action_id}

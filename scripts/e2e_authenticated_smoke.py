@@ -358,7 +358,7 @@ def run_smoke(stack: ComposeStack) -> None:
         "(select count(*) from support_tickets) || '|' || "
         "(select count(*) from memory_records);"
     )
-    expect(bootstrap == "20260811_0004|3|6|4|1", "Migration or demo seed state is incorrect.")
+    expect(bootstrap == "20260812_0005|3|6|4|1", "Migration or demo seed state is incorrect.")
     collection = stack.qdrant_collection()
     expect(collection.get("status") == "green", "Qdrant collection is not green.")
     expect(collection.get("points_count") == 14, "Knowledge ingestion did not load 14 chunks.")
@@ -400,6 +400,14 @@ def run_smoke(stack: ComposeStack) -> None:
     expect(initial_projection_status == 200, "Initial inspector projection is unavailable.")
     assert_projection(initial_projection, confirmation_run=False)
     assert_no_sensitive_projection_fields(initial_projection)
+    initial_audit_status, initial_audit = request_json_list(
+        base_url, f"/ui/policy-audit/{CONVERSATION_ID}", token=stack.token
+    )
+    expect(initial_audit_status == 200, "Initial durable policy audit is unavailable.")
+    expect(len(initial_audit) == 1, "Initial policy audit event count is incorrect.")
+    initial_audit_event = expect_object(initial_audit[0], "initial policy audit event")
+    expect(initial_audit_event.get("stage") == "policy_evaluation", "Initial audit stage is wrong.")
+    assert_no_sensitive_projection_fields(initial_audit_event)
 
     stack.restart_backend()
     wait_for_ready(base_url)
@@ -457,6 +465,17 @@ def run_smoke(stack: ComposeStack) -> None:
     )
     expect(stack.receipt_count(action_id) == 1, "Replay duplicated the idempotency receipt.")
 
+    audit_status, audit_events = request_json_list(
+        base_url, f"/ui/policy-audit/{CONVERSATION_ID}", token=stack.token
+    )
+    expect(audit_status == 200, "Durable policy audit history is unavailable after restart.")
+    stages = [expect_object(event, "policy audit event").get("stage") for event in audit_events]
+    expect(
+        {"policy_evaluation", "confirmation", "policy_revalidation", "execution"} <= set(stages),
+        "Policy audit history did not retain the full confirmation lifecycle.",
+    )
+    assert_no_sensitive_projection_fields(audit_events)
+
     memory_status, memory_records = request_json_list(
         base_url,
         f"/ui/memory/{MEMORY_CUSTOMER_ID}",
@@ -487,7 +506,15 @@ def run_smoke(stack: ComposeStack) -> None:
     expect(stack.token not in serialized_memory, "Credential leaked via the memory projection.")
 
     captured = json.dumps(
-        [initial, initial_projection, confirmation, projection, replay, memory_records],
+        [
+            initial,
+            initial_projection,
+            confirmation,
+            projection,
+            replay,
+            memory_records,
+            audit_events,
+        ],
         sort_keys=True,
     )
     expect(stack.token not in captured, "Credential appeared in an API response projection.")
@@ -508,6 +535,7 @@ def run_smoke(stack: ComposeStack) -> None:
     print("auth=anonymous-401,invalid-401,support-operator-authenticated")
     print("lifecycle=pending,restarted,resumed,executed,replay-safe")
     print("projection=policy-and-tool-metadata-safe")
+    print("audit=durable,scoped,bounded,retained-across-restart")
     print("memory=metadata-only,private-content-absent")
 
 

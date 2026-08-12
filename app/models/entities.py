@@ -2,7 +2,17 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import ForeignKey, Index, Numeric, String, Text, UniqueConstraint, text
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    ForeignKey,
+    Index,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    text,
+)
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -142,4 +152,37 @@ class BusinessActionReceipt(Base):
     customer_id: Mapped[int] = mapped_column(index=True, nullable=False)
     request_fingerprint: Mapped[str] = mapped_column(String(64), nullable=False)
     result_id: Mapped[int] = mapped_column(nullable=False)
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
+
+
+class PolicyAuditRecord(Base):
+    """Durable operational policy evidence; never an authorization source."""
+
+    __tablename__ = "policy_audit_events"
+    __table_args__ = (
+        Index("ix_policy_audit_conversation_created", "conversation_id", "created_at", "id"),
+        Index("ix_policy_audit_customer_created", "effective_customer_id", "created_at", "id"),
+        Index("ix_policy_audit_request_created", "request_id", "created_at", "id"),
+        Index("ix_policy_audit_action_created", "action_id", "created_at", "id"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    event_id: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
+    agent_run_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
+    request_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    conversation_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    actor_id: Mapped[str] = mapped_column(String(200), nullable=False)
+    actor_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    roles: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    effective_customer_id: Mapped[int] = mapped_column(index=True, nullable=False)
+    action_id: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    risk_level: Mapped[int] = mapped_column(nullable=False)
+    policy_outcome: Mapped[str] = mapped_column(String(40), nullable=False)
+    reason_codes: Mapped[list[str]] = mapped_column(JSON, nullable=False)
+    timestamp: Mapped[datetime] = mapped_column(nullable=False)
+    stage: Mapped[str] = mapped_column(String(60), nullable=False)
+    confirmation_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    revalidation: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    execution_status: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)

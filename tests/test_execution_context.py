@@ -17,6 +17,7 @@ from app.memory.schemas import MemoryRecordView
 from app.memory.service import MemoryService
 from app.models import Order
 from app.models.entities import OrderStatus
+from app.policies.repository import InMemoryPolicyAuditLog
 from app.ui.projection import get_projection_store
 
 TEST_CUSTOMER_ONE_TOKEN = "test-customer-one-token"
@@ -162,7 +163,7 @@ def test_llm_customer_id_cannot_override_execution_context(db_session: Session) 
                     {"customer_id": 2, "order_id": 5},
                 )
             ]
-        )
+        ),
     )
 
     result = runtime.run(
@@ -183,7 +184,7 @@ def test_memory_cannot_be_read_without_execution_context(db_session: Session) ->
         cast(
             AgentState,
             {"messages": [{"role": "user", "content": "What do you remember?"}]},
-        )
+        ),
     )
 
     assert result["error_category"] == "policy_denied"
@@ -305,6 +306,7 @@ def test_policy_audit_and_run_projection_include_safe_identity_metadata(
     db_session: Session,
 ) -> None:
     context = execution_context(actor_id="audited-actor", conversation_id="audit-context")
+    audit_log = InMemoryPolicyAuditLog()
     runtime = AgentRuntime(
         provider=FakeDecisionProvider(
             [
@@ -315,11 +317,12 @@ def test_policy_audit_and_run_projection_include_safe_identity_metadata(
                     {"customer_id": 1},
                 )
             ]
-        )
+        ),
+        audit_log=audit_log,
     )
 
     response = runtime.run(context=context, message="Show my orders", session=db_session)
-    event = runtime.audit_log.events[-1]
+    event = audit_log.events[-1]
     projection = get_projection_store().get_run(response.agent_run_id)
 
     assert event.request_id == context.request_id

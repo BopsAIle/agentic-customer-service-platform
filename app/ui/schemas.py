@@ -18,6 +18,14 @@ class UIToolEvent(BaseModel):
 
 
 class UIPolicyEvent(BaseModel):
+    event_id: str = ""
+    request_id: str = ""
+    conversation_id: str = ""
+    timestamp: datetime | None = None
+    stage: str = "policy_evaluation"
+    confirmation_status: str | None = None
+    revalidation: bool = False
+    execution_status: str | None = None
     actor_id: str
     actor_type: str
     roles: list[str] = Field(default_factory=list)

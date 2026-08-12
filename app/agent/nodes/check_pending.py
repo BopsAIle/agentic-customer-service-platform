@@ -11,13 +11,17 @@ from app.policies.confirmation import (
     parse_confirmation,
     transition,
 )
-from app.policies.models import PendingActionStatus
+from app.policies.models import PendingActionStatus, PolicyAuditEvent, PolicyOutcome
+from app.policies.repository import PolicyAuditRepository
 
 
-def make_check_pending_node(clock: Clock, ttl_seconds: int) -> Callable[[AgentState], AgentState]:
+def make_check_pending_node(
+    clock: Clock, ttl_seconds: int, audit_repository: PolicyAuditRepository
+) -> Callable[[AgentState], AgentState]:
     def check_pending(state: AgentState) -> AgentState:
         with span("confirmation.evaluate") as confirmation_span:
             result = _check_pending(state, clock, ttl_seconds)
+            _record_confirmation_event(state, result, clock, audit_repository)
             status = result.get("confirmation_status") or "none"
             confirmation_span.set_attribute("confirmation.result", status)
             action = result.get("pending_action") or state.get("pending_action")
@@ -28,6 +32,38 @@ def make_check_pending_node(clock: Clock, ttl_seconds: int) -> Callable[[AgentSt
             return result
 
     return check_pending
+
+
+def _record_confirmation_event(
+    state: AgentState,
+    result: AgentState,
+    clock: Clock,
+    audit_repository: PolicyAuditRepository,
+) -> None:
+    status = result.get("confirmation_status")
+    action = result.get("pending_action") or state.get("pending_action")
+    context = state.get("execution_context")
+    if status not in {"confirmed", "rejected", "expired"} or action is None or context is None:
+        return
+    audit_repository.append(
+        PolicyAuditEvent(
+            agent_run_id=state["agent_run_id"],
+            request_id=context.request_id,
+            conversation_id=context.conversation_id,
+            actor_id=context.principal.actor_id,
+            actor_type=context.principal.actor_type,
+            roles=list(context.principal.roles),
+            effective_customer_id=context.effective_customer_id,
+            action_id=action.action_id,
+            tool_name=action.tool_name,
+            risk_level=action.risk_level,
+            policy_outcome=PolicyOutcome.REQUIRE_CONFIRMATION,
+            reason_codes=[f"confirmation_{status}"],
+            timestamp=clock.now(),
+            stage="confirmation",
+            confirmation_status=status,
+        )
+    )
 
 
 def _check_pending(state: AgentState, clock: Clock, ttl_seconds: int) -> AgentState:

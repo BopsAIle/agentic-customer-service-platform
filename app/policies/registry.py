@@ -1,9 +1,5 @@
-from app.policies.models import PolicyAuditEvent
+"""Compatibility export for the bounded non-production audit adapter."""
 
+from app.policies.repository import InMemoryPolicyAuditLog
 
-class InMemoryPolicyAuditLog:
-    def __init__(self) -> None:
-        self.events: list[PolicyAuditEvent] = []
-
-    def append(self, event: PolicyAuditEvent) -> None:
-        self.events.append(event)
+__all__ = ["InMemoryPolicyAuditLog"]

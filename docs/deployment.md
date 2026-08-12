@@ -144,6 +144,10 @@ CPU and memory defaults can be overridden with `BACKEND_CPU_LIMIT`, `BACKEND_MEM
 The production overlay sets `APP_ENV=production`, forces `AUTH_MODE=static`, requires a non-empty
 externally supplied principal map, removes the demo token from backend/setup containers, and builds
 the frontend without a bundled demo credential. It also forces `LANGGRAPH_STRICT_MSGPACK=true`.
+It forces `POLICY_AUDIT_BACKEND=postgres`; production policy audit is a durable, bounded operational
+evidence trail. Audit rows contain structured policy lifecycle metadata only and are never used as
+an authorization or business-state source. Configure database retention/pruning operationally;
+the application does not claim immutable compliance-ledger guarantees.
 Backend startup rejects disabled or local-demo
 authentication in production. Static opaque bearers are only the repository's current integration
 adapter, not a claim of production IAM; deployers must provide secret rotation/storage and their
