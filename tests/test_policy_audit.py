@@ -18,6 +18,7 @@ from app.models import Order
 from app.models.entities import OrderStatus, PolicyAuditRecord
 from app.policies.models import PolicyAuditEvent, PolicyOutcome
 from app.policies.repository import InMemoryPolicyAuditLog, SqlAlchemyPolicyAuditRepository
+from app.resilience.errors import AuditPersistenceError
 
 
 def audit_event(*, event_id: str, conversation_id: str = "conversation-a") -> PolicyAuditEvent:
@@ -174,7 +175,7 @@ def test_audit_insert_failure_fails_before_business_mutation(db_session: Session
         audit_log=FailingRepository(),
     )
 
-    with pytest.raises(RuntimeError, match="audit storage unavailable"):
+    with pytest.raises(AuditPersistenceError, match="audit persistence failed"):
         runtime.run(
             conversation_id="audit-failure",
             customer_id=1,

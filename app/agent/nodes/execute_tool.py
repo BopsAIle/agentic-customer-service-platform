@@ -2,7 +2,8 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
-from app.agent.nodes.common import error_category, serialise_result
+from app.agent.errors import RuntimeFailureSource, classify_runtime_error
+from app.agent.nodes.common import serialise_result
 from app.agent.nodes.execution_audit import record_execution_event
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
@@ -97,51 +98,87 @@ def make_execute_tool_node(
                 )
             except UnknownWriteOutcomeError:
                 if execution_started and audit_repository is not None and clock is not None:
-                    record_execution_event(state, audit_repository, clock, status="unknown")
+                    record_execution_event(
+                        state,
+                        audit_repository,
+                        clock,
+                        status="unknown",
+                        failure_category=AgentErrorCategory.UNKNOWN_WRITE_OUTCOME.value,
+                    )
                 return {
                     "last_error": "The write outcome could not be confirmed.",
-                    "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                    "error_category": AgentErrorCategory.UNKNOWN_WRITE_OUTCOME,
                     "failure_category": "tool_timeout",
                     "recovery_action": "no_replay",
                     "write_outcome_unknown": True,
                     "tool_execution_status": "failed",
                 }
             except RetryExhaustedError as error:
+                classification = classify_runtime_error(error, source=RuntimeFailureSource.TOOL)
                 if execution_started and audit_repository is not None and clock is not None:
-                    record_execution_event(state, audit_repository, clock, status="failure")
+                    record_execution_event(
+                        state,
+                        audit_repository,
+                        clock,
+                        status="failure",
+                        failure_category=classification.category.value,
+                    )
                 return {
                     "last_error": "The selected dependency could not be reached reliably.",
-                    "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                    "error_category": classification.category,
                     "failure_category": error.category.value,
                     "recovery_action": "fail_safely",
                     "tool_execution_status": "failed",
                 }
             except ResilienceError as error:
+                classification = classify_runtime_error(error, source=RuntimeFailureSource.TOOL)
                 if execution_started and audit_repository is not None and clock is not None:
-                    record_execution_event(state, audit_repository, clock, status="failure")
+                    record_execution_event(
+                        state,
+                        audit_repository,
+                        clock,
+                        status="failure",
+                        failure_category=classification.category.value,
+                    )
                 return {
                     "last_error": "The selected dependency could not be reached reliably.",
-                    "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                    "error_category": classification.category,
                     "failure_category": error.category.value,
                     "recovery_action": "fail_safely",
                     "tool_execution_status": "failed",
                 }
             except ToolError as error:
+                classification = classify_runtime_error(error, source=RuntimeFailureSource.TOOL)
                 session.rollback()
                 if execution_started and audit_repository is not None and clock is not None:
-                    record_execution_event(state, audit_repository, clock, status="failure")
+                    record_execution_event(
+                        state,
+                        audit_repository,
+                        clock,
+                        status="failure",
+                        failure_category=classification.category.value,
+                    )
                 return {
                     "last_error": str(error),
-                    "error_category": error_category(error),
+                    "error_category": classification.category,
+                    "failure_category": classification.failure_category,
                     "tool_execution_status": "failed",
                 }
-            except Exception:
+            except Exception as error:
+                classification = classify_runtime_error(error, source=RuntimeFailureSource.TOOL)
                 session.rollback()
                 if execution_started and audit_repository is not None and clock is not None:
-                    record_execution_event(state, audit_repository, clock, status="failure")
+                    record_execution_event(
+                        state,
+                        audit_repository,
+                        clock,
+                        status="failure",
+                        failure_category=classification.category.value,
+                    )
                 return {
                     "last_error": "The selected tool could not be executed.",
-                    "error_category": AgentErrorCategory.LLM_ERROR,
+                    "error_category": classification.category,
+                    "failure_category": classification.failure_category,
                     "tool_execution_status": "failed",
                 }
             if operation_type == "write" and audit_repository is not None and clock is not None:

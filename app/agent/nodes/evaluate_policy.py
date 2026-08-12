@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from uuid import uuid4
 
+from app.agent.errors import RuntimeFailureSource, classify_runtime_error
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.observability.metrics import get_metrics
@@ -8,7 +9,7 @@ from app.observability.tracing import span
 from app.policies.confirmation import Clock
 from app.policies.engine import PolicyEngine
 from app.policies.models import PolicyAuditEvent, PolicyOutcome, stable_policy_event_id
-from app.policies.repository import PolicyAuditRepository
+from app.policies.repository import PolicyAuditRepository, append_policy_audit
 from app.resilience.errors import FailureCategory
 
 
@@ -38,10 +39,11 @@ def make_evaluate_policy_node(
                     context=context,
                     arguments=state.get("tool_arguments", {}),
                 )
-            except Exception:
+            except Exception as error:
                 policy_span.set_attribute("policy.outcome", "fail_closed")
+                classification = classify_runtime_error(error, source=RuntimeFailureSource.POLICY)
                 return {
-                    "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                    "error_category": classification.category,
                     "failure_category": FailureCategory.POLICY_FAILURE.value,
                     "recovery_action": "deny",
                     "last_error": "Policy evaluation failed closed.",
@@ -54,7 +56,8 @@ def make_evaluate_policy_node(
             {"policy_outcome": decision.outcome.value, "risk_level": str(decision.risk_level)},
         )
         action_id = state.get("action_id") or f"act_{uuid4().hex}"
-        audit_repository.append(
+        append_policy_audit(
+            audit_repository,
             PolicyAuditEvent(
                 event_id=stable_policy_event_id(
                     state["agent_run_id"], action_id, "policy_evaluation", decision.outcome.value
@@ -76,7 +79,7 @@ def make_evaluate_policy_node(
                 confirmation_status=(
                     "required" if decision.outcome == PolicyOutcome.REQUIRE_CONFIRMATION else None
                 ),
-            )
+            ),
         )
         result: AgentState = {"policy_decision": decision, "action_id": action_id}
         if decision.outcome == PolicyOutcome.DENY:

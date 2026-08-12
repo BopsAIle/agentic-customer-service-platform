@@ -3,7 +3,7 @@ from __future__ import annotations
 from app.agent.state import AgentState
 from app.policies.confirmation import Clock
 from app.policies.models import PolicyAuditEvent, PolicyOutcome, stable_policy_event_id
-from app.policies.repository import PolicyAuditRepository
+from app.policies.repository import PolicyAuditRepository, append_policy_audit
 
 
 def record_execution_event(
@@ -12,6 +12,7 @@ def record_execution_event(
     clock: Clock,
     *,
     status: str,
+    failure_category: str | None = None,
 ) -> None:
     """Persist safe, idempotent evidence for an agent-originated business write."""
 
@@ -49,7 +50,11 @@ def record_execution_event(
         "failure": "execution_failed",
         "unknown": "execution_unknown",
     }[status]
-    audit_repository.append(
+    reason_codes = [reason]
+    if failure_category is not None:
+        reason_codes.append(failure_category)
+    append_policy_audit(
+        audit_repository,
         PolicyAuditEvent(
             event_id=event_id,
             agent_run_id=state["agent_run_id"],
@@ -63,11 +68,11 @@ def record_execution_event(
             tool_name=tool_name,
             risk_level=risk_level,
             policy_outcome=policy_outcome,
-            reason_codes=[reason],
+            reason_codes=reason_codes,
             timestamp=clock.now(),
             stage="execution",
             confirmation_status="confirmed" if confirmed else None,
             revalidation=confirmed,
             execution_status=status,
-        )
+        ),
     )

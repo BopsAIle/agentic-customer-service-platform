@@ -15,7 +15,7 @@ from app.models import BusinessActionReceipt, Escalation, SupportTicket
 from app.policies.confirmation import Clock
 from app.policies.models import PolicyAuditEvent
 from app.policies.repository import InMemoryPolicyAuditLog
-from app.resilience.errors import UnknownWriteOutcomeError
+from app.resilience.errors import AuditPersistenceError, UnknownWriteOutcomeError
 from app.services.idempotency import IdempotencyScope, commit_business_write
 from app.tools.tickets import CreateSupportTicketInput, create_support_ticket
 
@@ -276,7 +276,7 @@ def test_execution_audit_failure_before_write_fails_closed(db_session: Session) 
         audit_log=log,
     )
 
-    with pytest.raises(RuntimeError, match="audit storage unavailable"):
+    with pytest.raises(AuditPersistenceError, match="audit persistence failed"):
         runtime.run(
             conversation_id="audit-before-write",
             customer_id=1,
@@ -306,7 +306,7 @@ def test_execution_audit_failure_after_commit_does_not_replay_write(
         audit_log=log,
     )
 
-    with pytest.raises(RuntimeError, match="audit storage unavailable"):
+    with pytest.raises(AuditPersistenceError, match="audit persistence failed"):
         runtime.run(
             conversation_id="audit-after-write",
             customer_id=1,

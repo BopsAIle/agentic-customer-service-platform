@@ -292,6 +292,15 @@ Failures are classified before the platform chooses a retry, degraded mode, or s
 - Memory read failure continues without personalization; explicit memory writes fail visibly.
 - Policy failure fails closed.
 
+Runtime failures use a small source-aware taxonomy. `LLM_ERROR` is reserved for model/provider
+interaction, `TOOL_ERROR` for controlled business-tool failures, `DEPENDENCY_ERROR` for external
+service or infrastructure failures, and `INTERNAL_ERROR` for unexpected platform/runtime
+failures. Existing validation, policy, retrieval, reranker, timeout, and domain categories remain
+meaningful where they carry more specific semantics. `UNKNOWN_WRITE_OUTCOME` remains distinct
+because a mutation may have committed. An error category describes failure source; it does not
+decide retryability. The resilience coordinator and idempotency rules remain authoritative for
+retry and reconciliation.
+
 ## Operator Console
 
 The React control plane includes:

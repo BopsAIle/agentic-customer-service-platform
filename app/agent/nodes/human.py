@@ -2,7 +2,8 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
-from app.agent.nodes.common import error_category, serialise_result
+from app.agent.errors import RuntimeFailureSource, classify_runtime_error
+from app.agent.nodes.common import serialise_result
 from app.agent.nodes.execution_audit import record_execution_event
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
@@ -70,9 +71,15 @@ def make_human_escalation_node(
         except UnknownWriteOutcomeError:
             session.rollback()
             if execution_started and audit_repository is not None and clock is not None:
-                record_execution_event(state, audit_repository, clock, status="unknown")
+                record_execution_event(
+                    state,
+                    audit_repository,
+                    clock,
+                    status="unknown",
+                    failure_category=AgentErrorCategory.UNKNOWN_WRITE_OUTCOME.value,
+                )
             return {
-                "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                "error_category": AgentErrorCategory.UNKNOWN_WRITE_OUTCOME,
                 "last_error": "The escalation outcome could not be confirmed.",
                 "failure_category": "tool_timeout",
                 "recovery_action": "no_replay",
@@ -80,22 +87,38 @@ def make_human_escalation_node(
                 "tool_execution_status": "failed",
             }
         except ToolError as error:
+            classification = classify_runtime_error(error, source=RuntimeFailureSource.TOOL)
             session.rollback()
             if execution_started and audit_repository is not None and clock is not None:
-                record_execution_event(state, audit_repository, clock, status="failure")
+                record_execution_event(
+                    state,
+                    audit_repository,
+                    clock,
+                    status="failure",
+                    failure_category=classification.category.value,
+                )
             return {
-                "error_category": error_category(error),
+                "error_category": classification.category,
                 "last_error": str(error),
+                "failure_category": classification.failure_category,
                 "tool_execution_status": "failed",
             }
-        except Exception:
+        except Exception as error:
+            classification = classify_runtime_error(error, source=RuntimeFailureSource.TOOL)
             if execution_started:
                 session.rollback()
             if execution_started and audit_repository is not None and clock is not None:
-                record_execution_event(state, audit_repository, clock, status="failure")
+                record_execution_event(
+                    state,
+                    audit_repository,
+                    clock,
+                    status="failure",
+                    failure_category=classification.category.value,
+                )
             return {
-                "error_category": AgentErrorCategory.POLICY_DENIED,
+                "error_category": classification.category,
                 "last_error": "The human escalation path could not be completed.",
+                "failure_category": classification.failure_category,
                 "tool_execution_status": "failed",
             }
         if audit_repository is not None and clock is not None:

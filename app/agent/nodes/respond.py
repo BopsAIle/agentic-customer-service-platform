@@ -26,6 +26,14 @@ def _error_message(category: AgentErrorCategory | None) -> str:
         AgentErrorCategory.LLM_ERROR: (
             "I couldn't understand that request reliably. Please rephrase it."
         ),
+        AgentErrorCategory.TOOL_ERROR: "The business operation could not be completed safely.",
+        AgentErrorCategory.DEPENDENCY_ERROR: (
+            "I couldn't complete that dependency operation safely."
+        ),
+        AgentErrorCategory.INTERNAL_ERROR: "The request could not be completed safely.",
+        AgentErrorCategory.UNKNOWN_WRITE_OUTCOME: (
+            "I couldn't confirm whether the action completed, so I won't repeat it automatically."
+        ),
         AgentErrorCategory.RETRIEVAL_ERROR: (
             "The knowledge service is temporarily unavailable. Please try again."
         ),

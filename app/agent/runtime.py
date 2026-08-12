@@ -6,6 +6,7 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from opentelemetry import trace
 from sqlalchemy.orm import Session
 
+from app.agent.errors import RuntimeFailureSource, classify_runtime_error
 from app.agent.graph import build_graph
 from app.agent.llm.base import StructuredDecisionProvider
 from app.agent.llm.integration import DeterministicIntegrationDecisionProvider
@@ -199,6 +200,9 @@ class AgentRuntime:
                             "Agent run projection persistence failed.",
                             extra={
                                 "projection_error_type": type(error).__name__,
+                                "error_category": classify_runtime_error(
+                                    error, source=RuntimeFailureSource.PROJECTION
+                                ).category.value,
                                 "agent_run_id": agent_run_id,
                             },
                         )
@@ -206,20 +210,24 @@ class AgentRuntime:
                 root_span.set_attribute("agent.request_type", response.request_type.value)
                 if response.error_category is not None:
                     labels["status"] = "error"
+                    labels["error_category"] = response.error_category.value
                     root_span.set_attribute("agent.status", "error")
                     root_span.set_attribute("error.category", response.error_category.value)
                 else:
                     root_span.set_attribute("agent.status", "ok")
                 return response
             except Exception as error:
+                classification = classify_runtime_error(error, source=RuntimeFailureSource.RUNTIME)
                 labels["status"] = "error"
                 root_span.set_attribute("agent.status", "error")
+                root_span.set_attribute("error.category", classification.category.value)
                 root_span.add_event(
                     "agent.persistence_or_execution_error",
                     attributes={
                         "checkpoint.backend": self.checkpoint_backend.value,
                         "checkpoint.thread_id": thread_id_hash,
                         "error.type": type(error).__name__,
+                        "error.category": classification.category.value,
                     },
                 )
                 raise

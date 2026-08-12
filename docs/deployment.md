@@ -176,6 +176,14 @@ mutation are not one atomic distributed transaction; idempotency receipts and bu
 remain authoritative for post-commit reconciliation. Raw prompts, tool payloads, and business free
 text are excluded from audit rows.
 
+Runtime diagnostics use safe source classification: `LLM_ERROR` identifies model/provider
+interaction, `TOOL_ERROR` a controlled business-tool failure, `DEPENDENCY_ERROR` an external
+service or infrastructure failure, and `INTERNAL_ERROR` an unexpected platform/runtime failure.
+Timeout, validation, policy, retrieval, and unknown-write semantics remain distinct where
+applicable. Categories do not imply retryability; native dependency retry rules, idempotency, and
+unknown-write reconciliation remain authoritative. Raw exception text is not returned as an
+operator error payload or persisted in the run projection/audit record.
+
 Operator Console agent-run projections use the `agent_run_projections` PostgreSQL table in
 integration and production. They are a bounded, durable read model for inspection: a backend restart
 or a second backend instance can read the same safe projection, and a pending confirmation resumes

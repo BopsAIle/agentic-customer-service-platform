@@ -62,6 +62,11 @@ matrix covers direct Risk-1 writes, confirmed Risk-2 writes, and Risk-3 escalati
 including failure and unknown outcomes. Audit persistence is observational and does not authorize
 or replay business actions; business idempotency remains the retry authority.
 
+Runtime taxonomy tests also verify that genuine provider failures remain `LLM_ERROR`, controlled
+tool failures use `TOOL_ERROR`, infrastructure failures use `DEPENDENCY_ERROR`, and unexpected
+runtime failures use `INTERNAL_ERROR`, without exposing exception payloads. Unknown write outcomes,
+timeouts, validation failures, and policy denials retain their existing safety semantics.
+
 The integration bootstrap builds a complete versioned Qdrant snapshot and atomically activates the
 logical knowledge alias before backend readiness. This keeps the deterministic hybrid lexical
 vocabulary consistent with every stored sparse vector and makes stale-document removal a snapshot

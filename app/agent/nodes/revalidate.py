@@ -17,7 +17,7 @@ from app.policies.models import (
     PolicyOutcome,
     stable_policy_event_id,
 )
-from app.policies.repository import PolicyAuditRepository
+from app.policies.repository import PolicyAuditRepository, append_policy_audit
 from app.tools.base import ToolError
 from app.tools.orders import CancelOrderInput, validate_cancel_order
 from app.tools.refunds import RequestRefundInput, validate_refund_request
@@ -60,7 +60,8 @@ def _record_revalidation_event(
         return
     now = clock.now()
     allowed = result.get("error_category") is None
-    audit_repository.append(
+    append_policy_audit(
+        audit_repository,
         PolicyAuditEvent(
             event_id=stable_policy_event_id(
                 state["agent_run_id"],
@@ -84,7 +85,7 @@ def _record_revalidation_event(
             stage="policy_revalidation",
             confirmation_status="confirmed",
             revalidation=True,
-        )
+        ),
     )
 
 

@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from app.agent.errors import RuntimeFailureSource, classify_runtime_error
 from app.agent.schemas import AgentErrorCategory, Intent
 from app.agent.state import AgentState
 from app.memory.schemas import MemorySource
@@ -37,13 +38,14 @@ def make_memory_action_node(
                         candidate,
                         source=MemorySource.USER_EXPLICIT,
                     )
-            except Exception:
+            except Exception as error:
+                classification = classify_runtime_error(error, source=RuntimeFailureSource.MEMORY)
                 return {
                     "memory_operation_status": "failed",
                     "memory_policy_outcome": "failed",
                     "failure_category": FailureCategory.MEMORY_FAILURE.value,
                     "recovery_action": "fail_safely",
-                    "error_category": AgentErrorCategory.DEPENDENCY_FAILURE,
+                    "error_category": classification.category,
                     "last_error": "Persistent memory could not be updated.",
                 }
                 memory_span.set_attribute("memory.type", candidate.memory_type.value)

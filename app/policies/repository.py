@@ -10,9 +10,21 @@ from sqlalchemy.orm import Session
 
 from app.models.entities import PolicyAuditRecord
 from app.policies.models import PolicyAuditEvent
+from app.resilience.errors import AuditPersistenceError
 
 DEFAULT_AUDIT_QUERY_LIMIT = 50
 MAX_AUDIT_QUERY_LIMIT = 100
+
+
+def append_policy_audit(repository: PolicyAuditRepository, event: PolicyAuditEvent) -> None:
+    """Convert repository failures to a safe dependency error at the audit boundary."""
+
+    try:
+        repository.append(event)
+    except AuditPersistenceError:
+        raise
+    except Exception as error:
+        raise AuditPersistenceError() from error
 
 
 class PolicyAuditRepository(Protocol):

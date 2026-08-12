@@ -234,7 +234,15 @@ def _instrument_tool_node(
         metric_labels = {"tool_name": tool_name, "status": status}
         get_metrics().tool_calls_total.add(1, metric_labels)
         if status == "failed":
-            get_metrics().tool_errors_total.add(1, {"tool_name": tool_name})
+            get_metrics().tool_errors_total.add(
+                1,
+                {
+                    "tool_name": tool_name,
+                    "error_category": str(
+                        getattr(error_category, "value", error_category or "unknown")
+                    ),
+                },
+            )
         get_metrics().tool_call_duration_seconds.record(
             time.perf_counter() - started, {"tool_name": tool_name, "status": status}
         )

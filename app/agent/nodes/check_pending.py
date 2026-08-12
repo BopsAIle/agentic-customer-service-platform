@@ -17,7 +17,7 @@ from app.policies.models import (
     PolicyOutcome,
     stable_policy_event_id,
 )
-from app.policies.repository import PolicyAuditRepository
+from app.policies.repository import PolicyAuditRepository, append_policy_audit
 
 
 def make_check_pending_node(
@@ -50,7 +50,8 @@ def _record_confirmation_event(
     context = state.get("execution_context")
     if status not in {"confirmed", "rejected", "expired"} or action is None or context is None:
         return
-    audit_repository.append(
+    append_policy_audit(
+        audit_repository,
         PolicyAuditEvent(
             event_id=stable_policy_event_id(
                 state["agent_run_id"], action.action_id, "confirmation", str(status)
@@ -70,7 +71,7 @@ def _record_confirmation_event(
             timestamp=clock.now(),
             stage="confirmation",
             confirmation_status=status,
-        )
+        ),
     )
 
 

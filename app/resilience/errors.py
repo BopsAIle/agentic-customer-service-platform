@@ -39,3 +39,10 @@ class UnknownWriteOutcomeError(ResilienceError):
             f"the outcome of {tool_name} could not be confirmed",
         )
         self.tool_name = tool_name
+
+
+class AuditPersistenceError(ResilienceError):
+    """Durable audit storage failed; callers must preserve fail-closed semantics."""
+
+    def __init__(self) -> None:
+        super().__init__(FailureCategory.UNKNOWN_DEPENDENCY_FAILURE, "audit persistence failed")

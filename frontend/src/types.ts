@@ -82,6 +82,7 @@ export type AgentResponse = {
   message: string;
   intent: string;
   request_type: string;
+  error_category: string | null;
   failure_category: string | null;
   degraded_components: string[];
   recovery_action: string | null;

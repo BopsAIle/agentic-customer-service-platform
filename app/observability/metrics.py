@@ -46,7 +46,7 @@ def build_metrics(meter: Meter | None = None) -> ObservabilityMetrics:
             "tool_call_duration_seconds", unit="s", description="Tool call duration."
         ),
         tool_errors_total=active_meter.create_counter(
-            "tool_errors_total", unit="{error}", description="Tool errors."
+            "tool_errors_total", unit="{error}", description="Tool errors by safe category."
         ),
         rag_requests_total=active_meter.create_counter(
             "rag_requests_total", unit="{request}", description="RAG requests."
@@ -64,7 +64,7 @@ def build_metrics(meter: Meter | None = None) -> ObservabilityMetrics:
             "escalations_total", unit="{escalation}", description="Human escalations."
         ),
         agent_errors_total=active_meter.create_counter(
-            "agent_errors_total", unit="{error}", description="Agent errors."
+            "agent_errors_total", unit="{error}", description="Agent errors by safe category."
         ),
         memory_reads_total=active_meter.create_counter(
             "memory_reads_total", unit="{read}", description="Memory reads."
