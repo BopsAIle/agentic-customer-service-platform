@@ -1,0 +1,113 @@
+{
+  "spec_version": "d2b_semantic_behavioral_matrix_v1",
+  "status": "PREPARED_NOT_APPROVED",
+  "experiment_id_pattern": "d2b_semantic_v3_<approved_utc_timestamp>",
+  "objective": "Evaluate behavioral quality of D2a-eligible model/runtimes while holding the accepted semantic_decision_v3 architecture fixed.",
+  "architecture": [
+    "LLM",
+    "semantic_decision_v3",
+    "semantic entity grounding",
+    "target admissibility",
+    "deterministic DecisionCompiler",
+    "BusinessTargetResolver where permitted",
+    "business validation",
+    "policy and confirmation",
+    "execution"
+  ],
+  "architecture_frozen": true,
+  "direct_tool_v1_comparison_arm": false,
+  "d2a_decision_id": "model_compatibility_d2a_v1",
+  "d2a_decision_revision": "064208c621048fe7cc13c15b202a557c1e6019ac",
+  "contract_version": "semantic_decision_v3",
+  "contract_schema_hash": "b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b",
+  "function_schema_hash": "49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1",
+  "prompt_hash": "4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0",
+  "dataset_version": "live_eval_v1_2",
+  "dataset_hash": "d8a10741dbb90e8a4de3b09098de36c4969c0b72944d253e37c9580279064eb5",
+  "dataset_strategy": {
+    "case_count": 28,
+    "english_cases": 14,
+    "turkish_cases": 14,
+    "runs_per_case": 3,
+    "measured_attempts_per_model": 84,
+    "warmup_maximum_per_model": 1,
+    "warmup_scored": false,
+    "case_order": "deterministic_frozen_order",
+    "case_mutation_allowed": false
+  },
+  "request_configuration": {
+    "structured_output_mode": "function_calling",
+    "reasoning_effort": "none",
+    "temperature": 0.0,
+    "timeout_seconds": 30.0,
+    "retry_count": 0,
+    "candidate_specific_contract": false,
+    "candidate_specific_prompt": false
+  },
+  "eligible_candidates": [
+    {
+      "model": "gpt-5.6-luna",
+      "provider": "official OpenAI API",
+      "role": "hosted reference and sole initial D2b-eligible candidate",
+      "d2a_eligibility": "D2A_ELIGIBLE",
+      "compatibility_diagnostic_id": "structured_output_v3_openai_luna_20260813T163700Z"
+    }
+  ],
+  "excluded_candidates": {
+    "qwen3.5:4b": "D2A_INELIGIBLE",
+    "qwen2.5:7b-instruct": "D2A_INELIGIBLE",
+    "qwen3.5:9b": "D2A_INELIGIBLE"
+  },
+  "metrics": [
+    {"name": "routing_correctness", "denominator": "all measured attempts and scorable attempts", "interpretation": "User-task routing after deterministic semantic processing."},
+    {"name": "semantic_target_correctness", "denominator": "target-eligible measured attempts", "interpretation": "Model reference correctness before grounding or resolution."},
+    {"name": "clarification_quality", "denominator": "all measured attempts", "interpretation": "Appropriate, missed, and unnecessary effective clarification."},
+    {"name": "safety_violations", "denominator": "all measured attempts plus bounded runtime safety checks", "interpretation": "Unsafe proposals and executions remain separate metrics."},
+    {"name": "hallucinated_identifiers", "denominator": "identifier-eligible measured attempts", "interpretation": "Concrete identifiers absent from trusted user input."},
+    {"name": "compiler_correctness", "denominator": "all and correct-semantics eligible attempts", "interpretation": "Stage-local deterministic compiler attribution."},
+    {"name": "resolver_correctness", "denominator": "resolver-eligible and correct-reference attempts", "interpretation": "Stage-local business target resolution attribution."},
+    {"name": "consistency", "denominator": "eligible cases and repetitions", "interpretation": "Exact and normalized semantic repetition consistency."},
+    {"name": "latency", "denominator": "all measured attempts", "interpretation": "Provider and end-to-end min, mean, p50, p95, and max."},
+    {"name": "token_and_cost_accounting", "denominator": "provider responses exposing usage", "interpretation": "Record usage when available; never infer price from a hard-coded table."}
+  ],
+  "failure_taxonomy": [
+    "provider_failure",
+    "timeout",
+    "structured_output_transport_failure",
+    "argument_decode_failure",
+    "contract_validation_failure",
+    "intent_mismatch",
+    "target_mismatch",
+    "clarification_miss",
+    "hallucinated_identifier",
+    "grounding_intervention",
+    "target_admissibility_intervention",
+    "compile_failure",
+    "resolver_failure",
+    "policy_or_runtime_safety_failure",
+    "other"
+  ],
+  "artifact_requirements": {
+    "root_pattern": "artifacts/live-eval/model-matrix/<d2b_experiment_id>/",
+    "required_files": ["manifest.json", "gpt-5.6-luna/attempts.json", "gpt-5.6-luna/summary.json", "gpt-5.6-luna/summary.md", "comparison.json", "comparison.md"],
+    "status_required": "COMPLETE",
+    "atomic_publish_required": true,
+    "source_hashes_required": true,
+    "artifact_sha256_required": true,
+    "hash_recheck_after_validation": true,
+    "model_metadata_required": ["exact_model_id", "provider", "runtime", "compatibility_diagnostic_id"],
+    "run_metadata_required": ["experiment_id", "source_revision", "contract_and_prompt_hashes", "dataset_hash", "case_schedule", "request_configuration", "call_accounting", "approval_record_id"],
+    "immutable_sources": ["evaluation/decisions/model_compatibility_d2a_v1.json", "live_eval_v1_2", "semantic_decision_v3 schema", "semantic prompt"]
+  },
+  "privacy_constraints": [
+    "synthetic live_eval inputs only",
+    "no credentials or authorization headers",
+    "no raw provider payloads or function arguments",
+    "no raw prompts or hidden reasoning",
+    "no real customer content, identifiers, memory, RAG content, or production data",
+    "persist only bounded case IDs, enums, stage outcomes, and structural diagnostics"
+  ],
+  "approval_gate_version": "d2b_review_approval_gate_v1",
+  "execution_requires_review_approval": true,
+  "production_defaults_changed": false
+}
