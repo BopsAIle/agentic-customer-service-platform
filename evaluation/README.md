@@ -69,3 +69,18 @@ contract. Its schema hash is a canonical SHA-256 of the sorted, compact JSON sch
 preserves source runtime provenance when present and adds separate derived-scoring metadata.
 Historical artifacts without provenance are not rewritten; fields that cannot be recovered
 reliably remain unavailable.
+
+## Decision contract architecture
+
+The runtime supports two explicit contracts while the default remains `direct_tool_v1`:
+
+| Contract | Model responsibility | Application responsibility |
+| --- | --- | --- |
+| `direct_tool_v1` | Select an executable tool and propose its arguments | Validate, authorize, confirm, execute, and audit |
+| `semantic_decision_v2` | Propose intent, user entities/references, and clarification semantics | Compile canonical actions, resolve business targets, validate, authorize, confirm, execute, and audit |
+
+In `semantic_decision_v2`, the model cannot choose an arbitrary tool or provide trusted customer
+scope. The compiler constructs allow-listed arguments from semantic fields and
+`ExecutionContext`; read-only business resolution handles symbolic references such as
+`latest_order`. Business existence, ownership, current state, eligibility, confirmation, action
+identity, idempotency, and replay remain downstream control-plane responsibilities.

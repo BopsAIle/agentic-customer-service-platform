@@ -18,6 +18,12 @@ from app.agent.schemas import StructuredDecision
 
 PROVENANCE_VERSION = "benchmark_provenance_v1"
 DECISION_CONTRACT_VERSION = "direct_tool_v1"
+SEMANTIC_DECISION_CONTRACT_VERSION = "semantic_decision_v2"
+SUPPORTED_DECISION_CONTRACTS = {
+    DECISION_CONTRACT_VERSION,
+    SEMANTIC_DECISION_CONTRACT_VERSION,
+}
+_PROMPT_ROOT = Path(__file__).parents[1] / "app" / "agent" / "prompts"
 
 
 class Provenance(BaseModel):
@@ -37,6 +43,28 @@ def canonical_schema_hash(schema: dict[str, Any]) -> str:
 
 def direct_tool_schema_hash() -> str:
     return canonical_schema_hash(StructuredDecision.model_json_schema())
+
+
+def schema_hash_for_contract(contract_version: str) -> str:
+    if contract_version == DECISION_CONTRACT_VERSION:
+        return direct_tool_schema_hash()
+    if contract_version == SEMANTIC_DECISION_CONTRACT_VERSION:
+        from app.agent.schemas import SemanticDecision
+
+        return canonical_schema_hash(SemanticDecision.model_json_schema())
+    raise ValueError(f"unsupported decision contract: {contract_version}")
+
+
+def prompt_path_for_contract(contract_version: str) -> Path:
+    if contract_version == DECISION_CONTRACT_VERSION:
+        return _PROMPT_ROOT / "system.txt"
+    if contract_version == SEMANTIC_DECISION_CONTRACT_VERSION:
+        return _PROMPT_ROOT / "system_semantic_decision_v2.txt"
+    raise ValueError(f"unsupported decision contract: {contract_version}")
+
+
+def prompt_hash_for_contract(contract_version: str) -> str:
+    return hashlib.sha256(prompt_path_for_contract(contract_version).read_bytes()).hexdigest()
 
 
 def git_metadata(
@@ -149,6 +177,7 @@ def build_provenance(
     runs_per_case: int,
     unique_cases: int,
     total_attempts: int,
+    decision_contract_version: str = DECISION_CONTRACT_VERSION,
     usage: dict[str, Any] | None = None,
     runner: Callable[..., subprocess.CompletedProcess[str]] = subprocess.run,
 ) -> dict[str, Any]:
@@ -180,8 +209,8 @@ def build_provenance(
         runtime=_runtime(args, runner=runner),
         hardware=_hardware_metadata(runner=runner),
         decision_contract={
-            "version": DECISION_CONTRACT_VERSION,
-            "schema_hash": direct_tool_schema_hash(),
+            "version": decision_contract_version,
+            "schema_hash": schema_hash_for_contract(decision_contract_version),
         },
         benchmark={
             "case_set_version": case_set_version,
@@ -227,9 +256,10 @@ def validate_provenance(provenance: dict[str, Any]) -> None:
         absent = [field for field in fields if field not in provenance[section]]
         if absent:
             raise ValueError(f"missing provenance {section} fields: {absent}")
-    if provenance["decision_contract"]["version"] != DECISION_CONTRACT_VERSION:
+    contract_version = provenance["decision_contract"]["version"]
+    if contract_version not in SUPPORTED_DECISION_CONTRACTS:
         raise ValueError("unsupported decision contract")
-    if provenance["decision_contract"]["schema_hash"] != direct_tool_schema_hash():
+    if provenance["decision_contract"]["schema_hash"] != schema_hash_for_contract(contract_version):
         raise ValueError("decision contract schema hash mismatch")
 
 
@@ -237,6 +267,7 @@ def historical_provenance(metadata: dict[str, Any]) -> dict[str, Any]:
     """Project only evidence present in a legacy artifact; unknowns stay null."""
 
     local = metadata.get("base_url_classification") == "local"
+    contract_version = str(metadata.get("decision_contract_version", DECISION_CONTRACT_VERSION))
     return Provenance(
         model={
             "provider": metadata.get("provider"),
@@ -269,8 +300,8 @@ def historical_provenance(metadata: dict[str, Any]) -> dict[str, Any]:
             "collection_note": "Unavailable in the frozen source artifact.",
         },
         decision_contract={
-            "version": DECISION_CONTRACT_VERSION,
-            "schema_hash": direct_tool_schema_hash(),
+            "version": contract_version,
+            "schema_hash": schema_hash_for_contract(contract_version),
         },
         benchmark={
             "case_set_version": metadata.get("case_set_version"),

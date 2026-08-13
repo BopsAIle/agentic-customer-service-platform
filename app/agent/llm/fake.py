@@ -1,6 +1,6 @@
 from collections.abc import Iterable, Sequence
 
-from app.agent.schemas import StructuredDecision
+from app.agent.schemas import SemanticDecision, StructuredDecision
 from app.agent.state import ConversationMessage
 
 
@@ -18,5 +18,26 @@ class FakeDecisionProvider:
         customer_id: int,
         memory_context: Sequence[dict[str, object]] | None = None,
     ) -> StructuredDecision:
+        self.calls.append(messages)
+        return next(self._decisions)
+
+
+class FakeSemanticDecisionProvider:
+    """Deterministic semantic_decision_v2 provider for integration tests."""
+
+    decision_contract_version = "semantic_decision_v2"
+
+    def __init__(self, decisions: Iterable[SemanticDecision]) -> None:
+        self._decisions = iter(decisions)
+        self.calls: list[Sequence[ConversationMessage]] = []
+
+    def decide(
+        self,
+        *,
+        messages: Sequence[ConversationMessage],
+        customer_id: int,
+        memory_context: Sequence[dict[str, object]] | None = None,
+    ) -> SemanticDecision:
+        del customer_id, memory_context
         self.calls.append(messages)
         return next(self._decisions)

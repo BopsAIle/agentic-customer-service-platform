@@ -434,6 +434,16 @@ def rescore_attempts(
     source_path: Path | None = None,
     source_sha256: str | None = None,
 ) -> V3Report:
+    source_contract = metadata.get("decision_contract_version")
+    source_provenance = metadata.get("provenance")
+    if source_contract is None and isinstance(source_provenance, dict):
+        contract_data = source_provenance.get("decision_contract")
+        if isinstance(contract_data, dict):
+            source_contract = contract_data.get("version")
+    if source_contract not in (None, DECISION_CONTRACT_VERSION):
+        raise ValueError(
+            f"live_scoring_v3 supports only {DECISION_CONTRACT_VERSION}; received {source_contract}"
+        )
     if (
         metadata.get("case_set_version") != CASE_SET_VERSION
         or metadata.get("case_set_sha256") != CASE_SET_SHA256

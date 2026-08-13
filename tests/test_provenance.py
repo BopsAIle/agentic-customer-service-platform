@@ -15,6 +15,8 @@ from evaluation.provenance import (
     canonical_schema_hash,
     direct_tool_schema_hash,
     git_metadata,
+    prompt_hash_for_contract,
+    schema_hash_for_contract,
     validate_provenance,
 )
 
@@ -78,6 +80,28 @@ def test_provenance_captures_contract_transport_and_nullable_reasoning() -> None
         runner=lambda *args, **kwargs: _result(""),
     )
     assert unset["runtime"]["reasoning_effort"] is None
+
+
+def test_semantic_contract_has_distinct_schema_and_prompt_identity() -> None:
+    semantic = build_provenance(
+        args=_args(),
+        case_set_version="live_eval_v1",
+        case_set_hash="c" * 64,
+        prompt_hash=prompt_hash_for_contract("semantic_decision_v2"),
+        scoring_version="live_scoring_v3",
+        runs_per_case=1,
+        unique_cases=1,
+        total_attempts=1,
+        decision_contract_version="semantic_decision_v2",
+        runner=lambda *args, **kwargs: _result(""),
+    )
+    assert semantic["decision_contract"]["version"] == "semantic_decision_v2"
+    assert semantic["decision_contract"]["schema_hash"] == schema_hash_for_contract(
+        "semantic_decision_v2"
+    )
+    assert semantic["decision_contract"]["schema_hash"] != direct_tool_schema_hash()
+    assert semantic["benchmark"]["prompt_hash"] == prompt_hash_for_contract("semantic_decision_v2")
+    validate_provenance(semantic)
 
 
 def test_cost_semantics_distinguish_local_and_hosted() -> None:

@@ -1,7 +1,7 @@
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.memory.schemas import MemoryCandidate
 from app.policies.models import PendingAction
@@ -40,6 +40,52 @@ class AgentRequestType(StrEnum):
     ACTION_ONLY = "action_only"
     KNOWLEDGE_AND_ACTION = "knowledge_and_action"
     MEMORY_ACTION = "memory_action"
+
+
+class SemanticTarget(BaseModel):
+    """A typed user-referent, never an executable tool argument bag."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["explicit_order", "latest_order", "explicit_ticket"]
+    order_id: int | None = Field(default=None, gt=0)
+    ticket_id: int | None = Field(default=None, gt=0)
+
+    @model_validator(mode="after")
+    def validate_reference_shape(self) -> "SemanticTarget":
+        if self.type == "explicit_order" and self.order_id is None:
+            raise ValueError("explicit_order requires order_id")
+        if self.type == "explicit_ticket" and self.ticket_id is None:
+            raise ValueError("explicit_ticket requires ticket_id")
+        if self.type == "latest_order" and (
+            self.order_id is not None or self.ticket_id is not None
+        ):
+            raise ValueError("latest_order cannot include an identifier")
+        if self.type == "explicit_order" and self.ticket_id is not None:
+            raise ValueError("explicit_order cannot include ticket_id")
+        if self.type == "explicit_ticket" and self.order_id is not None:
+            raise ValueError("explicit_ticket cannot include order_id")
+        return self
+
+
+class SemanticDecision(BaseModel):
+    """Provider-facing semantic proposal for the semantic_decision_v2 contract."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Intent
+    request_type: AgentRequestType = AgentRequestType.UNCLEAR
+    target: SemanticTarget | None = None
+    reason: str = Field(default="", max_length=300)
+    category: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=5000)
+    priority: str | None = Field(default=None, max_length=20)
+    summary: str | None = Field(default=None, max_length=5000)
+    clarification_required: bool = False
+    requires_retrieval: bool = False
+    knowledge_query: str | None = Field(default=None, max_length=500)
+    memory_candidate: MemoryCandidate | None = None
+    memory_key: str | None = Field(default=None, max_length=64)
 
 
 class AgentErrorCategory(StrEnum):

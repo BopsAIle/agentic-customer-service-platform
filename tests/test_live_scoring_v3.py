@@ -199,6 +199,17 @@ def test_rescore_v3_has_explicit_legacy_metric() -> None:
     assert report.metadata["prompt_hash"] == PROMPT_HASH
 
 
+def test_rescore_v3_rejects_semantic_decision_contract() -> None:
+    source = Path("artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json")
+    raw = json.loads(source.read_text(encoding="utf-8"))
+    raw["metadata"]["decision_contract_version"] = "semantic_decision_v2"
+    with pytest.raises(ValueError, match="supports only direct_tool_v1"):
+        rescore_attempts(
+            [LiveAttempt.model_validate(item) for item in raw["attempts"]],
+            metadata=raw["metadata"],
+        )
+
+
 def test_consistency_reports_eligible_and_ineligible_cases() -> None:
     source = Path("artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json")
     raw = json.loads(source.read_text(encoding="utf-8"))

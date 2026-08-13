@@ -5,17 +5,29 @@ import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from app.agent.llm.base import StructuredDecisionProvider
-from app.agent.schemas import StructuredDecision
+from app.agent.llm.base import DecisionProposalProvider
+from app.agent.schemas import SemanticDecision, StructuredDecision
 from app.agent.state import ConversationMessage
 from app.core.config import Settings
 
 _PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "system.txt"
+_SEMANTIC_PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "system_semantic_decision_v2.txt"
 
 
-class OpenAICompatibleProvider(StructuredDecisionProvider):
+class OpenAICompatibleProvider(DecisionProposalProvider):
     def __init__(self, settings: Settings) -> None:
-        self._system_prompt = _PROMPT_PATH.read_text(encoding="utf-8")
+        self.decision_contract_version = settings.agent_decision_contract_version
+        self._decision_schema = (
+            SemanticDecision
+            if self.decision_contract_version == "semantic_decision_v2"
+            else StructuredDecision
+        )
+        prompt_path = (
+            _SEMANTIC_PROMPT_PATH
+            if self.decision_contract_version == "semantic_decision_v2"
+            else _PROMPT_PATH
+        )
+        self._system_prompt = prompt_path.read_text(encoding="utf-8")
         model_kwargs: dict[str, object] = {
             "model": settings.llm_model,
             "base_url": settings.llm_base_url,
@@ -36,11 +48,11 @@ class OpenAICompatibleProvider(StructuredDecisionProvider):
             # The decision schema is the only synthetic tool exposed to the model. It is
             # transport-only; business tools remain selected and authorized by the control plane.
             self._model = model.with_structured_output(
-                StructuredDecision,
+                self._decision_schema,
                 method="function_calling",
             )
         else:
-            self._model = model.with_structured_output(StructuredDecision)
+            self._model = model.with_structured_output(self._decision_schema)
 
     def decide(
         self,
@@ -48,11 +60,12 @@ class OpenAICompatibleProvider(StructuredDecisionProvider):
         messages: Sequence[ConversationMessage],
         customer_id: int,
         memory_context: Sequence[dict[str, object]] | None = None,
-    ) -> StructuredDecision:
+    ) -> SemanticDecision | StructuredDecision:
         prompt_messages: list[BaseMessage] = [SystemMessage(content=self._system_prompt)]
-        prompt_messages.append(
-            SystemMessage(content=f"The authenticated customer_id is {customer_id}.")
-        )
+        if self.decision_contract_version == "direct_tool_v1":
+            prompt_messages.append(
+                SystemMessage(content=f"The authenticated customer_id is {customer_id}.")
+            )
         if memory_context:
             memory_lines = [
                 f"- {item.get('normalized_key')}: {item.get('content')}"
@@ -70,4 +83,4 @@ class OpenAICompatibleProvider(StructuredDecisionProvider):
             message_type = HumanMessage if message["role"] == "user" else AIMessage
             prompt_messages.append(message_type(content=message["content"]))
         result = self._model.invoke(prompt_messages)
-        return StructuredDecision.model_validate(result)
+        return self._decision_schema.model_validate(result)

@@ -16,6 +16,7 @@ from pydantic import ValidationError
 from sqlalchemy import select
 
 from app.agent.errors import RuntimeFailureSource, classify_runtime_error
+from app.agent.llm.base import DecisionProposal, DecisionProposalProvider
 from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import StructuredDecision
@@ -38,7 +39,7 @@ from evaluation.live_scoring import (
     compare_reports,
     write_report,
 )
-from evaluation.provenance import build_provenance
+from evaluation.provenance import build_provenance, prompt_path_for_contract
 
 _PROMPT_PATH = Path(__file__).parents[1] / "app" / "agent" / "prompts" / "system.txt"
 
@@ -63,7 +64,7 @@ class EmptyRetriever:
 class CapturingProvider:
     def __init__(self, provider: OpenAICompatibleProvider) -> None:
         self.provider = provider
-        self.decisions: list[StructuredDecision] = []
+        self.decisions: list[DecisionProposal] = []
 
     def decide(
         self,
@@ -71,7 +72,7 @@ class CapturingProvider:
         messages: Sequence[ConversationMessage],
         customer_id: int,
         memory_context: Sequence[dict[str, object]] | None = None,
-    ) -> StructuredDecision:
+    ) -> DecisionProposal:
         decision = self.provider.decide(
             messages=messages,
             customer_id=customer_id,
@@ -91,6 +92,7 @@ def _local_settings(args: argparse.Namespace) -> Settings:
         llm_temperature=args.temperature,
         llm_reasoning_effort=args.reasoning_effort,
         llm_structured_output_mode=args.structured_output_mode,
+        agent_decision_contract_version=args.decision_contract_version,
         llm_connect_timeout_seconds=args.connect_timeout,
         llm_timeout_seconds=args.timeout,
         checkpoint_backend="memory",
@@ -114,8 +116,9 @@ def _base_url_classification(base_url: str) -> str:
     )
 
 
-def _prompt_metadata() -> dict[str, object]:
-    prompt_bytes = _PROMPT_PATH.read_bytes()
+def _prompt_metadata(contract_version: str = "direct_tool_v1") -> dict[str, object]:
+    prompt_path = prompt_path_for_contract(contract_version)
+    prompt_bytes = prompt_path.read_bytes()
     try:
         source_revision = subprocess.run(
             ["git", "rev-parse", "HEAD"],
@@ -126,7 +129,7 @@ def _prompt_metadata() -> dict[str, object]:
     except (OSError, subprocess.CalledProcessError):
         source_revision = "unknown"
     return {
-        "prompt_version": _PROMPT_PATH.name,
+        "prompt_version": prompt_path.name,
         "prompt_hash": hashlib.sha256(prompt_bytes).hexdigest(),
         "source_revision": source_revision,
     }
@@ -154,7 +157,7 @@ def _preflight(args: argparse.Namespace) -> None:
         )
 
 
-def _warmup(provider: OpenAICompatibleProvider, customer_id: int) -> None:
+def _warmup(provider: DecisionProposalProvider, customer_id: int) -> None:
     provider.decide(
         messages=[
             {
@@ -193,10 +196,13 @@ def _decision_attempts(
             failure_category: str | None = None
             error_type: str | None = None
             try:
-                decision = provider.decide(
+                proposal = provider.decide(
                     messages=[{"role": "user", "content": case.rendered_input()}],
                     customer_id=case.customer_id,
                 )
+                if not isinstance(proposal, StructuredDecision):
+                    raise ValueError("live direct-tool evaluation received a semantic decision")
+                decision = proposal
             except ValidationError as error:
                 malformed = True
                 failure_category = "llm_malformed_output"
@@ -411,6 +417,12 @@ def _parser() -> argparse.ArgumentParser:
         default="schema",
         help="Structured transport configured for the decision provider.",
     )
+    parser.add_argument(
+        "--decision-contract-version",
+        choices=["direct_tool_v1", "semantic_decision_v2"],
+        default="direct_tool_v1",
+        help="Structured decision contract selected for the run.",
+    )
     return parser
 
 
@@ -438,6 +450,7 @@ def _run(args: argparse.Namespace) -> int:
         "temperature": args.temperature,
         "reasoning_effort": args.reasoning_effort,
         "structured_output_mode": args.structured_output_mode,
+        "decision_contract_version": args.decision_contract_version,
         "timeout_seconds": args.timeout,
         "warmup_performed": True,
         "usage_available": False,
@@ -458,7 +471,7 @@ def _run(args: argparse.Namespace) -> int:
             if args.reasoning_effort is None
             else "explicit_reasoning_effort"
         ),
-        **_prompt_metadata(),
+        **_prompt_metadata(args.decision_contract_version),
     }
     metadata["provenance"] = build_provenance(
         args=args,
@@ -469,6 +482,7 @@ def _run(args: argparse.Namespace) -> int:
         runs_per_case=args.runs_per_case,
         unique_cases=len(cases),
         total_attempts=len(attempts),
+        decision_contract_version=args.decision_contract_version,
     )
     report = build_report(attempts, metadata=metadata, safety=safety)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())

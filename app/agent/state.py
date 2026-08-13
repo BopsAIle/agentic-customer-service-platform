@@ -1,10 +1,12 @@
 import operator
 from typing import Annotated, Literal, TypedDict
 
+from app.agent.decision_compiler import CompiledDecision
 from app.agent.schemas import (
     AgentErrorCategory,
     AgentRequestType,
     Intent,
+    SemanticDecision,
 )
 from app.core.context import ExecutionContext
 from app.memory.schemas import MemoryCandidate
@@ -25,6 +27,8 @@ class AgentState(TypedDict, total=False):
     messages: Annotated[list[ConversationMessage], operator.add]
     intent: Intent
     request_type: AgentRequestType
+    semantic_decision: SemanticDecision | None
+    compile_result: CompiledDecision | None
     selected_tool: str | None
     tool_arguments: dict[str, object]
     tool_result: dict[str, object] | None

@@ -1,7 +1,12 @@
 from collections.abc import Callable
 
-from app.agent.llm.base import StructuredDecisionProvider
-from app.agent.schemas import AgentErrorCategory, AgentRequestType, Intent
+from app.agent.llm.base import DecisionProposalProvider
+from app.agent.schemas import (
+    AgentErrorCategory,
+    AgentRequestType,
+    Intent,
+    SemanticDecision,
+)
 from app.agent.state import AgentState
 from app.memory.extraction import extract_memory_request
 from app.observability.tracing import span
@@ -11,8 +16,9 @@ from app.resilience.retry import run_with_retry
 
 
 def make_understand_request_node(
-    provider: StructuredDecisionProvider,
+    provider: DecisionProposalProvider,
     resilience_config: ResilienceConfig | None = None,
+    decision_contract_version: str = "direct_tool_v1",
 ) -> Callable[[AgentState], AgentState]:
     def understand_request(state: AgentState) -> AgentState:
         context = state["execution_context"]
@@ -56,6 +62,23 @@ def make_understand_request_node(
                     "recovery_action": "clarify",
                 }
             llm_span.set_attribute("llm.status", "ok")
+        expected_semantic = decision_contract_version == "semantic_decision_v2"
+        if expected_semantic != isinstance(decision, SemanticDecision):
+            llm_span.set_attribute("llm.status", "error")
+            return {
+                "intent": Intent.UNKNOWN,
+                "request_type": AgentRequestType.UNCLEAR,
+                "last_error": "The provider returned the wrong decision contract.",
+                "error_category": AgentErrorCategory.LLM_ERROR,
+                "failure_category": "llm_contract_mismatch",
+                "recovery_action": "clarify",
+            }
+        if isinstance(decision, SemanticDecision):
+            return {
+                "semantic_decision": decision,
+                "last_error": None,
+                "error_category": None,
+            }
         extracted_candidate, extracted_key = extract_memory_request(_latest_user_message(state))
         return {
             "intent": decision.intent,

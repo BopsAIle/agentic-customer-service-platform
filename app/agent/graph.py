@@ -6,8 +6,9 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.orm import Session
 
-from app.agent.llm.base import StructuredDecisionProvider
+from app.agent.llm.base import DecisionProposalProvider
 from app.agent.nodes.check_pending import make_check_pending_node
+from app.agent.nodes.compile_decision import make_compile_decision_node
 from app.agent.nodes.confirmed import make_confirmed_execution_node
 from app.agent.nodes.create_pending import make_create_pending_node
 from app.agent.nodes.evaluate_policy import make_evaluate_policy_node
@@ -144,6 +145,8 @@ def _load_context(state: AgentState) -> AgentState:
         "error_category": None,
         "selected_tool": None,
         "tool_arguments": {},
+        "semantic_decision": None,
+        "compile_result": None,
         "tool_result": None,
         "retrieved_chunks": [],
         "retrieval_metadata": {},
@@ -256,7 +259,7 @@ def _instrument_tool_node(
 
 
 def build_graph(
-    provider: StructuredDecisionProvider,
+    provider: DecisionProposalProvider,
     session: Session,
     checkpointer: BaseCheckpointSaver[str],
     *,
@@ -268,6 +271,7 @@ def build_graph(
     grounded_generator: GroundedAnswerGenerator,
     memory_service: MemoryService,
     resilience_config: ResilienceConfig,
+    decision_contract_version: str = "direct_tool_v1",
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("load_context", cast(Any, _instrument_node("load_context", _load_context)))
@@ -296,12 +300,19 @@ def build_graph(
         cast(
             Any,
             _instrument_node(
-                "understand_request", make_understand_request_node(provider, resilience_config)
+                "understand_request",
+                make_understand_request_node(
+                    provider, resilience_config, decision_contract_version
+                ),
             ),
         ),
     )
     graph.add_node(
         "select_tool_or_response", cast(Any, _instrument_node("route_request", select_tool))
+    )
+    graph.add_node(
+        "compile_decision",
+        cast(Any, _instrument_node("compile_decision", make_compile_decision_node(session))),
     )
     graph.add_node(
         "memory_action",
@@ -393,7 +404,8 @@ def build_graph(
             "respond": "respond",
         },
     )
-    graph.add_edge("understand_request", "select_tool_or_response")
+    graph.add_edge("understand_request", "compile_decision")
+    graph.add_edge("compile_decision", "select_tool_or_response")
     graph.add_conditional_edges(
         "select_tool_or_response",
         _after_selection,

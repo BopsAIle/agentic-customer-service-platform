@@ -39,6 +39,21 @@ def test_structured_output_mode_defaults_to_schema() -> None:
     assert settings.llm_structured_output_mode == "schema"
 
 
+def test_decision_contract_defaults_to_direct_and_accepts_semantic() -> None:
+    assert Settings(_env_file=None).agent_decision_contract_version == "direct_tool_v1"
+    assert (
+        Settings(
+            _env_file=None, agent_decision_contract_version="semantic_decision_v2"
+        ).agent_decision_contract_version
+        == "semantic_decision_v2"
+    )
+
+
+def test_invalid_decision_contract_fails_settings_validation() -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, agent_decision_contract_version="unknown_contract")
+
+
 def test_function_calling_structured_output_mode_is_accepted() -> None:
     settings = Settings(_env_file=None, llm_structured_output_mode="function_calling")
 

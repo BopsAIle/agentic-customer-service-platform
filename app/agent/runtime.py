@@ -8,13 +8,16 @@ from sqlalchemy.orm import Session
 
 from app.agent.errors import RuntimeFailureSource, classify_runtime_error
 from app.agent.graph import build_graph
-from app.agent.llm.base import StructuredDecisionProvider
-from app.agent.llm.integration import DeterministicIntegrationDecisionProvider
+from app.agent.llm.base import DecisionProposalProvider
+from app.agent.llm.integration import (
+    DeterministicIntegrationDecisionProvider,
+    DeterministicSemanticDecisionProvider,
+)
 from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import AgentRequestType, AgentResponse, AgentToolCall, Intent
 from app.agent.state import AgentState
 from app.auth.models import ActorType, Principal
-from app.core.config import LLMProvider, Settings, get_settings
+from app.core.config import DecisionContractVersion, LLMProvider, Settings, get_settings
 from app.core.context import ExecutionContext
 from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
@@ -48,7 +51,7 @@ logger = logging.getLogger(__name__)
 class AgentRuntime:
     def __init__(
         self,
-        provider: StructuredDecisionProvider | None = None,
+        provider: DecisionProposalProvider | None = None,
         checkpointer: BaseCheckpointSaver[str] | None = None,
         checkpoint_backend: CheckpointBackend = CheckpointBackend.MEMORY,
         policy_engine: PolicyEngine | None = None,
@@ -60,10 +63,16 @@ class AgentRuntime:
         memory_service: MemoryService | None = None,
         resilience_config: ResilienceConfig | None = None,
         projection_repository: AgentRunProjectionRepository | None = None,
+        decision_contract_version: DecisionContractVersion | None = None,
     ) -> None:
         settings = get_settings()
         self.settings = settings
-        self.provider = provider or _build_decision_provider(settings)
+        self.decision_contract_version = decision_contract_version or (
+            settings.agent_decision_contract_version
+        )
+        self.provider = provider or _build_decision_provider(
+            settings, self.decision_contract_version
+        )
         self.checkpointer = checkpointer or MemoryCheckpointProvider().checkpointer
         self.checkpoint_backend = checkpoint_backend
         self.policy_engine = policy_engine or PolicyEngine()
@@ -164,6 +173,7 @@ class AgentRuntime:
                     grounded_generator=self.grounded_generator,
                     memory_service=self.memory_service,
                     resilience_config=self.resilience_config,
+                    decision_contract_version=self.decision_contract_version,
                 )
                 with projection_store.capture(
                     run_id=agent_run_id,
@@ -271,10 +281,18 @@ def _legacy_execution_context(
     )
 
 
-def _build_decision_provider(settings: Settings) -> StructuredDecisionProvider:
-    if settings.llm_provider == LLMProvider.DETERMINISTIC_INTEGRATION:
+def _build_decision_provider(
+    settings: Settings, contract_version: DecisionContractVersion | None = None
+) -> DecisionProposalProvider:
+    selected_contract = contract_version or settings.agent_decision_contract_version
+    selected_settings = settings.model_copy(
+        update={"agent_decision_contract_version": selected_contract}
+    )
+    if selected_settings.llm_provider == LLMProvider.DETERMINISTIC_INTEGRATION:
+        if selected_contract == "semantic_decision_v2":
+            return DeterministicSemanticDecisionProvider()
         return DeterministicIntegrationDecisionProvider()
-    return OpenAICompatibleProvider(settings)
+    return OpenAICompatibleProvider(selected_settings)
 
 
 def _response_from_state(state: AgentState) -> AgentResponse:
