@@ -16,6 +16,7 @@ services:
       APP_ENV: production
       LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: openai_compatible
+      LLM_STRUCTURED_OUTPUT_MODE: ${LLM_STRUCTURED_OUTPUT_MODE:-schema}
       AUTH_MODE: static
       AUTH_TOKENS_JSON: ${PRODUCTION_AUTH_TOKENS_JSON:?PRODUCTION_AUTH_TOKENS_JSON must be set}
       LOCAL_DEMO_AUTH_TOKEN: ""
@@ -37,6 +38,7 @@ services:
       APP_ENV: production
       LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: openai_compatible
+      LLM_STRUCTURED_OUTPUT_MODE: ${LLM_STRUCTURED_OUTPUT_MODE:-schema}
       AUTH_MODE: static
       AUTH_TOKENS_JSON: ${PRODUCTION_AUTH_TOKENS_JSON:?PRODUCTION_AUTH_TOKENS_JSON must be set}
       LOCAL_DEMO_AUTH_TOKEN: ""

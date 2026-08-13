@@ -145,6 +145,66 @@ def test_llm_http_client_has_explicit_connect_and_request_timeouts(
     assert captured["max_retries"] == 0
 
 
+def test_schema_structured_output_mode_preserves_existing_transport(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def with_structured_output(self, schema: object, **kwargs: object) -> object:
+            captured["schema"] = schema
+            captured["structured_output_kwargs"] = kwargs
+            return object()
+
+    monkeypatch.setattr("app.agent.llm.provider.ChatOpenAI", FakeChatOpenAI)
+    OpenAICompatibleProvider(Settings(_env_file=None))
+
+    assert captured["structured_output_kwargs"] == {}
+
+
+def test_function_calling_structured_output_parses_decision_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+    expected: dict[str, object] = {
+        "intent": "order_lookup",
+        "request_type": "read_action",
+        "tool_name": "get_order",
+        "arguments": {"customer_id": 1, "order_id": 3},
+        "reason": "customer asked for an order status",
+    }
+
+    class FakeRunnable:
+        def invoke(self, messages: object) -> dict[str, object]:
+            del messages
+            return expected
+
+    class FakeChatOpenAI:
+        def __init__(self, **kwargs: object) -> None:
+            captured.update(kwargs)
+
+        def with_structured_output(self, schema: object, **kwargs: object) -> FakeRunnable:
+            captured["schema"] = schema
+            captured["structured_output_kwargs"] = kwargs
+            return FakeRunnable()
+
+    monkeypatch.setattr("app.agent.llm.provider.ChatOpenAI", FakeChatOpenAI)
+    provider = OpenAICompatibleProvider(
+        Settings(_env_file=None, llm_structured_output_mode="function_calling")
+    )
+
+    result = provider.decide(
+        messages=[{"role": "user", "content": "Where is order 3?"}],
+        customer_id=1,
+    )
+
+    assert result == StructuredDecision.model_validate(expected)
+    assert captured["structured_output_kwargs"] == {"method": "function_calling"}
+
+
 @pytest.mark.parametrize("effort", ["none", "low", "medium", "high"])
 def test_llm_reasoning_effort_is_forwarded_when_configured(
     monkeypatch: pytest.MonkeyPatch, effort: str

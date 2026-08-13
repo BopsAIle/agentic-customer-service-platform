@@ -33,6 +33,23 @@ def test_deterministic_integration_provider_is_restricted_to_integration_demo() 
         )
 
 
+def test_structured_output_mode_defaults_to_schema() -> None:
+    settings = Settings(_env_file=None)
+
+    assert settings.llm_structured_output_mode == "schema"
+
+
+def test_function_calling_structured_output_mode_is_accepted() -> None:
+    settings = Settings(_env_file=None, llm_structured_output_mode="function_calling")
+
+    assert settings.llm_structured_output_mode == "function_calling"
+
+
+def test_invalid_structured_output_mode_fails_settings_validation() -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, llm_structured_output_mode="json_mode")
+
+
 def test_deterministic_integration_provider_rejects_static_authentication() -> None:
     with pytest.raises(ValidationError, match="AUTH_MODE=local_demo"):
         Settings(

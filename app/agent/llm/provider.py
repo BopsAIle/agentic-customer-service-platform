@@ -31,9 +31,16 @@ class OpenAICompatibleProvider(StructuredDecisionProvider):
         }
         if settings.llm_reasoning_effort is not None:
             model_kwargs["reasoning_effort"] = settings.llm_reasoning_effort
-        self._model = ChatOpenAI(
-            **model_kwargs,
-        ).with_structured_output(StructuredDecision)
+        model = ChatOpenAI(**model_kwargs)
+        if settings.llm_structured_output_mode == "function_calling":
+            # The decision schema is the only synthetic tool exposed to the model. It is
+            # transport-only; business tools remain selected and authorized by the control plane.
+            self._model = model.with_structured_output(
+                StructuredDecision,
+                method="function_calling",
+            )
+        else:
+            self._model = model.with_structured_output(StructuredDecision)
 
     def decide(
         self,

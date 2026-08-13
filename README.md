@@ -394,6 +394,100 @@ Verified deterministic evaluation guarantees:
 - ✓ Duplicate write rate: **0%**
 - ✓ Confirmation compliance: **100%**
 
+## Model Evaluation & Deployment Benchmark
+
+Model selection was evaluated empirically through the same agent runtime and deterministic
+control plane used for deployment. The LLM output is an untrusted proposal: the model produces
+only a structured decision proposal, while the deterministic control plane remains responsible
+for validation, policy enforcement, confirmation requirements, execution safety, and the audit
+lifecycle.
+
+### Evaluation Setup
+
+The benchmark used the same runtime boundaries for every model:
+
+- Case set: `live_eval_v1`
+- Scoring: `live_scoring_v2`
+- 28 bilingual scenarios
+- 14 English / 14 Turkish
+- 3 runs per case
+- 84 attempts per model
+- Same system prompt
+- Same AgentDecision schema
+- Same policy engine
+- Same confirmation workflow
+- Same deterministic execution layer
+- Same safety boundaries
+
+Hosted models used the OpenAI-compatible provider with function-calling structured transport,
+`reasoning_effort=none`, and a 30 second timeout budget. Only a synthetic
+`StructuredDecision` function was exposed to the model. Business mutation tools were never
+directly exposed to the model.
+
+### Results
+
+| Model | Intent | Tool Selection | Clarification | Unsafe Proposal | Mean Latency |
+|---|---:|---:|---:|---:|---:|
+| Qwen2.5 7B (local) | 100.0% | 71.4% | 25.0% | 14.3% | 11.85s |
+| GPT-5.6 Luna | 84.6% | 70.2% | 66.7% | 0.0% | 1.42s |
+| GPT-5.6 Terra | 100.0% | 75.0% | 100.0% | 0.0% | 1.29s |
+| GPT-5.6 Sol | 100.0% | 71.4% | 91.7% | 0.0% | 2.13s |
+
+### Findings
+
+#### Larger models are not automatically better agents
+
+Increasing model size alone did not guarantee better agent behavior.
+
+Qwen3.5 experiments showed:
+
+- Qwen3.5 9B improved some safety-related behaviors but exceeded the fixed latency budget and
+  regressed tool routing.
+- Qwen3.5 4B improved runtime efficiency but significantly reduced tool selection accuracy.
+
+The benchmark demonstrated that model selection requires workload-specific evaluation.
+
+#### Hosted model evaluation
+
+Under the evaluated workload, hosted models significantly improved operational characteristics,
+including clarification behavior, latency, and unsafe proposal behavior.
+
+GPT-5.6 Terra became the preferred candidate under the evaluated workload because it provided the
+strongest balance across tool selection, clarification, argument correctness, safety behavior,
+and latency. This is a workload-specific deployment decision, not a claim that it is universally
+the best model.
+
+### Key Takeaway
+
+Model selection is treated as an engineering decision rather than assuming newer or larger models
+are automatically better.
+
+```text
+Measure
+   ↓
+Identify failure modes
+   ↓
+Benchmark candidates
+   ↓
+Choose deployment model based on workload trade-offs
+```
+
+The control plane remains authoritative regardless of the underlying model:
+
+```text
+LLM proposal
+      ↓
+Typed decision validation
+      ↓
+Policy evaluation
+      ↓
+Confirmation / revalidation
+      ↓
+Idempotent execution
+      ↓
+Audit lifecycle
+```
+
 ## Local Development
 
 ### Requirements
