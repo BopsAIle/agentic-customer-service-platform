@@ -20,6 +20,7 @@ from evaluation.model_compatibility_matrix import (
     HistoricalEvidence,
     LocalModelIdentity,
     ModelCompatibilityCandidate,
+    WarmupStatus,
     _fixed_contract_preflight,
     _local_settings,
     _run_files,
@@ -79,6 +80,14 @@ class MockProvider:
         return OpenAICompatibleProvider(
             _local_settings("qwen2.5:7b-instruct")
         ).structured_schema_metadata()
+
+
+class WarmupFailingProvider(MockProvider):
+    def decide(self, **kwargs: Any) -> SemanticDecisionV3:
+        if self.calls == 0:
+            self.calls += 1
+            SemanticDecisionV3.model_validate(None)
+        return super().decide(**kwargs)
 
 
 def _identity(tag: str = "qwen2.5:7b-instruct") -> LocalModelIdentity:
@@ -352,6 +361,139 @@ def test_call_budget_is_one_warmup_plus_24_and_no_retry(
     assert row.typed_semantic_decision_v3 == 24
     assert row.eligibility is Eligibility.ELIGIBLE
     assert artifact.metadata.retry_count == 0
+    assert artifact.metadata.warmup.status is WarmupStatus.SUCCESS
+    assert artifact.metadata.warmup.failure_category is None
+
+
+def test_warmup_validation_failure_continues_through_all_measured_attempts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "evaluation.model_compatibility_matrix._require_clean_tracked_worktree", lambda: None
+    )
+    provider = WarmupFailingProvider()
+    row, artifact = run_local_candidate(
+        candidate=candidate_manifest()[2],
+        identity=_identity(),
+        diagnostic_id="failed-warmup-valid-measurement",
+        output_root=tmp_path,
+        source_revision="f" * 40,
+        provider_factory=lambda settings: cast(  # noqa: ARG005
+            OpenAICompatibleProvider, provider
+        ),
+    )
+    assert provider.calls == 25
+    assert len(artifact.attempts) == 24
+    assert artifact.status == "COMPLETE"
+    assert row.eligibility is Eligibility.ELIGIBLE
+
+
+def test_warmup_failure_does_not_change_measured_score(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "evaluation.model_compatibility_matrix._require_clean_tracked_worktree", lambda: None
+    )
+    provider = WarmupFailingProvider()
+    row, artifact = run_local_candidate(
+        candidate=candidate_manifest()[2],
+        identity=_identity(),
+        diagnostic_id="warmup-excluded-from-score",
+        output_root=tmp_path,
+        source_revision="f" * 40,
+        provider_factory=lambda settings: cast(  # noqa: ARG005
+            OpenAICompatibleProvider, provider
+        ),
+    )
+    assert artifact.summary["attempts"] == 24
+    assert artifact.summary["typed_decision_success"] == 24
+    assert artifact.summary["validation_failures"] == 0
+    assert row.typed_semantic_decision_v3 == 24
+
+
+def test_warmup_failure_metadata_is_normalized_and_privacy_safe(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "evaluation.model_compatibility_matrix._require_clean_tracked_worktree", lambda: None
+    )
+    provider = WarmupFailingProvider()
+    _, artifact = run_local_candidate(
+        candidate=candidate_manifest()[2],
+        identity=_identity(),
+        diagnostic_id="privacy-safe-warmup",
+        output_root=tmp_path,
+        source_revision="f" * 40,
+        provider_factory=lambda settings: cast(  # noqa: ARG005
+            OpenAICompatibleProvider, provider
+        ),
+    )
+    warmup = artifact.metadata.warmup
+    assert warmup.status is WarmupStatus.FAILED
+    assert warmup.failure_category == "PYDANTIC_CONTRACT_VALIDATION_FAILURE"
+    assert warmup.generation_calls == 1
+    serialized = json.dumps(warmup.model_dump(mode="json"))
+    for prohibited in (
+        "Fix my order",
+        "raw",
+        "prompt",
+        "reasoning",
+        'arguments"',
+        "customer_id",
+        "order_id",
+        "Authorization",
+    ):
+        assert prohibited not in serialized
+
+
+def test_successful_warmup_preserves_complete_artifact_metadata(
+    tmp_path: Path,
+) -> None:
+    artifact = synthetic_run_artifact(candidate_manifest()[2], _identity())
+    destination = publish_run(artifact, tmp_path)
+    attempts = json.loads((destination / "attempts.json").read_text(encoding="utf-8"))
+    summary = json.loads((destination / "summary.json").read_text(encoding="utf-8"))
+    assert attempts["status"] == summary["status"] == "COMPLETE"
+    assert attempts["metadata"]["warmup"] == summary["metadata"]["warmup"]
+    assert attempts["metadata"]["warmup"] == {
+        "status": "SUCCESS",
+        "generation_calls": 1,
+        "failure_category": None,
+        "validation_stage": None,
+        "provider_success": True,
+        "structured_call_present": None,
+        "function_name_present": None,
+        "arguments_present": None,
+        "arguments_decoded": None,
+    }
+
+
+def test_failed_warmup_artifact_status_and_call_accounting_are_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(
+        "evaluation.model_compatibility_matrix._require_clean_tracked_worktree", lambda: None
+    )
+    provider = WarmupFailingProvider()
+    _, artifact = run_local_candidate(
+        candidate=candidate_manifest()[2],
+        identity=_identity(),
+        diagnostic_id="warmup-accounting",
+        output_root=tmp_path,
+        source_revision="f" * 40,
+        provider_factory=lambda settings: cast(  # noqa: ARG005
+            OpenAICompatibleProvider, provider
+        ),
+    )
+    payload = json.loads(
+        (tmp_path / "warmup-accounting" / "attempts.json").read_text(encoding="utf-8")
+    )
+    assert payload["status"] == "COMPLETE"
+    assert payload["metadata"]["warmup_count"] == 1
+    assert payload["metadata"]["warmup"]["status"] == "FAILED"
+    assert len(payload["attempts"]) == 24
+    assert provider.calls == 25
+    assert artifact.metadata.measured_attempts == 24
 
 
 def test_artifact_failure_invalidates_without_rerun_or_complete_result(

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 import httpx
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import SemanticDecisionV3
@@ -115,6 +115,37 @@ class LocalModelIdentity(BaseModel):
     platform_architecture: str | None
 
 
+class WarmupStatus(StrEnum):
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+
+
+class WarmupDiagnostic(BaseModel):
+    """Privacy-safe, unscored outcome of the single warmup generation."""
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    status: WarmupStatus
+    generation_calls: Literal[1] = 1
+    failure_category: str | None = None
+    validation_stage: str | None = None
+    provider_success: bool
+    structured_call_present: bool | None = None
+    function_name_present: bool | None = None
+    arguments_present: bool | None = None
+    arguments_decoded: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_status_shape(self) -> WarmupDiagnostic:
+        if self.status is WarmupStatus.SUCCESS and (
+            self.failure_category is not None or self.validation_stage is not None
+        ):
+            raise ValueError("successful warmup cannot contain failure metadata")
+        if self.status is WarmupStatus.FAILED and self.failure_category is None:
+            raise ValueError("failed warmup requires a normalized failure category")
+        return self
+
+
 class D2aRunMetadata(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -144,6 +175,7 @@ class D2aRunMetadata(BaseModel):
     runs_per_case: int = RUNS_PER_CASE
     measured_attempts: int = MEASURED_ATTEMPTS
     warmup_count: int = 1
+    warmup: WarmupDiagnostic
     selected_case_ids: tuple[str, ...] = DIAGNOSTIC_CASE_IDS
 
     @model_validator(mode="after")
@@ -603,6 +635,7 @@ def _run_metadata(
     identity: LocalModelIdentity,
     source_revision: str,
     provider: OpenAICompatibleProvider,
+    warmup: WarmupDiagnostic,
 ) -> D2aRunMetadata:
     return D2aRunMetadata(
         diagnostic_id=diagnostic_id,
@@ -619,6 +652,7 @@ def _run_metadata(
         prompt_hash=EXPECTED_PROMPT_HASH,
         case_set_hash=EXPECTED_V1_2_HASH,
         targeted_subset_hash=targeted_subset_hash(live_cases_v1_2()),
+        warmup=warmup,
     )
 
 
@@ -636,6 +670,8 @@ def _run_markdown(artifact: D2aRunArtifact) -> str:
             f"- Contract: `{metadata.decision_contract_version}`",
             f"- Dataset: `{metadata.dataset_version}`",
             f"- Targeted subset: `{metadata.targeted_subset_hash}`",
+            f"- Warmup: `{metadata.warmup.status}`",
+            f"- Warmup failure: `{metadata.warmup.failure_category or 'none'}`",
             f"- Typed decisions: `{summary['typed_decision_success']}/24`",
             f"- Eligibility: `{summary['d2a_eligibility']}`",
             "",
@@ -716,10 +752,46 @@ def _cases_v1_2() -> dict[str, LiveEvalCase]:
     return {case.id: case for case in live_cases_v1_2()}
 
 
-def _warmup(provider: CountingProvider, case: LiveEvalCase) -> None:
-    provider.decide(
-        messages=[{"role": "user", "content": case.rendered_input()}],
-        customer_id=case.customer_id,
+def _warmup_failure_category(error: Exception, validation_stage: str | None) -> str:
+    if validation_stage:
+        return validation_stage
+    if isinstance(error, ValidationError):
+        return "PYDANTIC_CONTRACT_VALIDATION_FAILURE"
+    if isinstance(error, (TimeoutError, httpx.TimeoutException)):
+        return "PROVIDER_TIMEOUT"
+    if isinstance(error, httpx.HTTPError):
+        return "PROVIDER_TRANSPORT_FAILURE"
+    return "WARMUP_GENERATION_FAILURE"
+
+
+def _warmup(provider: CountingProvider, case: LiveEvalCase) -> WarmupDiagnostic:
+    try:
+        provider.decide(
+            messages=[{"role": "user", "content": case.rendered_input()}],
+            customer_id=case.customer_id,
+        )
+    except Exception as error:
+        diagnostic = provider.last_validation_diagnostic
+        metadata = provider.last_structured_call_metadata or {}
+        validation_stage = diagnostic.stage.value if diagnostic is not None else None
+        return WarmupDiagnostic(
+            status=WarmupStatus.FAILED,
+            failure_category=_warmup_failure_category(error, validation_stage),
+            validation_stage=validation_stage,
+            provider_success=bool(diagnostic and diagnostic.provider_success),
+            structured_call_present=metadata.get("structured_call_present"),
+            function_name_present=metadata.get("function_name_present"),
+            arguments_present=metadata.get("arguments_present"),
+            arguments_decoded=metadata.get("arguments_decoded"),
+        )
+    metadata = provider.last_structured_call_metadata or {}
+    return WarmupDiagnostic(
+        status=WarmupStatus.SUCCESS,
+        provider_success=True,
+        structured_call_present=metadata.get("structured_call_present"),
+        function_name_present=metadata.get("function_name_present"),
+        arguments_present=metadata.get("arguments_present"),
+        arguments_decoded=metadata.get("arguments_decoded"),
     )
 
 
@@ -742,7 +814,14 @@ def synthetic_run_artifact(
     identity: LocalModelIdentity,
 ) -> D2aRunArtifact:
     provider = OpenAICompatibleProvider(_local_settings(identity.tag))
-    metadata = _run_metadata(candidate, "synthetic-d2a-run", identity, "0" * 40, provider)
+    metadata = _run_metadata(
+        candidate,
+        "synthetic-d2a-run",
+        identity,
+        "0" * 40,
+        provider,
+        WarmupDiagnostic(status=WarmupStatus.SUCCESS, provider_success=True),
+    )
     attempts = [
         DiagnosticAttempt(
             case_id=case_id,
@@ -832,17 +911,22 @@ def run_local_candidate(
     if candidate.provider != "ollama" or identity.tag != candidate.requested_model:
         raise RuntimeError("D2A_MODEL_IDENTITY_MISMATCH")
     provider = provider_factory(_local_settings(identity.tag))
-    metadata = _run_metadata(candidate, diagnostic_id, identity, source_revision, provider)
-    synthetic = synthetic_run_artifact(candidate, identity).model_copy(
-        update={"metadata": metadata.model_copy(update={"diagnostic_id": "preflight"})}
-    )
+    synthetic = synthetic_run_artifact(candidate, identity)
     with tempfile.TemporaryDirectory(prefix="d2a-run-preflight-") as temp:
         publish_run(synthetic, Path(temp))
     budget = GenerationCallBudget(MAX_GENERATION_CALLS)
     counted = CountingProvider(provider, budget)
     cases = _cases_v1_2()
     try:
-        _warmup(counted, cases[DIAGNOSTIC_CASE_IDS[0]])
+        warmup = _warmup(counted, cases[DIAGNOSTIC_CASE_IDS[0]])
+        metadata = _run_metadata(
+            candidate,
+            diagnostic_id,
+            identity,
+            source_revision,
+            provider,
+            warmup,
+        )
         attempts = [
             _run_attempt(
                 counted,
@@ -1087,6 +1171,36 @@ def run_d2a(
     return matrix
 
 
+def run_single_local_candidate(
+    *,
+    candidate_id: str,
+    diagnostic_id: str,
+    diagnostic_root: Path,
+) -> tuple[CompatibilityRow, D2aRunArtifact]:
+    """Run one explicitly selected local candidate without constructing a matrix."""
+
+    _require_clean_tracked_worktree()
+    _fixed_contract_preflight()
+    static_artifact_preflight()
+    candidates = {item.candidate_id: item for item in candidate_manifest()[2:]}
+    candidate = candidates.get(candidate_id)
+    if candidate is None:
+        raise ValueError("D2A_NEW_LOCAL_CANDIDATE_REQUIRED")
+    identity = discover_local_model(candidate.requested_model)
+    if identity is None:
+        raise RuntimeError("D2A_LOCAL_MODEL_UNAVAILABLE")
+    source_revision = subprocess.run(
+        ["git", "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+    ).stdout.strip()
+    return run_local_candidate(
+        candidate=candidate,
+        identity=identity,
+        diagnostic_id=diagnostic_id,
+        output_root=diagnostic_root,
+        source_revision=source_revision,
+    )
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1109,6 +1223,18 @@ def _parser() -> argparse.ArgumentParser:
         default=Path("artifacts/live-eval/structured-output-diagnostics"),
     )
     run.add_argument("--matrix-root", type=Path, default=Path("artifacts/live-eval/model-matrix"))
+    single = subparsers.add_parser("run-candidate")
+    single.add_argument(
+        "--candidate-id",
+        choices=("qwen2_5_7b_instruct", "qwen3_5_9b"),
+        required=True,
+    )
+    single.add_argument("--diagnostic-id", required=True)
+    single.add_argument(
+        "--diagnostic-root",
+        type=Path,
+        default=Path("artifacts/live-eval/structured-output-diagnostics"),
+    )
     return parser
 
 
@@ -1124,6 +1250,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         print(f"targeted_subset_hash_v1_1={v1_1}")
         print(f"targeted_subset_hash_v1_2={v1_2}")
         print("historical_controls=validated")
+        return 0
+    if args.command == "run-candidate":
+        row, artifact = run_single_local_candidate(
+            candidate_id=args.candidate_id,
+            diagnostic_id=args.diagnostic_id,
+            diagnostic_root=args.diagnostic_root,
+        )
+        print(f"diagnostic_id={artifact.metadata.diagnostic_id}")
+        print(f"warmup_status={artifact.metadata.warmup.status}")
+        print(f"typed_success={row.typed_semantic_decision_v3}/24")
+        print(f"eligibility={row.eligibility}")
         return 0
     matrix = run_d2a(
         d2a_id=args.d2a_id,
