@@ -86,6 +86,9 @@ def test_no_tool_call_metadata_is_explicit_and_value_free() -> None:
         "arguments_present": False,
         "arguments_decoded": False,
         "argument_payload_kind": None,
+        "target_variant": None,
+        "target_keys": [],
+        "target_identifier_json_type": None,
     }
 
 
@@ -121,6 +124,28 @@ def test_decoded_arguments_metadata_is_structural_only() -> None:
     assert metadata["arguments_present"] is True
     assert metadata["arguments_decoded"] is True
     assert "private" not in str(metadata)
+
+
+def test_target_metadata_is_bounded_to_schema_shape_and_json_type() -> None:
+    metadata = structured_call_metadata(
+        _Response(
+            [
+                {
+                    "name": "SemanticDecision",
+                    "args": {
+                        "target": {
+                            "type": "explicit_order",
+                            "order_id": "private-order-123",
+                        }
+                    },
+                }
+            ]
+        )
+    )
+    assert metadata["target_variant"] == "explicit_order"
+    assert metadata["target_keys"] == ["order_id", "type"]
+    assert metadata["target_identifier_json_type"] == "string"
+    assert "private-order-123" not in str(metadata)
 
 
 def test_structural_stage_diagnostics_distinguish_call_states() -> None:

@@ -73,6 +73,9 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             "arguments_present": None,
             "arguments_decoded": None,
             "argument_payload_kind": None,
+            "target_variant": None,
+            "target_keys": [],
+            "target_identifier_json_type": None,
         }
         self._contract_schema_hash = canonical_schema_hash(
             self._decision_schema.model_json_schema()
@@ -146,6 +149,9 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             "arguments_present": None,
             "arguments_decoded": None,
             "argument_payload_kind": None,
+            "target_variant": None,
+            "target_keys": [],
+            "target_identifier_json_type": None,
         }
         try:
             steps = getattr(self._model, "steps", None)

@@ -60,6 +60,9 @@ class DiagnosticAttempt(BaseModel):
     arguments_present: bool | None = None
     arguments_decoded: bool | None = None
     typed_model_constructed: bool = False
+    target_variant: str | None = None
+    target_keys: list[str] = Field(default_factory=list)
+    target_identifier_json_type: str | None = None
     validation_stage: str | None = None
     validation_diagnostic: StructuredDecisionValidationDiagnostic | None = None
     error_type: str | None = None
@@ -216,6 +219,9 @@ def _run_attempt(
             "arguments_present": diagnostic.arguments_present,
             "arguments_decoded": diagnostic.arguments_decoded,
             "argument_payload_kind": diagnostic.argument_payload_kind,
+            "target_variant": diagnostic.target_variant,
+            "target_keys": diagnostic.observed_target_keys,
+            "target_identifier_json_type": diagnostic.target_identifier_json_type,
         }
     latency_ms = (time.perf_counter() - started) * 1000
     return DiagnosticAttempt(
@@ -232,6 +238,9 @@ def _run_attempt(
         arguments_present=metadata.get("arguments_present"),
         arguments_decoded=metadata.get("arguments_decoded"),
         typed_model_constructed=typed_success,
+        target_variant=metadata.get("target_variant"),
+        target_keys=metadata.get("target_keys", []),
+        target_identifier_json_type=metadata.get("target_identifier_json_type"),
         validation_stage=diagnostic.stage.value if diagnostic else None,
         validation_diagnostic=diagnostic,
         error_type=error_type,

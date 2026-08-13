@@ -49,6 +49,8 @@ class StructuredDecisionValidationDiagnostic(BaseModel):
     argument_payload_kind: str | None = None
     observed_top_level_keys: list[str] = Field(default_factory=list)
     observed_target_keys: list[str] = Field(default_factory=list)
+    target_variant: str | None = None
+    target_identifier_json_type: str | None = None
 
 
 class StructuredCallMetadata(TypedDict):
@@ -58,6 +60,9 @@ class StructuredCallMetadata(TypedDict):
     arguments_present: bool | None
     arguments_decoded: bool | None
     argument_payload_kind: str | None
+    target_variant: str | None
+    target_keys: list[str]
+    target_identifier_json_type: str | None
 
 
 def _location(value: object) -> str:
@@ -109,6 +114,9 @@ def from_validation_error(
     arguments_present: bool | None = None,
     arguments_decoded: bool | None = None,
     typed_model_constructed: bool = False,
+    target_variant: str | None = None,
+    target_keys: list[str] | None = None,
+    target_identifier_json_type: str | None = None,
 ) -> StructuredDecisionValidationDiagnostic:
     details = error.errors(include_url=False)
     sanitized = [
@@ -137,7 +145,9 @@ def from_validation_error(
         typed_model_constructed=typed_model_constructed,
         argument_payload_kind=argument_payload_kind,
         observed_top_level_keys=top_level,
-        observed_target_keys=target_level,
+        observed_target_keys=target_keys if target_keys is not None else target_level,
+        target_variant=target_variant,
+        target_identifier_json_type=target_identifier_json_type,
     )
 
 
@@ -155,6 +165,9 @@ def from_exception(
     arguments_present: bool | None = None,
     arguments_decoded: bool | None = None,
     typed_model_constructed: bool = False,
+    target_variant: str | None = None,
+    target_keys: list[str] | None = None,
+    target_identifier_json_type: str | None = None,
 ) -> StructuredDecisionValidationDiagnostic:
     error_type = type(error).__name__
     return StructuredDecisionValidationDiagnostic(
@@ -173,6 +186,9 @@ def from_exception(
         arguments_decoded=arguments_decoded,
         typed_model_constructed=typed_model_constructed,
         argument_payload_kind=argument_payload_kind,
+        observed_target_keys=target_keys or [],
+        target_variant=target_variant,
+        target_identifier_json_type=target_identifier_json_type,
     )
 
 
@@ -186,6 +202,25 @@ def structured_call_metadata(response: object) -> StructuredCallMetadata:
     function_name_present = False
     arguments_present = False
     arguments_decoded = False
+    target_variant: str | None = None
+    target_keys: list[str] = []
+    target_identifier_json_type: str | None = None
+
+    def json_type(value: object) -> str:
+        if value is None:
+            return "null"
+        if isinstance(value, bool):
+            return "boolean"
+        if isinstance(value, int):
+            return "integer"
+        if isinstance(value, str):
+            return "string"
+        if isinstance(value, list):
+            return "array"
+        if isinstance(value, dict):
+            return "object"
+        return type(value).__name__
+
     for tool_call in tool_calls:
         if not isinstance(tool_call, Mapping):
             continue
@@ -200,6 +235,21 @@ def structured_call_metadata(response: object) -> StructuredCallMetadata:
             arguments_present = True
         if isinstance(arguments, Mapping):
             arguments_decoded = True
+            target = arguments.get("target")
+            if isinstance(target, Mapping):
+                candidate_variant = target.get("type")
+                if candidate_variant in {"explicit_order", "latest_order", "explicit_ticket"}:
+                    target_variant = str(candidate_variant)
+                target_keys = _mapping_keys(target)
+                identifier_key = (
+                    "order_id"
+                    if "order_id" in target
+                    else "ticket_id"
+                    if "ticket_id" in target
+                    else None
+                )
+                if identifier_key is not None:
+                    target_identifier_json_type = json_type(target.get(identifier_key))
     invalid_tool_calls = getattr(response, "invalid_tool_calls", None)
     if isinstance(invalid_tool_calls, list) and invalid_tool_calls:
         arguments_present = True
@@ -213,6 +263,9 @@ def structured_call_metadata(response: object) -> StructuredCallMetadata:
         "argument_payload_kind": "mapping"
         if arguments_decoded
         else ("present" if arguments_present else None),
+        "target_variant": target_variant,
+        "target_keys": target_keys,
+        "target_identifier_json_type": target_identifier_json_type,
     }
 
 
