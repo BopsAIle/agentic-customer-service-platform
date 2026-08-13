@@ -450,7 +450,12 @@ def _observe_decision(
     admissibility = assess_target_admissibility(decision.intent, decision.target, grounding)
     resolver = _TimedResolver(evaluation_session())
     compiler = DecisionCompiler(resolver)
-    compiled = compiler.compile(decision, _context(case, repetition), grounding=grounding)
+    compiled = compiler.compile(
+        decision,
+        _context(case, repetition),
+        grounding=grounding,
+        user_message="\n".join(turn.text for turn in case.interaction),
+    )
     actual_grounding = _grounding_outcome(grounding.status)
     actual_admissibility = _admissibility_outcome(admissibility)
     actual_compiler = _compiler_outcome(compiled.status, decision.intent)

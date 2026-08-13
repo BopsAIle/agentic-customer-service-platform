@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from enum import StrEnum
 from typing import Final
 
@@ -97,6 +98,16 @@ KNOWLEDGE_INTENTS: Final[frozenset[Intent]] = frozenset(
 KNOWLEDGE_AND_ACTION_INTENTS: Final[frozenset[Intent]] = frozenset(
     {Intent.REFUND_ELIGIBILITY, Intent.CANCELLATION_EXPLANATION}
 )
+KNOWLEDGE_QUERIES: Final[dict[Intent, str]] = {
+    Intent.REFUND_ELIGIBILITY: "refund eligibility policy",
+    Intent.CANCELLATION_EXPLANATION: "cancellation after shipment",
+}
+_TICKET_REQUEST_MARKERS = frozenset(
+    {"ticket", "support", "open", "create", "record", "kayıt", "destek", "aç", "oluştur"}
+)
+_GENERIC_REASON_WORDS = frozenset(
+    {"a", "an", "and", "for", "i", "item", "my", "of", "order", "please", "refund", "the"}
+)
 
 MEMORY_INTENTS: Final[frozenset[Intent]] = frozenset({Intent.MEMORY_REMEMBER, Intent.MEMORY_FORGET})
 
@@ -120,6 +131,7 @@ class DecisionCompiler:
         context: ExecutionContext,
         *,
         grounding: SemanticGrounding | None = None,
+        user_message: str = "",
     ) -> CompiledDecision:
         admissibility = assess_target_admissibility(decision.intent, decision.target, grounding)
         if admissibility in {
@@ -134,7 +146,7 @@ class DecisionCompiler:
         if route is None:
             return self._rejected(decision, "Semantic intent has no compiler route.")
         if route == "action":
-            return self._compile_action(decision, context)
+            return self._compile_action(decision, context, user_message)
         if route == "read":
             return self._compile_read(decision, context)
         if route == "knowledge":
@@ -146,7 +158,7 @@ class DecisionCompiler:
         return self._clarification(decision, "The request needs clarification.")
 
     def _compile_action(
-        self, decision: SemanticDecision, context: ExecutionContext
+        self, decision: SemanticDecision, context: ExecutionContext, user_message: str
     ) -> CompiledDecision:
         tool = ACTION_TOOLS[decision.intent]
         if decision.intent in {Intent.ORDER_CANCEL, Intent.REFUND_REQUEST}:
@@ -159,6 +171,10 @@ class DecisionCompiler:
                 return self._action(decision, context, tool, {"order_id": order_id})
             if not decision.reason:
                 return self._clarification(decision, "A refund reason is required.")
+            if user_message and not self._reason_is_user_supported(decision.reason, user_message):
+                return self._clarification(
+                    decision, "The refund reason must come from the customer request."
+                )
             return self._action(
                 decision, context, tool, {"order_id": order_id, "reason": decision.reason}
             )
@@ -166,6 +182,10 @@ class DecisionCompiler:
             if not decision.category or not decision.description:
                 return self._clarification(
                     decision, "Ticket category and description are required."
+                )
+            if user_message and not self._contains_ticket_request(user_message):
+                return self._clarification(
+                    decision, "The customer must explicitly request a support ticket."
                 )
             order_id = None
             if decision.target is not None:
@@ -274,9 +294,9 @@ class DecisionCompiler:
         if order_id is None:
             return self._clarification(decision, "A specific order is required.")
         if not decision.requires_retrieval or not decision.knowledge_query:
-            return self._clarification(
-                decision, "A policy question is required for the order-specific request."
-            )
+            knowledge_query = KNOWLEDGE_QUERIES[decision.intent]
+        else:
+            knowledge_query = decision.knowledge_query
         return CompiledDecision(
             status=CompileStatus.COMPILED_ACTION,
             intent=decision.intent,
@@ -287,9 +307,20 @@ class DecisionCompiler:
                 "order_id": order_id,
             },
             requires_retrieval=True,
-            knowledge_query=decision.knowledge_query,
+            knowledge_query=knowledge_query,
             reason=decision.reason,
         )
+
+    @staticmethod
+    def _contains_ticket_request(user_message: str) -> bool:
+        words = set(re.findall(r"[\w’]+", user_message.casefold()))
+        return bool(words & _TICKET_REQUEST_MARKERS)
+
+    @staticmethod
+    def _reason_is_user_supported(reason: str, user_message: str) -> bool:
+        reason_words = set(re.findall(r"[\w’]+", reason.casefold())) - _GENERIC_REASON_WORDS
+        message_words = set(re.findall(r"[\w’]+", user_message.casefold()))
+        return bool(reason_words & message_words)
 
     def _compile_memory(self, decision: SemanticDecision) -> CompiledDecision:
         if decision.intent == Intent.MEMORY_REMEMBER and decision.memory_candidate is None:

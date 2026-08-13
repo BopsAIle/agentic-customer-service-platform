@@ -333,6 +333,86 @@ def test_order_specific_knowledge_and_action_compiles_state_plus_policy(
     assert result.knowledge_query == knowledge_query
 
 
+def test_order_specific_knowledge_and_action_derives_missing_retrieval_context(
+    db_session: Session,
+) -> None:
+    for intent in KNOWLEDGE_AND_ACTION_INTENTS:
+        result = compiler(db_session).compile(
+            SemanticDecision(
+                intent=intent,
+                target=SemanticTarget(type="explicit_order", order_id=1),
+            ),
+            context(),
+        )
+        assert result.status == CompileStatus.COMPILED_ACTION
+        assert result.requires_retrieval is True
+        assert result.knowledge_query
+
+
+def test_incomplete_damaged_item_cannot_create_ticket_without_ticket_request(
+    db_session: Session,
+) -> None:
+    result = compiler(db_session).compile(
+        SemanticDecision(
+            intent=Intent.TICKET_CREATE,
+            category="damaged_item",
+            description="arrived damaged",
+        ),
+        context(),
+        user_message="It arrived damaged.",
+    )
+    assert result.status == CompileStatus.CLARIFICATION_REQUIRED
+    assert result.selected_tool is None
+
+
+def test_explicit_damaged_ticket_request_can_compile(
+    db_session: Session,
+) -> None:
+    result = compiler(db_session).compile(
+        SemanticDecision(
+            intent=Intent.TICKET_CREATE,
+            category="damaged_item",
+            description="package arrived damaged",
+        ),
+        context(),
+        user_message="Open a support ticket because my package arrived damaged.",
+    )
+    assert result.status == CompileStatus.COMPILED_ACTION
+    assert result.selected_tool == "create_support_ticket"
+
+
+def test_invented_refund_reason_is_rejected(
+    db_session: Session,
+) -> None:
+    result = compiler(db_session).compile(
+        SemanticDecision(
+            intent=Intent.REFUND_REQUEST,
+            target=SemanticTarget(type="explicit_order", order_id=1),
+            reason="changed my mind",
+        ),
+        context(),
+        user_message="Refund order 1.",
+    )
+    assert result.status == CompileStatus.CLARIFICATION_REQUIRED
+    assert result.selected_tool is None
+
+
+def test_user_supported_refund_reason_can_compile(
+    db_session: Session,
+) -> None:
+    result = compiler(db_session).compile(
+        SemanticDecision(
+            intent=Intent.REFUND_REQUEST,
+            target=SemanticTarget(type="explicit_order", order_id=1),
+            reason="damaged",
+        ),
+        context(),
+        user_message="Refund order 1 because it arrived damaged.",
+    )
+    assert result.status == CompileStatus.COMPILED_ACTION
+    assert result.selected_tool == "request_refund"
+
+
 @pytest.mark.parametrize("intent", sorted(KNOWLEDGE_AND_ACTION_INTENTS, key=str))
 def test_order_specific_knowledge_and_action_fails_closed_when_incomplete(
     db_session: Session, intent: Intent
@@ -346,7 +426,7 @@ def test_order_specific_knowledge_and_action_fails_closed_when_incomplete(
         ),
         context(),
     )
-    missing_query = compiler(db_session).compile(
+    missing_query_context = compiler(db_session).compile(
         SemanticDecision(
             intent=intent,
             request_type=AgentRequestType.KNOWLEDGE_AND_ACTION,
@@ -357,8 +437,9 @@ def test_order_specific_knowledge_and_action_fails_closed_when_incomplete(
 
     assert missing_target.status == CompileStatus.CLARIFICATION_REQUIRED
     assert missing_target.selected_tool is None
-    assert missing_query.status == CompileStatus.CLARIFICATION_REQUIRED
-    assert missing_query.selected_tool is None
+    assert missing_query_context.status == CompileStatus.COMPILED_ACTION
+    assert missing_query_context.selected_tool == "get_order"
+    assert missing_query_context.requires_retrieval is True
 
 
 def test_inconsistent_semantic_target_is_rejected_without_tool(db_session: Session) -> None:

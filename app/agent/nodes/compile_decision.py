@@ -31,6 +31,7 @@ def make_compile_decision_node(
             decision,
             state["execution_context"],
             grounding=grounding,
+            user_message=user_message,
         )
         with span(
             "decision.compile",
