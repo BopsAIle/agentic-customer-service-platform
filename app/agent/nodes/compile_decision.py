@@ -14,7 +14,9 @@ from app.agent.target_admissibility import assess_target_admissibility
 from app.observability.tracing import span
 
 
-def make_compile_decision_node(session: Session) -> Callable[[AgentState], AgentState]:
+def make_compile_decision_node(
+    session: Session, decision_contract_version: str = "semantic_decision_v2"
+) -> Callable[[AgentState], AgentState]:
     compiler = DecisionCompiler(BusinessTargetResolver(session))
 
     def compile_decision(state: AgentState) -> AgentState:
@@ -33,7 +35,7 @@ def make_compile_decision_node(session: Session) -> Callable[[AgentState], Agent
         with span(
             "decision.compile",
             attributes={
-                "decision.contract.version": "semantic_decision_v2",
+                "decision.contract.version": decision_contract_version,
                 "semantic.intent": decision.intent.value,
                 "semantic.grounding.status": grounding.status.value,
                 "semantic.grounding.reference_type": grounding.reference_type or "none",

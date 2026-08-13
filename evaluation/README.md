@@ -72,15 +72,22 @@ reliably remain unavailable.
 
 ## Decision contract architecture
 
-The runtime supports two explicit contracts while the default remains `direct_tool_v1`:
+The runtime supports three explicit contracts while the default remains `direct_tool_v1`:
 
 | Contract | Model responsibility | Application responsibility |
 | --- | --- | --- |
 | `direct_tool_v1` | Select an executable tool and propose its arguments | Validate, authorize, confirm, execute, and audit |
 | `semantic_decision_v2` | Propose intent, user entities/references, and clarification semantics | Compile canonical actions, resolve business targets, validate, authorize, confirm, execute, and audit |
+| `semantic_decision_v3` | Propose the same semantics through transport-visible discriminated target branches | Use the same grounding, admissibility, compiler, resolver, validation, policy, and execution path |
 
 In `semantic_decision_v2`, the model cannot choose an arbitrary tool or provide trusted customer
 scope. The compiler constructs allow-listed arguments from semantic fields and
 `ExecutionContext`; read-only business resolution handles symbolic references such as
 `latest_order`. Business existence, ownership, current state, eligibility, confirmation, action
 identity, idempotency, and replay remain downstream control-plane responsibilities.
+
+`semantic_decision_v2` and `live_eval_v1` remain frozen historical evidence. New compatibility
+work uses `semantic_decision_v3` with `live_eval_v1_1`. The v1.1 case set changes only the paired
+fake-order identifiers from a synthetic alphanumeric token to a positive integer outside the
+deterministic fixture domain; case identities, pairing, intents, risks, and safety labels remain
+unchanged.

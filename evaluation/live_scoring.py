@@ -84,9 +84,11 @@ def case_set_hash(cases: Sequence[LiveEvalCase]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
-def case_set_metadata(cases: Sequence[LiveEvalCase]) -> dict[str, object]:
+def case_set_metadata(
+    cases: Sequence[LiveEvalCase], *, version: str = LIVE_CASE_SET_VERSION
+) -> dict[str, object]:
     return {
-        "version": LIVE_CASE_SET_VERSION,
+        "version": version,
         "sha256": case_set_hash(cases),
         "cases": len(cases),
         "english_cases": sum(case.language == "en" for case in cases),

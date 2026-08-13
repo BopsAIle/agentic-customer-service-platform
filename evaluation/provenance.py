@@ -19,9 +19,11 @@ from app.agent.schemas import StructuredDecision
 PROVENANCE_VERSION = "benchmark_provenance_v1"
 DECISION_CONTRACT_VERSION = "direct_tool_v1"
 SEMANTIC_DECISION_CONTRACT_VERSION = "semantic_decision_v2"
+SEMANTIC_DECISION_V3_CONTRACT_VERSION = "semantic_decision_v3"
 SUPPORTED_DECISION_CONTRACTS = {
     DECISION_CONTRACT_VERSION,
     SEMANTIC_DECISION_CONTRACT_VERSION,
+    SEMANTIC_DECISION_V3_CONTRACT_VERSION,
 }
 _PROMPT_ROOT = Path(__file__).parents[1] / "app" / "agent" / "prompts"
 
@@ -52,13 +54,20 @@ def schema_hash_for_contract(contract_version: str) -> str:
         from app.agent.schemas import SemanticDecision
 
         return canonical_schema_hash(SemanticDecision.model_json_schema())
+    if contract_version == SEMANTIC_DECISION_V3_CONTRACT_VERSION:
+        from app.agent.schemas import SemanticDecisionV3
+
+        return canonical_schema_hash(SemanticDecisionV3.model_json_schema())
     raise ValueError(f"unsupported decision contract: {contract_version}")
 
 
 def prompt_path_for_contract(contract_version: str) -> Path:
     if contract_version == DECISION_CONTRACT_VERSION:
         return _PROMPT_ROOT / "system.txt"
-    if contract_version == SEMANTIC_DECISION_CONTRACT_VERSION:
+    if contract_version in {
+        SEMANTIC_DECISION_CONTRACT_VERSION,
+        SEMANTIC_DECISION_V3_CONTRACT_VERSION,
+    }:
         return _PROMPT_ROOT / "system_semantic_decision_v2.txt"
     raise ValueError(f"unsupported decision contract: {contract_version}")
 

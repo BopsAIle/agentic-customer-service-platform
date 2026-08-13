@@ -1,5 +1,5 @@
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -86,6 +86,76 @@ class SemanticDecision(BaseModel):
     knowledge_query: str | None = Field(default=None, max_length=500)
     memory_candidate: MemoryCandidate | None = None
     memory_key: str | None = Field(default=None, max_length=64)
+
+
+class ExplicitOrderTargetV3(BaseModel):
+    """Complete explicit order reference exposed directly in the transport schema."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["explicit_order"]
+    order_id: int = Field(gt=0)
+
+
+class LatestOrderTargetV3(BaseModel):
+    """Symbolic order reference; concrete resolution remains server-owned."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["latest_order"]
+
+
+class ExplicitTicketTargetV3(BaseModel):
+    """Complete explicit ticket reference exposed directly in the transport schema."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    type: Literal["explicit_ticket"]
+    ticket_id: int = Field(gt=0)
+
+
+SemanticTargetV3 = Annotated[
+    ExplicitOrderTargetV3 | LatestOrderTargetV3 | ExplicitTicketTargetV3,
+    Field(discriminator="type"),
+]
+
+
+class SemanticDecisionV3(BaseModel):
+    """Provider-facing semantic_decision_v3 proposal with transport-visible targets."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: Intent
+    request_type: AgentRequestType = AgentRequestType.UNCLEAR
+    target: SemanticTargetV3 | None = None
+    reason: str = Field(default="", max_length=300)
+    category: str | None = Field(default=None, max_length=100)
+    description: str | None = Field(default=None, max_length=5000)
+    priority: str | None = Field(default=None, max_length=20)
+    summary: str | None = Field(default=None, max_length=5000)
+    clarification_required: bool = False
+    requires_retrieval: bool = False
+    knowledge_query: str | None = Field(default=None, max_length=500)
+    memory_candidate: MemoryCandidate | None = None
+    memory_key: str | None = Field(default=None, max_length=64)
+
+
+def normalize_semantic_decision(
+    decision: SemanticDecision | SemanticDecisionV3,
+) -> SemanticDecision:
+    """Convert a valid semantic contract proposal into the existing internal representation."""
+
+    if isinstance(decision, SemanticDecision):
+        return decision
+    target: SemanticTarget | None = None
+    if isinstance(decision.target, ExplicitOrderTargetV3):
+        target = SemanticTarget(type="explicit_order", order_id=decision.target.order_id)
+    elif isinstance(decision.target, LatestOrderTargetV3):
+        target = SemanticTarget(type="latest_order")
+    elif isinstance(decision.target, ExplicitTicketTargetV3):
+        target = SemanticTarget(type="explicit_ticket", ticket_id=decision.target.ticket_id)
+    payload = decision.model_dump(exclude={"target"})
+    return SemanticDecision.model_validate({**payload, "target": target})
 
 
 class AgentErrorCategory(StrEnum):

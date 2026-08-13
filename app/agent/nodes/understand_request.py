@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from typing import TypeGuard
 
 from app.agent.llm.base import DecisionProposalProvider
 from app.agent.schemas import (
@@ -6,6 +7,9 @@ from app.agent.schemas import (
     AgentRequestType,
     Intent,
     SemanticDecision,
+    SemanticDecisionV3,
+    StructuredDecision,
+    normalize_semantic_decision,
 )
 from app.agent.state import AgentState
 from app.memory.extraction import extract_memory_request
@@ -62,8 +66,7 @@ def make_understand_request_node(
                     "recovery_action": "clarify",
                 }
             llm_span.set_attribute("llm.status", "ok")
-        expected_semantic = decision_contract_version == "semantic_decision_v2"
-        if expected_semantic != isinstance(decision, SemanticDecision):
+        if not _matches_contract(decision, decision_contract_version):
             llm_span.set_attribute("llm.status", "error")
             return {
                 "intent": Intent.UNKNOWN,
@@ -73,9 +76,9 @@ def make_understand_request_node(
                 "failure_category": "llm_contract_mismatch",
                 "recovery_action": "clarify",
             }
-        if isinstance(decision, SemanticDecision):
+        if isinstance(decision, (SemanticDecision, SemanticDecisionV3)):
             return {
-                "semantic_decision": decision,
+                "semantic_decision": normalize_semantic_decision(decision),
                 "last_error": None,
                 "error_category": None,
             }
@@ -95,6 +98,19 @@ def make_understand_request_node(
         }
 
     return understand_request
+
+
+def _matches_contract(
+    decision: StructuredDecision | SemanticDecision | SemanticDecisionV3,
+    contract_version: str,
+) -> TypeGuard[StructuredDecision | SemanticDecision | SemanticDecisionV3]:
+    if contract_version == "direct_tool_v1":
+        return isinstance(decision, StructuredDecision)
+    if contract_version == "semantic_decision_v2":
+        return isinstance(decision, SemanticDecision)
+    if contract_version == "semantic_decision_v3":
+        return isinstance(decision, SemanticDecisionV3)
+    return False
 
 
 def _latest_user_message(state: AgentState) -> str:

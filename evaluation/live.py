@@ -30,7 +30,13 @@ from app.rag.interfaces import RetrievalMetadata, RetrievalResult
 from app.resilience.config import ResilienceConfig
 from app.ui.repository import InMemoryAgentRunProjectionRepository
 from evaluation.fixtures import evaluation_session
-from evaluation.live_cases import LIVE_CASE_SET_VERSION, LiveEvalCase, live_cases
+from evaluation.live_cases import (
+    LIVE_CASE_SET_V1_1_VERSION,
+    LIVE_CASE_SET_VERSION,
+    LiveEvalCase,
+    live_cases,
+    live_cases_v1_1,
+)
 from evaluation.live_scoring import (
     LiveAttempt,
     build_attempt,
@@ -170,7 +176,9 @@ def _warmup(provider: DecisionProposalProvider, customer_id: int) -> None:
 
 
 def _selected_cases(args: argparse.Namespace) -> list[LiveEvalCase]:
-    cases = live_cases()
+    cases = (
+        live_cases_v1_1() if args.case_set_version == LIVE_CASE_SET_V1_1_VERSION else live_cases()
+    )
     if args.case:
         cases = [case for case in cases if case.id == args.case]
     if args.category:
@@ -401,6 +409,11 @@ def _parser() -> argparse.ArgumentParser:
     parser.add_argument("--base-url", default="http://localhost:11434/v1")
     parser.add_argument("--api-key", default=None, help=argparse.SUPPRESS)
     parser.add_argument("--runs-per-case", type=int, default=1)
+    parser.add_argument(
+        "--case-set-version",
+        choices=[LIVE_CASE_SET_VERSION, LIVE_CASE_SET_V1_1_VERSION],
+        default=LIVE_CASE_SET_VERSION,
+    )
     parser.add_argument("--case")
     parser.add_argument("--category")
     parser.add_argument("--language", choices=["en", "tr"])
@@ -423,7 +436,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--decision-contract-version",
-        choices=["direct_tool_v1", "semantic_decision_v2"],
+        choices=["direct_tool_v1", "semantic_decision_v2", "semantic_decision_v3"],
         default="direct_tool_v1",
         help="Structured decision contract selected for the run.",
     )
@@ -440,12 +453,12 @@ def _run(args: argparse.Namespace) -> int:
     print(f"Warmup complete; measured cases={len(cases)} runs_per_case={args.runs_per_case}")
     attempts = _decision_attempts(args, cases) if args.layer in {"decision", "both"} else []
     safety = run_safety(args, cases) if args.layer in {"safety", "both"} else None
-    case_metadata = case_set_metadata(cases)
+    case_metadata = case_set_metadata(cases, version=args.case_set_version)
     metadata = {
         "model": args.model,
         "provider": "openai_compatible",
         "base_url_classification": _base_url_classification(args.base_url),
-        "case_set_version": LIVE_CASE_SET_VERSION,
+        "case_set_version": args.case_set_version,
         "case_set_sha256": case_metadata["sha256"],
         "case_count": case_metadata["cases"],
         "english_cases": case_metadata["english_cases"],
@@ -479,7 +492,7 @@ def _run(args: argparse.Namespace) -> int:
     }
     metadata["provenance"] = build_provenance(
         args=args,
-        case_set_version=LIVE_CASE_SET_VERSION,
+        case_set_version=args.case_set_version,
         case_set_hash=str(case_metadata["sha256"]),
         prompt_hash=str(metadata["prompt_hash"]),
         scoring_version="live_scoring_v2",

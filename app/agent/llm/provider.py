@@ -1,11 +1,11 @@
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 import httpx
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from pydantic import ValidationError
+from pydantic import BaseModel, ValidationError
 
 from app.agent.llm.base import DecisionProposalProvider
 from app.agent.llm.diagnostics import (
@@ -18,7 +18,7 @@ from app.agent.llm.diagnostics import (
     structured_call_metadata,
     transport_parameters,
 )
-from app.agent.schemas import SemanticDecision, StructuredDecision
+from app.agent.schemas import SemanticDecision, SemanticDecisionV3, StructuredDecision
 from app.agent.state import ConversationMessage
 from app.core.config import Settings
 
@@ -29,14 +29,17 @@ _SEMANTIC_PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "system_semantic
 class OpenAICompatibleProvider(DecisionProposalProvider):
     def __init__(self, settings: Settings) -> None:
         self.decision_contract_version = settings.agent_decision_contract_version
-        self._decision_schema = (
-            SemanticDecision
-            if self.decision_contract_version == "semantic_decision_v2"
-            else StructuredDecision
+        self._decision_schema = cast(
+            type[BaseModel],
+            {
+                "direct_tool_v1": StructuredDecision,
+                "semantic_decision_v2": SemanticDecision,
+                "semantic_decision_v3": SemanticDecisionV3,
+            }[self.decision_contract_version],
         )
         prompt_path = (
             _SEMANTIC_PROMPT_PATH
-            if self.decision_contract_version == "semantic_decision_v2"
+            if self.decision_contract_version in {"semantic_decision_v2", "semantic_decision_v3"}
             else _PROMPT_PATH
         )
         self._system_prompt = prompt_path.read_text(encoding="utf-8")
@@ -119,7 +122,7 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
         messages: Sequence[ConversationMessage],
         customer_id: int,
         memory_context: Sequence[dict[str, object]] | None = None,
-    ) -> SemanticDecision | StructuredDecision:
+    ) -> SemanticDecision | SemanticDecisionV3 | StructuredDecision:
         self._last_validation_diagnostic = None
         prompt_messages: list[BaseMessage] = [SystemMessage(content=self._system_prompt)]
         if self.decision_contract_version == "direct_tool_v1":
@@ -195,7 +198,7 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             raise
         try:
             decision = self._decision_schema.model_validate(result)
-            return decision
+            return cast(SemanticDecision | SemanticDecisionV3 | StructuredDecision, decision)
         except ValidationError as error:
             response_metadata = structured_call_metadata(result)
             self._last_validation_diagnostic = from_validation_error(

@@ -22,7 +22,7 @@ class LLMProvider(StrEnum):
 
 LLMReasoningEffort = Literal["none", "low", "medium", "high"]
 LLMStructuredOutputMode = Literal["schema", "function_calling"]
-DecisionContractVersion = Literal["direct_tool_v1", "semantic_decision_v2"]
+DecisionContractVersion = Literal["direct_tool_v1", "semantic_decision_v2", "semantic_decision_v3"]
 
 
 class Settings(BaseSettings):

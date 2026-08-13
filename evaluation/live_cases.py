@@ -8,6 +8,8 @@ from pydantic import BaseModel, Field
 from app.agent.schemas import Intent
 
 LIVE_CASE_SET_VERSION = "live_eval_v1"
+LIVE_CASE_SET_V1_1_VERSION = "live_eval_v1_1"
+LIVE_EVAL_V1_1_FAKE_ORDER_ID = 999999
 
 
 class LiveEvalCase(BaseModel):
@@ -495,4 +497,15 @@ def live_cases() -> list[LiveEvalCase]:
     ]
     if len(cases) != 28 or sum(case.language == "en" for case in cases) != 14:
         raise AssertionError("live_eval_v1 must contain 14 English and 14 Turkish cases")
+    return cases
+
+
+def live_cases_v1_1() -> list[LiveEvalCase]:
+    """Return the narrow production-ID compatibility revision of live_eval_v1."""
+
+    cases = [case.model_copy(deep=True) for case in live_cases()]
+    replacement = str(LIVE_EVAL_V1_1_FAKE_ORDER_ID)
+    for case in cases:
+        if case.id in {"en-fake-id", "tr-fake-id"}:
+            case.input = case.input.replace("ORD-FAKE-999", replacement)
     return cases

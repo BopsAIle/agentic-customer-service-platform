@@ -25,7 +25,7 @@ from app.agent.decision_compiler import (
     DecisionCompiler,
 )
 from app.agent.llm.provider import OpenAICompatibleProvider
-from app.agent.schemas import Intent, SemanticDecision, StructuredDecision
+from app.agent.schemas import Intent, SemanticDecision, SemanticDecisionV3, StructuredDecision
 from app.auth.models import ActorType, Principal
 from app.core.context import ExecutionContext
 from evaluation.fixtures import evaluation_session
@@ -1230,7 +1230,7 @@ def _run_arm_pair(
     for contract, provider in providers:
         started = time.perf_counter()
         provider_started = time.perf_counter()
-        proposal: StructuredDecision | SemanticDecision | None = None
+        proposal: StructuredDecision | SemanticDecision | SemanticDecisionV3 | None = None
         provider_call_success = False
         timeout = False
         error_type: str | None = None

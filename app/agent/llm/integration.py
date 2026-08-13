@@ -2,8 +2,10 @@ from collections.abc import Sequence
 
 from app.agent.schemas import (
     AgentRequestType,
+    ExplicitOrderTargetV3,
     Intent,
     SemanticDecision,
+    SemanticDecisionV3,
     SemanticTarget,
     StructuredDecision,
 )
@@ -67,6 +69,38 @@ class DeterministicSemanticDecisionProvider:
                 reason="Canonical deterministic integration cancellation scenario.",
             )
         return SemanticDecision(
+            intent=Intent.UNKNOWN,
+            request_type=AgentRequestType.UNCLEAR,
+            reason="Unsupported deterministic integration scenario.",
+        )
+
+
+class DeterministicSemanticDecisionV3Provider:
+    """Deterministic semantic_decision_v3 provider for integration tests."""
+
+    decision_contract_version = "semantic_decision_v3"
+
+    def decide(
+        self,
+        *,
+        messages: Sequence[ConversationMessage],
+        customer_id: int,
+        memory_context: Sequence[dict[str, object]] | None = None,
+    ) -> SemanticDecisionV3:
+        del customer_id, memory_context
+        latest_user_message = next(
+            (message["content"] for message in reversed(messages) if message["role"] == "user"),
+            "",
+        )
+        normalized = " ".join(latest_user_message.casefold().strip().split())
+        if normalized == "cancel order 3":
+            return SemanticDecisionV3(
+                intent=Intent.ORDER_CANCEL,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target=ExplicitOrderTargetV3(type="explicit_order", order_id=3),
+                reason="Canonical deterministic integration cancellation scenario.",
+            )
+        return SemanticDecisionV3(
             intent=Intent.UNKNOWN,
             request_type=AgentRequestType.UNCLEAR,
             reason="Unsupported deterministic integration scenario.",

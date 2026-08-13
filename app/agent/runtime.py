@@ -12,6 +12,7 @@ from app.agent.llm.base import DecisionProposalProvider
 from app.agent.llm.integration import (
     DeterministicIntegrationDecisionProvider,
     DeterministicSemanticDecisionProvider,
+    DeterministicSemanticDecisionV3Provider,
 )
 from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import AgentRequestType, AgentResponse, AgentToolCall, Intent
@@ -291,6 +292,8 @@ def _build_decision_provider(
     if selected_settings.llm_provider == LLMProvider.DETERMINISTIC_INTEGRATION:
         if selected_contract == "semantic_decision_v2":
             return DeterministicSemanticDecisionProvider()
+        if selected_contract == "semantic_decision_v3":
+            return DeterministicSemanticDecisionV3Provider()
         return DeterministicIntegrationDecisionProvider()
     return OpenAICompatibleProvider(selected_settings)
 

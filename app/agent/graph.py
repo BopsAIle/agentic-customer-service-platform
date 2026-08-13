@@ -316,7 +316,13 @@ def build_graph(
     )
     graph.add_node(
         "compile_decision",
-        cast(Any, _instrument_node("compile_decision", make_compile_decision_node(session))),
+        cast(
+            Any,
+            _instrument_node(
+                "compile_decision",
+                make_compile_decision_node(session, decision_contract_version),
+            ),
+        ),
     )
     graph.add_node(
         "memory_action",
