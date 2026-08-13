@@ -15,6 +15,7 @@ from app.agent.schemas import (
     SemanticDecision,
     SemanticTarget,
 )
+from app.agent.semantic_grounding import GroundingStatus, SemanticGrounding
 from app.core.context import ExecutionContext
 from app.memory.schemas import MemoryCandidate
 from app.models import Order
@@ -106,7 +107,21 @@ class DecisionCompiler:
     def __init__(self, resolver: BusinessTargetResolver) -> None:
         self.resolver = resolver
 
-    def compile(self, decision: SemanticDecision, context: ExecutionContext) -> CompiledDecision:
+    def compile(
+        self,
+        decision: SemanticDecision,
+        context: ExecutionContext,
+        *,
+        grounding: SemanticGrounding | None = None,
+    ) -> CompiledDecision:
+        if grounding is not None and grounding.status in {
+            GroundingStatus.UNGROUNDED,
+            GroundingStatus.INVALID,
+        }:
+            return self._clarification(
+                decision,
+                "A specific order or ticket identifier from the current request is required.",
+            )
         route = SEMANTIC_INTENT_ROUTES.get(decision.intent)
         if route is None:
             return self._rejected(decision, "Semantic intent has no compiler route.")

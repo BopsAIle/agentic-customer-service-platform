@@ -6,6 +6,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.graph.state import CompiledStateGraph
 from sqlalchemy.orm import Session
 
+from app.agent.decision_compiler import CompileStatus
 from app.agent.llm.base import DecisionProposalProvider
 from app.agent.nodes.check_pending import make_check_pending_node
 from app.agent.nodes.compile_decision import make_compile_decision_node
@@ -56,6 +57,9 @@ def _after_pending(state: AgentState) -> str:
 
 def _after_selection(state: AgentState) -> str:
     if state.get("error_category") is not None:
+        return "respond"
+    compile_result = state.get("compile_result")
+    if compile_result is not None and compile_result.status == CompileStatus.CLARIFICATION_REQUIRED:
         return "respond"
     if state.get("intent") in {Intent.MEMORY_REMEMBER, Intent.MEMORY_FORGET}:
         return "memory_action"

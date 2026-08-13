@@ -8,6 +8,7 @@ from app.agent.decision_compiler import (
     DecisionCompiler,
 )
 from app.agent.schemas import AgentErrorCategory, SemanticDecision
+from app.agent.semantic_grounding import validate_semantic_grounding
 from app.agent.state import AgentState
 from app.observability.tracing import span
 
@@ -20,12 +21,20 @@ def make_compile_decision_node(session: Session) -> Callable[[AgentState], Agent
         if decision is None:
             return {}
         assert isinstance(decision, SemanticDecision)
-        result = compiler.compile(decision, state["execution_context"])
+        user_message = _latest_user_message(state)
+        grounding = validate_semantic_grounding(decision, user_message)
+        result = compiler.compile(
+            decision,
+            state["execution_context"],
+            grounding=grounding,
+        )
         with span(
             "decision.compile",
             attributes={
                 "decision.contract.version": "semantic_decision_v2",
                 "semantic.intent": decision.intent.value,
+                "semantic.grounding.status": grounding.status.value,
+                "semantic.grounding.reference_type": grounding.reference_type or "none",
                 "compiler.status": result.status.value,
                 "compiled.tool": result.selected_tool or "none",
             },
@@ -58,3 +67,10 @@ def make_compile_decision_node(session: Session) -> Callable[[AgentState], Agent
         }
 
     return compile_decision
+
+
+def _latest_user_message(state: AgentState) -> str:
+    for message in reversed(state.get("messages", [])):
+        if message["role"] == "user":
+            return message["content"]
+    return ""
