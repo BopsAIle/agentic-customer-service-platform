@@ -15,7 +15,11 @@ from app.agent.schemas import (
     SemanticDecision,
     SemanticTarget,
 )
-from app.agent.semantic_grounding import GroundingStatus, SemanticGrounding
+from app.agent.semantic_grounding import SemanticGrounding
+from app.agent.target_admissibility import (
+    TargetAdmissibility,
+    assess_target_admissibility,
+)
 from app.core.context import ExecutionContext
 from app.memory.schemas import MemoryCandidate
 from app.models import Order
@@ -114,13 +118,14 @@ class DecisionCompiler:
         *,
         grounding: SemanticGrounding | None = None,
     ) -> CompiledDecision:
-        if grounding is not None and grounding.status in {
-            GroundingStatus.UNGROUNDED,
-            GroundingStatus.INVALID,
+        admissibility = assess_target_admissibility(decision.intent, decision.target, grounding)
+        if admissibility in {
+            TargetAdmissibility.REQUIRES_CLARIFICATION,
+            TargetAdmissibility.INVALID,
         }:
             return self._clarification(
                 decision,
-                "A specific order or ticket identifier from the current request is required.",
+                "The request needs a specific, authorized target.",
             )
         route = SEMANTIC_INTENT_ROUTES.get(decision.intent)
         if route is None:

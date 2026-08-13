@@ -10,6 +10,7 @@ from app.agent.decision_compiler import (
 from app.agent.schemas import AgentErrorCategory, SemanticDecision
 from app.agent.semantic_grounding import validate_semantic_grounding
 from app.agent.state import AgentState
+from app.agent.target_admissibility import assess_target_admissibility
 from app.observability.tracing import span
 
 
@@ -23,6 +24,7 @@ def make_compile_decision_node(session: Session) -> Callable[[AgentState], Agent
         assert isinstance(decision, SemanticDecision)
         user_message = _latest_user_message(state)
         grounding = validate_semantic_grounding(decision, user_message)
+        admissibility = assess_target_admissibility(decision.intent, decision.target, grounding)
         result = compiler.compile(
             decision,
             state["execution_context"],
@@ -35,6 +37,7 @@ def make_compile_decision_node(session: Session) -> Callable[[AgentState], Agent
                 "semantic.intent": decision.intent.value,
                 "semantic.grounding.status": grounding.status.value,
                 "semantic.grounding.reference_type": grounding.reference_type or "none",
+                "semantic.target_admissibility": admissibility.value,
                 "compiler.status": result.status.value,
                 "compiled.tool": result.selected_tool or "none",
             },

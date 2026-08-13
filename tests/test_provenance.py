@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from historical_live_fixture import load_artifact
 
 from app.agent.schemas import StructuredDecision
 from evaluation.provenance import (
@@ -171,7 +172,7 @@ def test_historical_rescore_does_not_use_current_machine_provenance(
     from evaluation.live_scoring_v3 import rescore_file
 
     source = "artifacts/live-eval/qwen3_5_9b_20260812T234047Z.json"
-    raw = json.loads(open(source, encoding="utf-8").read())
+    raw = load_artifact(Path(source), "qwen3.5:9b")
     raw["metadata"].pop("provenance", None)
     frozen = tmp_path / "historical.json"
     frozen.write_text(json.dumps(raw), encoding="utf-8")

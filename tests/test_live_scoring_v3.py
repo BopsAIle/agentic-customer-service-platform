@@ -1,9 +1,9 @@
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
+from historical_live_fixture import load_artifact, write_artifact
 
 from evaluation.live_scoring import LiveAttempt
 from evaluation.live_scoring_v3 import (
@@ -97,7 +97,7 @@ def test_provider_and_schema_failures_are_not_inferred_as_abstention() -> None:
 
 def test_provider_failure_is_excluded_from_routing_denominator() -> None:
     source = Path("artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json")
-    raw = json.loads(source.read_text(encoding="utf-8"))
+    raw = load_artifact(source, "qwen2.5:7b-instruct")
     raw["attempts"][0].update(
         {
             "schema_valid": False,
@@ -159,7 +159,10 @@ def test_rescore_is_offline_and_preserves_source(
 ) -> None:
     source = Path("artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json")
     frozen = tmp_path / source.name
-    frozen.write_bytes(source.read_bytes())
+    if source.exists():
+        frozen.write_bytes(source.read_bytes())
+    else:
+        write_artifact(frozen, "qwen2.5:7b-instruct")
     before = frozen.read_bytes()
     provider_called = False
 
@@ -186,7 +189,7 @@ def test_rescore_is_offline_and_preserves_source(
 
 def test_rescore_v3_has_explicit_legacy_metric() -> None:
     source = Path("artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json")
-    raw = json.loads(source.read_text(encoding="utf-8"))
+    raw = load_artifact(source, "qwen2.5:7b-instruct")
     metadata = raw["metadata"]
     report = rescore_attempts(
         [LiveAttempt.model_validate(item) for item in raw["attempts"]],
@@ -201,7 +204,7 @@ def test_rescore_v3_has_explicit_legacy_metric() -> None:
 
 def test_rescore_v3_rejects_semantic_decision_contract() -> None:
     source = Path("artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json")
-    raw = json.loads(source.read_text(encoding="utf-8"))
+    raw = load_artifact(source, "qwen2.5:7b-instruct")
     raw["metadata"]["decision_contract_version"] = "semantic_decision_v2"
     with pytest.raises(ValueError, match="supports only direct_tool_v1"):
         rescore_attempts(
@@ -212,7 +215,7 @@ def test_rescore_v3_rejects_semantic_decision_contract() -> None:
 
 def test_consistency_reports_eligible_and_ineligible_cases() -> None:
     source = Path("artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json")
-    raw = json.loads(source.read_text(encoding="utf-8"))
+    raw = load_artifact(source, "qwen2.5:7b-instruct")
     attempts = [LiveAttempt.model_validate(item) for item in raw["attempts"]]
     case_attempts = [item for item in attempts if item.case_id == "en-order-latest"]
     case_attempts[-1].schema_valid = False

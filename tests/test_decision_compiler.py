@@ -22,6 +22,7 @@ from app.agent.schemas import (
     SemanticDecision,
     SemanticTarget,
 )
+from app.agent.semantic_grounding import validate_semantic_grounding
 from app.auth.models import ActorType, Principal
 from app.core.config import Settings
 from app.core.context import ExecutionContext
@@ -162,35 +163,28 @@ def test_missing_cancellation_target_requires_clarification_even_if_model_says_n
 def test_latest_order_is_resolved_in_customer_scope_and_means_actual_latest(
     db_session: Session,
 ) -> None:
-    latest = compiler(db_session).compile(
+    resolver = BusinessTargetResolver(db_session)
+    target = SemanticTarget(type="latest_order")
+    assert resolver.resolve_order_id(target, 1) == 4
+    assert resolver.resolve_order_id(target, 2) == 5
+
+    latest_read = compiler(db_session).compile(
         SemanticDecision(
-            intent=Intent.ORDER_CANCEL,
-            target=SemanticTarget(type="latest_order"),
+            intent=Intent.ORDER_LOOKUP,
+            target=target,
         ),
         context(1),
-    )
-    assert latest.tool_arguments == {"customer_id": 1, "order_id": 4}
-
-    cross_customer = compiler(db_session).compile(
-        SemanticDecision(
-            intent=Intent.ORDER_CANCEL,
-            target=SemanticTarget(type="latest_order"),
+        grounding=validate_semantic_grounding(
+            SemanticDecision(intent=Intent.ORDER_LOOKUP, target=target),
+            "Show my latest order.",
         ),
-        context(2),
     )
-    assert cross_customer.tool_arguments == {"customer_id": 2, "order_id": 5}
+    assert latest_read.tool_arguments == {"customer_id": 1, "order_id": 4}
 
     order = db_session.get(Order, 4)
     assert order is not None
     order.status = OrderStatus.SHIPPED
-    older = compiler(db_session).compile(
-        SemanticDecision(
-            intent=Intent.ORDER_CANCEL,
-            target=SemanticTarget(type="latest_order"),
-        ),
-        context(1),
-    )
-    assert older.tool_arguments["order_id"] == 4
+    assert resolver.resolve_order_id(target, 1) == 4
 
 
 def test_fake_explicit_id_is_preserved_for_downstream_validation(db_session: Session) -> None:
