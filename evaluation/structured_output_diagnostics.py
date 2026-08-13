@@ -178,6 +178,9 @@ def _run_attempt(
     provider: Any,
     case: LiveEvalCase,
     run_index: int,
+    *,
+    contract_version: str = CONTRACT_VERSION,
+    expected_decision_type: type[BaseModel] = SemanticDecision,
 ) -> DiagnosticAttempt:
     started = time.perf_counter()
     provider_success = False
@@ -190,11 +193,11 @@ def _run_attempt(
             customer_id=case.customer_id,
         )
         provider_success = True
-        typed_success = isinstance(proposal, SemanticDecision)
+        typed_success = isinstance(proposal, expected_decision_type)
         if not typed_success:
             diagnostic = from_exception(
                 TypeError("unexpected decision contract"),
-                contract_version=CONTRACT_VERSION,
+                contract_version=contract_version,
                 stage=ValidationStage.POST_VALIDATION_FAILURE,
                 validation_layer="contract_dispatch",
                 provider_success=True,
@@ -229,7 +232,7 @@ def _run_attempt(
         language=case.language,
         category=case.category,
         run_index=run_index,
-        contract_version=CONTRACT_VERSION,
+        contract_version=contract_version,
         provider_success=provider_success,
         typed_decision_success=typed_success,
         structured_call_present=metadata.get("structured_call_present"),
