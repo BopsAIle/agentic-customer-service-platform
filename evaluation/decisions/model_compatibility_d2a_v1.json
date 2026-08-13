@@ -1,0 +1,214 @@
+{
+  "decision_id": "model_compatibility_d2a_v1",
+  "status": "ACCEPTED",
+  "decision_date": "2026-08-13",
+  "scope": "semantic_decision_v3 structured-contract compatibility under the frozen D2a protocol",
+  "contract": {
+    "version": "semantic_decision_v3",
+    "schema_hash": "b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b",
+    "function_schema_hash": "49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1",
+    "prompt_hash": "4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0",
+    "structured_output_mode": "function_calling"
+  },
+  "dataset": {
+    "version": "live_eval_v1_2",
+    "hash": "d8a10741dbb90e8a4de3b09098de36c4969c0b72944d253e37c9580279064eb5",
+    "targeted_subset_hash": "850f8adfa6ce890f4a6db1edadb87d9ac2549df4140d8bca5ee88beb12bb521e",
+    "historical_v1_1_subset_hash": "850f8adfa6ce890f4a6db1edadb87d9ac2549df4140d8bca5ee88beb12bb521e",
+    "selected_case_ids": [
+      "en-clarify-order",
+      "en-fake-id",
+      "en-ticket-damaged",
+      "tr-ticket-damaged",
+      "tr-refund-damaged",
+      "tr-cancel-no-id",
+      "tr-cancel-no-confirmation",
+      "tr-prompt-injection"
+    ]
+  },
+  "protocol": {
+    "eligibility_rule_version": "d2a_compatibility_gate_v1",
+    "runs_per_case": 3,
+    "measured_attempts": 24,
+    "warmup_maximum": 1,
+    "warmup_scored": false,
+    "temperature": 0.0,
+    "reasoning_effort": "none",
+    "timeout_seconds": 30.0,
+    "retry_count": 0,
+    "eligible_if": {
+      "provider_success_minimum": 23,
+      "arguments_decoded_minimum": 23,
+      "typed_semantic_decision_v3_minimum": 23,
+      "timeout_maximum": 1,
+      "systematic_transport_or_decode_failure": false,
+      "repeated_fundamental_contract_shape_failure": false,
+      "experiment_valid": true
+    },
+    "review_required_examples": [
+      "typed SemanticDecisionV3 is 21/24 or 22/24 without an ineligibility condition",
+      "one timeout plus another material structured failure",
+      "runtime behavior is near the fixed timeout boundary despite strong typing"
+    ],
+    "ineligible_if": [
+      "typed SemanticDecisionV3 is at most 20/24",
+      "provider success is at most 20/24",
+      "two or more timeouts",
+      "three or more transport failures",
+      "three or more argument-decode failures",
+      "three or more repeated target/root fundamental shape failures"
+    ]
+  },
+  "candidates": [
+    {
+      "candidate": "GPT-5.6 Luna",
+      "model": "gpt-5.6-luna",
+      "runtime": "official OpenAI API",
+      "runtime_version": null,
+      "digest": null,
+      "quantization": null,
+      "hosted_identity_note": "Provider-managed inference; digest and quantization are unavailable.",
+      "diagnostic_id": "structured_output_v3_openai_luna_20260813T163700Z",
+      "evidence_origin": "REUSED_CANONICAL_EVIDENCE",
+      "source_revision": "f9063612ef7577ba981045224d11ba5e64e5df23",
+      "source_dataset_version": "live_eval_v1_1",
+      "warmup_status": "NOT_RECORDED_BY_HISTORICAL_SCHEMA",
+      "provider_success": 24,
+      "structured_calls": 24,
+      "arguments_decoded": 24,
+      "typed_semantic_decision_v3": 24,
+      "validation_failures": 0,
+      "timeouts": 0,
+      "en_typed": 9,
+      "tr_typed": 15,
+      "failure_taxonomy": {
+        "normalized_errors": {},
+        "provider_failures": {}
+      },
+      "eligibility": "D2A_ELIGIBLE",
+      "artifacts": {
+        "attempts.json": "ca29727e949580e2261d707d8e9d7d1b25b9358a921dca6a3fcf34030834e7bd",
+        "summary.json": "28cd194448f9513068e03b435611bd292da257f9b38969e49b8ea4e9b8169b4d",
+        "summary.md": "2e690ed6a63db87d698d27e6f011212cfd7d2fb0e0effceffbc38c1630c94562"
+      }
+    },
+    {
+      "candidate": "Qwen3.5 4B",
+      "model": "qwen3.5:4b",
+      "runtime": "Ollama",
+      "runtime_version": "0.32.6",
+      "digest": "2a654d98e6fba55d452b7043684e9b57a947e393bbffa62485a7aac05ee4eefd",
+      "quantization": "Q4_K_M",
+      "diagnostic_id": "structured_output_v3_qwen3_5_4b_20260813T163044Z",
+      "evidence_origin": "REUSED_CANONICAL_EVIDENCE",
+      "source_revision": "f9063612ef7577ba981045224d11ba5e64e5df23",
+      "source_dataset_version": "live_eval_v1_1",
+      "warmup_status": "NOT_RECORDED_BY_HISTORICAL_SCHEMA",
+      "provider_success": 24,
+      "structured_calls": 24,
+      "arguments_decoded": 24,
+      "typed_semantic_decision_v3": 3,
+      "validation_failures": 21,
+      "timeouts": 0,
+      "en_typed": 3,
+      "tr_typed": 0,
+      "failure_taxonomy": {
+        "normalized_errors": {
+          "model_attributes_type@target": 21
+        },
+        "provider_failures": {}
+      },
+      "eligibility": "D2A_INELIGIBLE",
+      "artifacts": {
+        "attempts.json": "952b0d6684f159a51722cd3c11022acfa0c8a3b9d7555c85288933effbe8a81a",
+        "summary.json": "bc393be492185a402081a2a4a1aeba4371ca5bbfcd1476465088a63655e5b693",
+        "summary.md": "77f6f467584bf88c7b49a31af2a1d98b690fffe08be7c5c89b851e25086543ad"
+      }
+    },
+    {
+      "candidate": "Qwen2.5 7B Instruct",
+      "model": "qwen2.5:7b-instruct",
+      "runtime": "Ollama",
+      "runtime_version": "0.32.6",
+      "digest": "845dbda0ea48ed749caafd9e6037047aa19acfcfd82e704d7ca97d631a0b697e",
+      "quantization": "Q4_K_M",
+      "diagnostic_id": "d2a_qwen2_5_7b_20260813T200426Z",
+      "evidence_origin": "NEW_D2A_RUN",
+      "source_revision": "804fd925fe3800082133676418d9863226b63d5d",
+      "source_dataset_version": "live_eval_v1_2",
+      "warmup_status": "FAILED",
+      "warmup_failure_category": "PYDANTIC_CONTRACT_VALIDATION_FAILURE",
+      "provider_success": 24,
+      "structured_calls": 0,
+      "arguments_decoded": 0,
+      "typed_semantic_decision_v3": 0,
+      "validation_failures": 24,
+      "timeouts": 0,
+      "en_typed": 0,
+      "tr_typed": 0,
+      "failure_taxonomy": {
+        "normalized_errors": {
+          "model_type@<root>": 24
+        },
+        "provider_failures": {}
+      },
+      "eligibility": "D2A_INELIGIBLE",
+      "artifacts": {
+        "attempts.json": "df2972c6e1b69044760fec059a9d25b6eeec39977cd02038b552006e9af435dd",
+        "summary.json": "cd0522089897b61e58445a2eb0b5476a376c93f2e8dc8d8f60dd4a11b2d89d3d",
+        "summary.md": "bd1ea678469be342ac344ec5946954cfa71376fac10aeefd925ea657e77b8dc1"
+      }
+    },
+    {
+      "candidate": "Qwen3.5 9B",
+      "model": "qwen3.5:9b",
+      "runtime": "Ollama",
+      "runtime_version": "0.32.6",
+      "digest": "6488c96fa5faab64bb65cbd30d4289e20e6130ef535a93ef9a49f42eda893ea7",
+      "quantization": "Q4_K_M",
+      "diagnostic_id": "d2a_qwen3_5_9b_20260813T200809Z",
+      "evidence_origin": "NEW_D2A_RUN",
+      "source_revision": "804fd925fe3800082133676418d9863226b63d5d",
+      "source_dataset_version": "live_eval_v1_2",
+      "warmup_status": "FAILED",
+      "warmup_failure_category": "PYDANTIC_CONTRACT_VALIDATION_FAILURE",
+      "provider_success": 21,
+      "structured_calls": 21,
+      "arguments_decoded": 21,
+      "typed_semantic_decision_v3": 0,
+      "validation_failures": 24,
+      "timeouts": 0,
+      "en_typed": 0,
+      "tr_typed": 0,
+      "failure_taxonomy": {
+        "normalized_errors": {
+          "missing@intent": 6,
+          "model_attributes_type@target": 21
+        },
+        "provider_failures": {
+          "InternalServerError": 3
+        }
+      },
+      "eligibility": "D2A_INELIGIBLE",
+      "artifacts": {
+        "attempts.json": "44e1f8c1a9c53593b9f2dda8c0666222b6a3a3cc6895eb021bc8878e7152444a",
+        "summary.json": "9414849e5ef49a582bd4945bed4aaf8c55a044102fab626db53a1d5f4a77596c",
+        "summary.md": "b7e7ca14e2f7890cb6125f95e844172471d79f43bc9f219b697e82fde0443f86"
+      }
+    }
+  ],
+  "decision": {
+    "d2b_eligible_candidates": [
+      "gpt-5.6-luna"
+    ],
+    "d2b_review_candidates": [],
+    "d2b_ineligible_candidates": [
+      "qwen3.5:4b",
+      "qwen2.5:7b-instruct",
+      "qwen3.5:9b"
+    ],
+    "interpretation": "Eligibility is specific to the fixed Ollama/OpenAI API, function_calling, semantic_decision_v3, and 30-second D2a protocol. It is not a general model-quality judgment.",
+    "production_defaults_changed": false,
+    "model_calls_during_freeze": 0
+  }
+}
