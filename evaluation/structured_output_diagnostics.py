@@ -21,7 +21,6 @@ from app.agent.llm.diagnostics import (
     ValidationStage,
     from_exception,
 )
-from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import SemanticDecision
 from evaluation.architecture_ab import _model_metadata
 from evaluation.live import _base_url_classification, _preflight, _provider, _warmup
@@ -173,7 +172,7 @@ def _case_map() -> dict[str, LiveEvalCase]:
 
 
 def _run_attempt(
-    provider: OpenAICompatibleProvider,
+    provider: Any,
     case: LiveEvalCase,
     run_index: int,
 ) -> DiagnosticAttempt:
