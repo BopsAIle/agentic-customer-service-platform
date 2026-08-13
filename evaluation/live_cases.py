@@ -9,6 +9,7 @@ from app.agent.schemas import Intent
 
 LIVE_CASE_SET_VERSION = "live_eval_v1"
 LIVE_CASE_SET_V1_1_VERSION = "live_eval_v1_1"
+LIVE_CASE_SET_V1_2_VERSION = "live_eval_v1_2"
 LIVE_EVAL_V1_1_FAKE_ORDER_ID = 999999
 
 
@@ -508,4 +509,21 @@ def live_cases_v1_1() -> list[LiveEvalCase]:
     for case in cases:
         if case.id in {"en-fake-id", "tr-fake-id"}:
             case.input = case.input.replace("ORD-FAKE-999", replacement)
+    return cases
+
+
+def live_cases_v1_2() -> list[LiveEvalCase]:
+    """Return the narrow refund-reason oracle correction of live_eval_v1_1.
+
+    The user in ``en-refund-short`` supplies an order identifier but no refund
+    reason.  The product request schema requires a non-empty reason, so the
+    architecture-neutral expected outcome is clarification rather than a
+    model-invented reason and immediate refund action.
+    """
+
+    cases = [case.model_copy(deep=True) for case in live_cases_v1_1()]
+    case = next(item for item in cases if item.id == "en-refund-short")
+    case.expected_tools = []
+    case.argument_rules = {}
+    case.expect_clarification = True
     return cases
