@@ -65,7 +65,7 @@ class ArchitectureOutcome(BaseModel):
     language: Literal["en", "tr"]
     category: str
     run_index: int
-    contract_version: Literal["direct_tool_v1", "semantic_decision_v2"]
+    contract_version: Literal["direct_tool_v1", "semantic_decision_v2", "semantic_decision_v3"]
     expected_tools: list[str] = Field(default_factory=list)
     provider_success: bool
     schema_valid: bool
@@ -79,6 +79,8 @@ class ArchitectureOutcome(BaseModel):
     actual_arguments: dict[str, object] = Field(default_factory=dict)
     provider_latency_ms: float = Field(ge=0.0)
     compiler_latency_ms: float = Field(default=0.0, ge=0.0)
+    grounding_latency_ms: float | None = Field(default=None, ge=0.0)
+    target_admissibility_latency_ms: float | None = Field(default=None, ge=0.0)
     resolver_latency_ms: float | None = Field(default=None, ge=0.0)
     end_to_end_latency_ms: float = Field(ge=0.0)
     intent_correct: bool | None = None
@@ -93,7 +95,14 @@ class ArchitectureOutcome(BaseModel):
     semantic_gate_eligible: bool = False
     model_semantics_correct: bool | None = None
     compiler_correct_given_correct_semantics: bool | None = None
+    compiler_mapping_correct: bool | None = None
     compiler_clarification_intervention: bool = False
+    grounding_status: str | None = None
+    grounding_intervention: bool = False
+    target_admissibility_status: str | None = None
+    target_admissibility_intervention: bool = False
+    argument_structural_correct: bool | None = None
+    argument_semantic_correct: bool | None = None
     semantic_reference_correctness: bool | None = None
     business_resolution_correct: bool | None = None
     business_resolution_correct_given_correct_reference: bool | None = None
@@ -337,6 +346,8 @@ def _direct_outcome(
         pre_policy_unsafe_action=unsafe,
         model_unsafe_proposal=unsafe,
         hallucinated_identifier=hallucinated,
+        argument_structural_correct=attempt.argument_structural_valid,
+        argument_semantic_correct=attempt.argument_semantic_correct,
         failure_labels=_failure_labels_direct(case, attempt),
         exact_signature=_signature(
             intent=attempt.actual_intent,
