@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from evaluation.d2b_approval import build_review_approval
 from evaluation.d2b_spec import (
     D2A_DECISION_REVISION,
     D2bExperimentSpec,
@@ -12,6 +14,19 @@ from evaluation.d2b_spec import (
     assert_execution_approved,
     canonical_d2b_spec,
 )
+
+EXPERIMENT_ID = "d2b_semantic_v3_20260813T220000Z"
+SOURCE_REVISION = "a" * 40
+
+
+def _approval() -> D2bReviewApproval:
+    return build_review_approval(
+        approval_record_id="review-record",
+        reviewer_identity="reviewer@example.test",
+        approved_at=datetime(2026, 8, 13, 22, tzinfo=UTC),
+        experiment_id=EXPERIMENT_ID,
+        source_revision=SOURCE_REVISION,
+    )
 
 
 def test_d2b_machine_spec_matches_typed_canonical_spec() -> None:
@@ -57,27 +72,21 @@ def test_d2b_execution_fails_closed_without_matching_review_approval() -> None:
     spec = canonical_d2b_spec()
     with pytest.raises(RuntimeError, match="D2B_REVIEW_APPROVAL_REQUIRED"):
         assert_execution_approved(spec, None)
-    wrong = D2bReviewApproval(
-        status="APPROVED",
-        approval_gate_version="d2b_review_approval_gate_v1",
-        spec_version="d2b_semantic_behavioral_matrix_v1",
-        decision_record_id="model_compatibility_d2a_v1",
-        approval_record_id="review-record",
-    ).model_copy(update={"approval_gate_version": "wrong"})
+    wrong = _approval().model_copy(update={"dataset_hash": "0" * 64})
     with pytest.raises(RuntimeError, match="D2B_REVIEW_APPROVAL_MISMATCH"):
-        assert_execution_approved(spec, wrong)
+        assert_execution_approved(
+            spec, wrong, experiment_id=EXPERIMENT_ID, source_revision=SOURCE_REVISION
+        )
 
 
 def test_d2b_matching_review_approval_only_unlocks_preflight() -> None:
     spec = canonical_d2b_spec()
-    approval = D2bReviewApproval(
-        status="APPROVED",
-        approval_gate_version="d2b_review_approval_gate_v1",
-        spec_version="d2b_semantic_behavioral_matrix_v1",
-        decision_record_id="model_compatibility_d2a_v1",
-        approval_record_id="review-record",
+    approval = _approval()
+    with pytest.raises(RuntimeError, match="D2B_EXECUTION_IDENTITY_REQUIRED"):
+        assert_execution_approved(spec, approval)
+    assert_execution_approved(
+        spec, approval, experiment_id=EXPERIMENT_ID, source_revision=SOURCE_REVISION
     )
-    assert_execution_approved(spec, approval)
 
 
 def test_d2b_spec_has_no_execution_or_artifact_side_effects(tmp_path: Path) -> None:

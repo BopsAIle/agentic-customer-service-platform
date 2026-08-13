@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timedelta
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 D2B_SPEC_VERSION = "d2b_semantic_behavioral_matrix_v1"
 D2B_APPROVAL_GATE_VERSION = "d2b_review_approval_gate_v1"
+D2B_APPROVAL_RECORD_SCHEMA_VERSION = "d2b_review_approval_record_v1"
+D2B_SPEC_ARTIFACT_SHA256 = "6c310564e2ed87762a550e1b9c8bcb0479a96fa678800667cc1417e48ea5d989"
 D2A_DECISION_ID = "model_compatibility_d2a_v1"
 D2A_DECISION_REVISION = "064208c621048fe7cc13c15b202a557c1e6019ac"
 CONTRACT_VERSION = "semantic_decision_v3"
@@ -118,11 +121,53 @@ class D2bExperimentSpec(BaseModel):
 class D2bReviewApproval(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
+    record_schema_version: Literal["d2b_review_approval_record_v1"] = (
+        "d2b_review_approval_record_v1"
+    )
     status: Literal["APPROVED"]
+    reviewer_identity: str = Field(min_length=3, max_length=200)
+    approved_at: AwareDatetime
     approval_gate_version: str
     spec_version: str
+    spec_artifact_sha256: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    experiment_id: str = Field(pattern=r"^d2b_semantic_v3_\d{8}T\d{6}Z$")
+    source_revision: str = Field(min_length=40, max_length=40, pattern=r"^[0-9a-f]{40}$")
     decision_record_id: str
-    approval_record_id: str = Field(min_length=1)
+    decision_record_revision: str = Field(min_length=40, max_length=40, pattern=r"^[0-9a-f]{40}$")
+    dataset_version: str
+    dataset_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    contract_version: str
+    contract_schema_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    function_schema_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    prompt_hash: str = Field(min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
+    eligible_candidates: tuple[D2bCandidate, ...]
+    approval_record_id: str = Field(
+        min_length=3, max_length=120, pattern=r"^[a-zA-Z0-9][a-zA-Z0-9._-]*$"
+    )
+
+    @field_validator("reviewer_identity")
+    @classmethod
+    def validate_reviewer_identity(cls, value: str) -> str:
+        if value.strip() != value or not value.strip():
+            raise ValueError("reviewer identity must be explicit and normalized")
+        return value
+
+    @field_validator("approved_at")
+    @classmethod
+    def validate_approval_timestamp(cls, value: datetime) -> datetime:
+        if value.utcoffset() != timedelta(0):
+            raise ValueError("approval timestamp must use UTC")
+        return value
+
+    @field_validator("eligible_candidates")
+    @classmethod
+    def validate_eligible_candidates(
+        cls, value: tuple[D2bCandidate, ...]
+    ) -> tuple[D2bCandidate, ...]:
+        models = [candidate.model for candidate in value]
+        if not value or len(models) != len(set(models)):
+            raise ValueError("eligible candidate binding must be non-empty and unique")
+        return value
 
 
 def canonical_d2b_spec() -> D2bExperimentSpec:
@@ -303,14 +348,36 @@ def canonical_d2b_spec() -> D2bExperimentSpec:
     )
 
 
-def assert_execution_approved(spec: D2bExperimentSpec, approval: D2bReviewApproval | None) -> None:
+def assert_execution_approved(
+    spec: D2bExperimentSpec,
+    approval: D2bReviewApproval | None,
+    *,
+    experiment_id: str | None = None,
+    source_revision: str | None = None,
+) -> None:
     """Fail closed until a separate review creates an explicit matching approval record."""
 
     if approval is None:
         raise RuntimeError("D2B_REVIEW_APPROVAL_REQUIRED")
-    if (
-        approval.approval_gate_version != spec.approval_gate_version
-        or approval.spec_version != spec.spec_version
-        or approval.decision_record_id != spec.d2a_decision_id
+    if experiment_id is None or source_revision is None:
+        raise RuntimeError("D2B_EXECUTION_IDENTITY_REQUIRED")
+    if any(
+        (
+            approval.record_schema_version != D2B_APPROVAL_RECORD_SCHEMA_VERSION,
+            approval.approval_gate_version != spec.approval_gate_version,
+            approval.spec_version != spec.spec_version,
+            approval.spec_artifact_sha256 != D2B_SPEC_ARTIFACT_SHA256,
+            approval.experiment_id != experiment_id,
+            approval.source_revision != source_revision,
+            approval.decision_record_id != spec.d2a_decision_id,
+            approval.decision_record_revision != spec.d2a_decision_revision,
+            approval.dataset_version != spec.dataset_version,
+            approval.dataset_hash != spec.dataset_hash,
+            approval.contract_version != spec.contract_version,
+            approval.contract_schema_hash != spec.contract_schema_hash,
+            approval.function_schema_hash != spec.function_schema_hash,
+            approval.prompt_hash != spec.prompt_hash,
+            approval.eligible_candidates != spec.eligible_candidates,
+        )
     ):
         raise RuntimeError("D2B_REVIEW_APPROVAL_MISMATCH")
