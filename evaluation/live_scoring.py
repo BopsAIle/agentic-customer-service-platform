@@ -426,6 +426,17 @@ def _format_rate(value: object) -> str:
 def render_markdown(report: LiveReport) -> str:
     summary = report.summary
     metadata = report.metadata
+    provenance = metadata.get("provenance")
+    provenance_data = provenance if isinstance(provenance, dict) else {}
+    contract = provenance_data.get("decision_contract", {})
+    runtime = provenance_data.get("runtime", {})
+    benchmark = provenance_data.get("benchmark", {})
+    structured_output = runtime.get(
+        "structured_output_mode", metadata.get("structured_output_mode", "unknown")
+    )
+    source_revision = benchmark.get("source_revision", metadata.get("source_revision", "unknown"))
+    usage = metadata.get("usage")
+    usage_data = usage if isinstance(usage, dict) else {}
     lines = [
         "# Live Model Evaluation Report",
         "",
@@ -433,7 +444,13 @@ def render_markdown(report: LiveReport) -> str:
         f"- Provider: `{metadata.get('provider', 'unknown')}`",
         f"- Case set: `{metadata.get('case_set_version', LIVE_CASE_SET_VERSION)}`",
         f"- Attempts: {summary.attempts}",
-        "- Cost: local / not applicable",
+        f"- Scoring: `{metadata.get('scoring_version', SCORING_VERSION)}`",
+        f"- Decision contract: `{contract.get('version', 'unknown')}`",
+        f"- Structured output: `{structured_output}`",
+        f"- Transport: `{runtime.get('transport', 'unknown')}`",
+        f"- Timeout: `{metadata.get('timeout_seconds', 'unknown')}s`",
+        f"- Source revision: `{source_revision}`",
+        f"- Cost status: `{usage_data.get('cost_status', 'unknown')}`",
         "",
         "## Decision behavior",
         "",

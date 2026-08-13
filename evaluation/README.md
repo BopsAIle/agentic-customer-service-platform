@@ -46,3 +46,26 @@ python -m evaluation.live rescore \
   --input artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json \
   --scoring-version live_scoring_v3
 ```
+
+## Live benchmark provenance
+
+New live reports include `benchmark_provenance_v1` as a machine-readable `provenance` object.
+It records the model/provider, runtime and transport, the configured structured-output mode,
+reasoning effort, temperature, timeout and retry boundary, privacy-safe hardware metadata,
+the `direct_tool_v1` decision-contract version and schema hash, benchmark identity, source
+revision, and nullable usage/cost fields. Provider, runtime, and transport are separate: an
+OpenAI-compatible transport may serve a local Ollama runtime or a hosted service.
+
+Model name, exact identifier, digest, quantization, and parameter count are recorded only when
+the runtime can provide them; unavailable values remain `null`. Local cost is represented as
+`cost_status: not_applicable`, while hosted cost is `available` only when supplied by existing
+runtime metadata and is never inferred from hard-coded pricing. The provenance collector uses
+an allowlist and does not serialize environment dumps, credentials, prompts, hidden reasoning,
+hostnames, serials, UUIDs, MAC addresses, or IP addresses.
+
+The decision-contract version (`direct_tool_v1`) identifies the executable structured decision
+contract. Its schema hash is a canonical SHA-256 of the sorted, compact JSON schema for
+`StructuredDecision`; it is distinct from the benchmark scoring version. Offline v3 rescoring
+preserves source runtime provenance when present and adds separate derived-scoring metadata.
+Historical artifacts without provenance are not rewritten; fields that cannot be recovered
+reliably remain unavailable.

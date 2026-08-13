@@ -18,6 +18,11 @@ from pydantic import BaseModel
 
 from evaluation.live_cases import live_cases
 from evaluation.live_scoring import LiveAttempt, LiveReport
+from evaluation.provenance import (
+    git_metadata,
+    historical_provenance,
+    validate_provenance,
+)
 
 SCORING_VERSION = "live_scoring_v3"
 DECISION_CONTRACT_VERSION = "direct_tool_v1"
@@ -558,6 +563,11 @@ def rescore_attempts(
         "source_artifact_sha256": source_sha256,
         "source_scoring_version": metadata.get("scoring_version"),
         "rescored_with": SCORING_VERSION,
+        "source_provenance": metadata.get("provenance"),
+        "derived_scoring": {
+            "scorer_version": SCORING_VERSION,
+            "rescored_by_source_revision": git_metadata()["source_revision"],
+        },
         "prompt_hash": metadata.get("prompt_hash", PROMPT_HASH),
         "model_outputs_changed": False,
         "case_set_changed": False,
@@ -571,6 +581,13 @@ def rescore_attempts(
             "routing outcomes."
         ),
     }
+    provenance = metadata.get("provenance")
+    provenance_data: dict[str, Any] = (
+        provenance if isinstance(provenance, dict) else historical_provenance(metadata)
+    )
+    metadata_out["provenance"] = provenance_data
+    metadata_out["source_provenance"] = provenance_data
+    validate_provenance(provenance_data)
     return V3Report(
         metadata=metadata_out,
         attempt_level={
@@ -605,6 +622,9 @@ def rescore_file(source: Path, destination: Path) -> V3Report:
     source_sha = hashlib.sha256(source_bytes).hexdigest()
     raw = json.loads(source_bytes)
     report = LiveReport.model_validate(raw)
+    source_provenance = report.metadata.get("provenance")
+    if isinstance(source_provenance, dict):
+        validate_provenance(source_provenance)
     result = rescore_attempts(
         report.attempts, metadata=report.metadata, source_path=source, source_sha256=source_sha
     )

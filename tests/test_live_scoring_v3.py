@@ -179,6 +179,8 @@ def test_rescore_is_offline_and_preserves_source(
     assert report.metadata["model_outputs_changed"] is False
     assert report.metadata["case_set_changed"] is False
     assert report.metadata["prompt_changed"] is False
+    assert report.metadata["provenance"]["version"] == "benchmark_provenance_v1"
+    assert report.metadata["source_provenance"] == report.metadata["provenance"]
     assert provider_called is False
 
 

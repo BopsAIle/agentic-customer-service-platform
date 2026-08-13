@@ -38,6 +38,7 @@ from evaluation.live_scoring import (
     compare_reports,
     write_report,
 )
+from evaluation.provenance import build_provenance
 
 _PROMPT_PATH = Path(__file__).parents[1] / "app" / "agent" / "prompts" / "system.txt"
 
@@ -89,6 +90,7 @@ def _local_settings(args: argparse.Namespace) -> Settings:
         llm_api_key=args.api_key or "ollama",
         llm_temperature=args.temperature,
         llm_reasoning_effort=args.reasoning_effort,
+        llm_structured_output_mode=args.structured_output_mode,
         llm_connect_timeout_seconds=args.connect_timeout,
         llm_timeout_seconds=args.timeout,
         checkpoint_backend="memory",
@@ -403,6 +405,12 @@ def _parser() -> argparse.ArgumentParser:
         default=None,
         help="Optional OpenAI-compatible reasoning effort override.",
     )
+    parser.add_argument(
+        "--structured-output-mode",
+        choices=["schema", "function_calling"],
+        default="schema",
+        help="Structured transport configured for the decision provider.",
+    )
     return parser
 
 
@@ -429,10 +437,21 @@ def _run(args: argparse.Namespace) -> int:
         "runs_per_case": args.runs_per_case,
         "temperature": args.temperature,
         "reasoning_effort": args.reasoning_effort,
+        "structured_output_mode": args.structured_output_mode,
         "timeout_seconds": args.timeout,
         "warmup_performed": True,
         "usage_available": False,
-        "cost": "local_not_applicable",
+        "usage": {
+            "usage_available": False,
+            "input_tokens": None,
+            "output_tokens": None,
+            "total_tokens": None,
+            "cost": None,
+            "cost_status": "not_applicable"
+            if _base_url_classification(args.base_url) == "local"
+            else "unavailable",
+            "cost_currency": None,
+        },
         "layer": args.layer,
         "thinking_mode": (
             "provider_default_unspecified"
@@ -441,6 +460,16 @@ def _run(args: argparse.Namespace) -> int:
         ),
         **_prompt_metadata(),
     }
+    metadata["provenance"] = build_provenance(
+        args=args,
+        case_set_version=LIVE_CASE_SET_VERSION,
+        case_set_hash=str(case_metadata["sha256"]),
+        prompt_hash=str(metadata["prompt_hash"]),
+        scoring_version="live_scoring_v2",
+        runs_per_case=args.runs_per_case,
+        unique_cases=len(cases),
+        total_attempts=len(attempts),
+    )
     report = build_report(attempts, metadata=metadata, safety=safety)
     stamp = time.strftime("%Y%m%dT%H%M%SZ", time.gmtime())
     model_slug = "".join(char if char.isalnum() else "_" for char in args.model).strip("_")
