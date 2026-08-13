@@ -32,10 +32,13 @@ range, balanced as 90 EN and 90 TR scenarios. The reviewed design allocation is:
 | Multi-turn workflows | 36 | clarification/answer/confirmation, pending-action restart, context carry-over, memory boundaries |
 | Failure recovery | 24 | provider and tool failures, malformed output, existing retry behavior, degraded fallback |
 
-Three repetitions per scenario yield a frozen 540-execution schedule. Multi-turn scenarios may
-require more than one model generation, so this execution count is not an approved API call budget;
-the future D2c runner must derive and review that bound before execution. Failure-recovery cases use
-bounded deterministic fault injection and do not alter production retry or fallback behavior.
+Three repetitions per scenario yield a frozen 540-execution schedule. The dedicated D2c harness
+enforces this as the measured scenario-execution budget, with at most one separate, unscored
+warmup. A scenario presents its frozen synthetic interaction sequence in one structured-decision
+request; deterministic provider-failure fixtures consume a measured execution without making a
+provider request. Therefore the run has a hard upper bound of 541 provider calls and no retries.
+Failure-recovery cases use bounded deterministic fault injection and do not alter production retry
+or fallback behavior.
 
 The frozen identities are:
 
@@ -81,11 +84,10 @@ RAG content, or production data.
 This specification does **not** authorize D2c. Execution remains blocked until all of the following
 exist and pass review:
 
-1. Materialized and hash-frozen `live_eval_v2` (**complete**; generation-call budget remains a
-   runner review item).
+1. Materialized and hash-frozen `live_eval_v2` (**complete**).
 2. Implemented, tested, versioned, and hash-frozen deterministic scorer/oracle (**complete**).
 3. Deterministic schedule and bounded fault-injection manifest (**complete**).
-4. Evaluation-only D2c runner with atomic artifact and privacy tests.
+4. Evaluation-only D2c runner with atomic artifact and privacy tests (**complete**).
 5. Persisted D2c review approval bound to the final spec, dataset, scorer, source revision, model,
    contract hashes, schedule, and call budget.
 
@@ -121,6 +123,7 @@ python -m evaluation.d2c_approval validate \
   --source-revision <40-char-commit>
 ```
 
-The workflow does not itself authorize a missing D2c runner or start execution. No real approval
-record is created by this milestone. No OpenAI or Ollama model call, live-evaluation artifact,
-product behavior change, or production-default change is part of this work.
+The workflow does not itself start execution. Because the runner changes the source revision, any
+future execution requires a new approval bound to that final revision. No real approval record is
+created by this milestone. No OpenAI or Ollama model call, live-evaluation artifact, product
+behavior change, or production-default change is part of this work.
