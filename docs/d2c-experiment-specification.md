@@ -1,9 +1,9 @@
 # M6 / D2c production robustness evaluation specification
 
-- Status: **DESIGN PREPARED — NOT APPROVED FOR EXECUTION**
+- Status: **DATASET AND ORACLE FROZEN — NOT APPROVED FOR EXECUTION**
 - Spec: `d2c_production_robustness_v1`
 - Approval gate: `d2c_review_approval_gate_v1`
-- Dataset design: `live_eval_v2` — not materialized or hash-frozen
+- Dataset: frozen `live_eval_v2`
 - Architecture: frozen `semantic_decision_v3`
 - Model/runtime: `gpt-5.6-luna` through the official OpenAI API
 
@@ -19,9 +19,9 @@ The source evidence is canonical D2b experiment `d2b_semantic_v3_20260813T204022
 structured-output, schema, grounding, target-admissibility, and compiler correctness; resolver
 correctness was 48/48; routing was 75/84; runtime safety violations were zero.
 
-## `live_eval_v2` design
+## Frozen `live_eval_v2`
 
-The proposed dataset contains 180 synthetic scenario definitions, within the approved 150–200
+The dataset contains 180 synthetic scenario definitions, within the approved 150–200
 range, balanced as 90 EN and 90 TR scenarios. The reviewed design allocation is:
 
 | Category | Scenarios | Required coverage |
@@ -32,15 +32,19 @@ range, balanced as 90 EN and 90 TR scenarios. The reviewed design allocation is:
 | Multi-turn workflows | 36 | clarification/answer/confirmation, pending-action restart, context carry-over, memory boundaries |
 | Failure recovery | 24 | provider and tool failures, malformed output, existing retry behavior, degraded fallback |
 
-Three repetitions per scenario are proposed, yielding 540 scenario executions. This is not an
-approved API call budget: multi-turn scenarios may require more than one generation. The exact
-schedule and maximum generation-call budget must be derived from the materialized dataset,
-reviewed, and frozen before execution. Failure-recovery cases must use bounded, deterministic fault
-injection and must not alter production retry or fallback behavior.
+Three repetitions per scenario yield a frozen 540-execution schedule. Multi-turn scenarios may
+require more than one model generation, so this execution count is not an approved API call budget;
+the future D2c runner must derive and review that bound before execution. Failure-recovery cases use
+bounded deterministic fault injection and do not alter production retry or fallback behavior.
 
-The dataset is not created in this milestone. Its messages, oracle, pair structure, risk coverage,
-fixture identities, deterministic fault manifests, and canonical SHA-256 require a separate review
-and freeze. Only synthetic data may be used.
+The frozen identities are:
+
+- Dataset SHA-256: `1a4844e843a49cd01083adc81330398206dde4b6b4c3a4c42b0d4228a8d1556b`
+- Oracle SHA-256: `d0fdae4316283a28bf81be38712bd8cd735b76c995f64ce24678fb409da052b2`
+- Schedule SHA-256: `9b2cd9fa10bd9279dc0d0b3de11aebd383c1cd6e12ab42733a802e281efd26fe`
+- Dataset decision SHA-256: `53debd0907fc1c52708cf2d41f4ee48391c0ce7d815db22b9b5e34508f8b3b58`
+
+Only synthetic data is present. The decision remains `FROZEN_NOT_APPROVED_FOR_EXECUTION`.
 
 ## Frozen request and evaluation boundaries
 
@@ -77,14 +81,46 @@ RAG content, or production data.
 This specification does **not** authorize D2c. Execution remains blocked until all of the following
 exist and pass review:
 
-1. Materialized and hash-frozen `live_eval_v2`, including the exact multi-turn call budget.
-2. Implemented, tested, versioned, and hash-frozen deterministic scorer/oracle.
-3. Deterministic schedule and bounded fault-injection manifest.
+1. Materialized and hash-frozen `live_eval_v2` (**complete**; generation-call budget remains a
+   runner review item).
+2. Implemented, tested, versioned, and hash-frozen deterministic scorer/oracle (**complete**).
+3. Deterministic schedule and bounded fault-injection manifest (**complete**).
 4. Evaluation-only D2c runner with atomic artifact and privacy tests.
 5. Persisted D2c review approval bound to the final spec, dataset, scorer, source revision, model,
    contract hashes, schedule, and call budget.
 
-Missing dataset identity fails closed with `D2C_DATASET_NOT_FROZEN`; a future complete preflight
-must also fail closed with `D2C_REVIEW_APPROVAL_REQUIRED` when approval is absent. No OpenAI or
-Ollama model call, live-evaluation artifact, product behavior change, or production-default change
-is part of this specification milestone.
+### Review approval workflow
+
+`evaluation.d2c_approval` creates and validates a separate immutable approval record. It binds the
+reviewer and UTC timestamp to the experiment and source revision, frozen spec and dataset decision,
+dataset, oracle, schedule, semantic contract, prompt, D2a eligibility decision, and exact Luna/API
+runtime. Canonical JSON is hash-verified, published atomically, and never overwritten.
+
+Creation requires explicit review plus the independently reviewed spec and dataset-decision hashes:
+
+```bash
+python -m evaluation.d2c_approval create \
+  --approval-record-id <record-id> \
+  --reviewer-identity <reviewer> \
+  --approved-at <UTC-ISO-8601> \
+  --experiment-id <d2c-experiment-id> \
+  --source-revision <40-char-commit> \
+  --confirm-spec-sha256 aaaa7f7f42dd23da4aae43340442cea266df1e3ff2a5068ed8ff62e5181e7d6d \
+  --confirm-decision-sha256 53debd0907fc1c52708cf2d41f4ee48391c0ce7d815db22b9b5e34508f8b3b58 \
+  --confirm-reviewed \
+  --output evaluation/approvals/<record-id>.json
+```
+
+Validation requires the external approval SHA-256 and exact execution identity:
+
+```bash
+python -m evaluation.d2c_approval validate \
+  --approval evaluation/approvals/<record-id>.json \
+  --expected-sha256 <approval-sha256> \
+  --experiment-id <d2c-experiment-id> \
+  --source-revision <40-char-commit>
+```
+
+The workflow does not itself authorize a missing D2c runner or start execution. No real approval
+record is created by this milestone. No OpenAI or Ollama model call, live-evaluation artifact,
+product behavior change, or production-default change is part of this work.
