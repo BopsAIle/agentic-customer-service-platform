@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.decision_compiler import (
     ACTION_TOOLS,
+    KNOWLEDGE_AND_ACTION_INTENTS,
     READ_TOOLS,
     SEMANTIC_INTENT_ROUTES,
     BusinessTargetResolver,
@@ -298,6 +299,66 @@ def test_missing_refund_target_and_knowledge_route_are_safe(db_session: Session)
     assert knowledge.status == CompileStatus.NO_ACTION
     assert knowledge.selected_tool is None
     assert knowledge.requires_retrieval is True
+
+
+@pytest.mark.parametrize(
+    ("intent", "knowledge_query"),
+    [
+        (Intent.REFUND_ELIGIBILITY, "refund eligibility policy"),
+        (Intent.CANCELLATION_EXPLANATION, "cancellation after shipment"),
+    ],
+)
+def test_order_specific_knowledge_and_action_compiles_state_plus_policy(
+    db_session: Session,
+    intent: Intent,
+    knowledge_query: str,
+) -> None:
+    result = compiler(db_session).compile(
+        SemanticDecision(
+            intent=intent,
+            request_type=AgentRequestType.KNOWLEDGE_AND_ACTION,
+            target=SemanticTarget(type="explicit_order", order_id=1),
+            requires_retrieval=True,
+            knowledge_query=knowledge_query,
+        ),
+        context(),
+    )
+
+    assert intent in KNOWLEDGE_AND_ACTION_INTENTS
+    assert result.status == CompileStatus.COMPILED_ACTION
+    assert result.request_type == AgentRequestType.KNOWLEDGE_AND_ACTION
+    assert result.selected_tool == "get_order"
+    assert result.tool_arguments == {"customer_id": 1, "order_id": 1}
+    assert result.requires_retrieval is True
+    assert result.knowledge_query == knowledge_query
+
+
+@pytest.mark.parametrize("intent", sorted(KNOWLEDGE_AND_ACTION_INTENTS, key=str))
+def test_order_specific_knowledge_and_action_fails_closed_when_incomplete(
+    db_session: Session, intent: Intent
+) -> None:
+    missing_target = compiler(db_session).compile(
+        SemanticDecision(
+            intent=intent,
+            request_type=AgentRequestType.KNOWLEDGE_AND_ACTION,
+            requires_retrieval=True,
+            knowledge_query="policy question",
+        ),
+        context(),
+    )
+    missing_query = compiler(db_session).compile(
+        SemanticDecision(
+            intent=intent,
+            request_type=AgentRequestType.KNOWLEDGE_AND_ACTION,
+            target=SemanticTarget(type="explicit_order", order_id=1),
+        ),
+        context(),
+    )
+
+    assert missing_target.status == CompileStatus.CLARIFICATION_REQUIRED
+    assert missing_target.selected_tool is None
+    assert missing_query.status == CompileStatus.CLARIFICATION_REQUIRED
+    assert missing_query.selected_tool is None
 
 
 def test_inconsistent_semantic_target_is_rejected_without_tool(db_session: Session) -> None:

@@ -91,9 +91,11 @@ KNOWLEDGE_INTENTS: Final[frozenset[Intent]] = frozenset(
         Intent.CANCELLATION_POLICY,
         Intent.SHIPPING_POLICY,
         Intent.SUPPORT_FAQ,
-        Intent.REFUND_ELIGIBILITY,
-        Intent.CANCELLATION_EXPLANATION,
     }
+)
+
+KNOWLEDGE_AND_ACTION_INTENTS: Final[frozenset[Intent]] = frozenset(
+    {Intent.REFUND_ELIGIBILITY, Intent.CANCELLATION_EXPLANATION}
 )
 
 MEMORY_INTENTS: Final[frozenset[Intent]] = frozenset({Intent.MEMORY_REMEMBER, Intent.MEMORY_FORGET})
@@ -102,6 +104,7 @@ SEMANTIC_INTENT_ROUTES: Final[dict[Intent, str]] = {
     **{intent: "action" for intent in ACTION_TOOLS},
     **{intent: "read" for intent in READ_TOOLS},
     **{intent: "knowledge" for intent in KNOWLEDGE_INTENTS},
+    **{intent: "knowledge_and_action" for intent in KNOWLEDGE_AND_ACTION_INTENTS},
     **{intent: "memory" for intent in MEMORY_INTENTS},
     Intent.UNKNOWN: "clarification",
 }
@@ -136,6 +139,8 @@ class DecisionCompiler:
             return self._compile_read(decision, context)
         if route == "knowledge":
             return self._compile_knowledge(decision)
+        if route == "knowledge_and_action":
+            return self._compile_knowledge_and_action(decision, context)
         if route == "memory":
             return self._compile_memory(decision)
         return self._clarification(decision, "The request needs clarification.")
@@ -254,6 +259,34 @@ class DecisionCompiler:
             intent=decision.intent,
             request_type=decision.request_type,
             requires_retrieval=decision.requires_retrieval,
+            knowledge_query=decision.knowledge_query,
+            reason=decision.reason,
+        )
+
+    def _compile_knowledge_and_action(
+        self, decision: SemanticDecision, context: ExecutionContext
+    ) -> CompiledDecision:
+        if self._wrong_order_target(decision.target):
+            return self._rejected(
+                decision, "Knowledge-and-action request received a ticket target."
+            )
+        order_id = self._order_target(decision.target, context.effective_customer_id)
+        if order_id is None:
+            return self._clarification(decision, "A specific order is required.")
+        if not decision.requires_retrieval or not decision.knowledge_query:
+            return self._clarification(
+                decision, "A policy question is required for the order-specific request."
+            )
+        return CompiledDecision(
+            status=CompileStatus.COMPILED_ACTION,
+            intent=decision.intent,
+            request_type=AgentRequestType.KNOWLEDGE_AND_ACTION,
+            selected_tool="get_order",
+            tool_arguments={
+                "customer_id": context.effective_customer_id,
+                "order_id": order_id,
+            },
+            requires_retrieval=True,
             knowledge_query=decision.knowledge_query,
             reason=decision.reason,
         )
