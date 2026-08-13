@@ -27,3 +27,22 @@ and Qdrant are not required for CI. Runtime RAG hooks are separate and measure r
 citation availability, reranker use, fallback behavior, and latency. The current rule-based
 citation and grounding checks are intentionally conservative and do not claim live-model accuracy
 or replace a semantic judge.
+
+## Live scoring versions
+
+The hosted live benchmark currently uses the `direct_tool_v1` decision contract. Historical reports
+remain reproducible with `live_scoring_v2`. The versioned `live_scoring_v3` scorer re-scores the
+same frozen raw attempts without invoking a model or changing cases, prompts, or model outputs.
+It separates action-tool selection, correct no-tool abstention, and overall routing, and adds
+case-level, paired EN/TR, consistency, failure-cluster, and tool-confusion reporting. Previous
+live results used `live_scoring_v2`, whose legacy tool-selection metric did not represent correct
+no-tool abstention as routing success. Re-scoring changes only the interpretation of the stored
+attempts.
+
+Use the offline rescore path with a new destination under `artifacts/live-eval/rescored/`:
+
+```bash
+python -m evaluation.live rescore \
+  --input artifacts/live-eval/qwen2_5_7b_instruct_20260812T213229Z.json \
+  --scoring-version live_scoring_v3
+```

@@ -458,6 +458,10 @@ def _run(args: argparse.Namespace) -> int:
 
 def main(argv: Sequence[str] | None = None) -> int:
     values = list(sys.argv[1:] if argv is None else argv)
+    if values and values[0] == "rescore":
+        from evaluation.live_scoring_v3 import main as rescore_main
+
+        return rescore_main(values[1:])
     if values and values[0] == "compare":
         if len(values) != 3:
             raise SystemExit(
