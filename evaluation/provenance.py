@@ -149,7 +149,7 @@ def _runtime(
     runtime_version: str | None = None
     if local:
         try:
-            result = runner(["ollama", "version"], check=True, capture_output=True, text=True)
+            result = runner(["ollama", "--version"], check=True, capture_output=True, text=True)
             runtime_version = result.stdout.strip() or result.stderr.strip() or None
         except (OSError, subprocess.CalledProcessError):
             runtime_version = None

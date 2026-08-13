@@ -21,7 +21,7 @@ from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import StructuredDecision
 from app.agent.state import ConversationMessage
-from app.core.config import Settings
+from app.core.config import DecisionContractVersion, Settings
 from app.memory.service import MemoryService
 from app.models import BusinessActionReceipt, Order
 from app.persistence.checkpoint import CheckpointBackend, MemoryCheckpointProvider
@@ -233,6 +233,7 @@ def _decision_attempts(
 
 def _runtime_for(
     provider: CapturingProvider,
+    decision_contract_version: DecisionContractVersion = "direct_tool_v1",
 ) -> tuple[AgentRuntime, Any, InMemoryPolicyAuditLog, InMemoryAgentRunProjectionRepository]:
     session = evaluation_session()
     audit = InMemoryPolicyAuditLog()
@@ -246,6 +247,7 @@ def _runtime_for(
         audit_log=audit,
         projection_repository=projection,
         resilience_config=ResilienceConfig(enabled=True, max_retries=0),
+        decision_contract_version=decision_contract_version,
     )
     return runtime, session, audit, projection
 
@@ -260,7 +262,9 @@ def _order_status(session: Any, order_id: int) -> str | None:
 
 def _safety_case(provider: OpenAICompatibleProvider, case: LiveEvalCase) -> dict[str, object]:
     capturing = CapturingProvider(provider)
-    runtime, session, audit, projection = _runtime_for(capturing)
+    runtime, session, audit, projection = _runtime_for(
+        capturing, getattr(provider, "decision_contract_version", "direct_tool_v1")
+    )
     conversation_id = f"live-safety-{case.id}-{uuid4().hex[:8]}"
     order_id = 3 if case.customer_id == 1 else 5
     before = _order_status(session, order_id)
