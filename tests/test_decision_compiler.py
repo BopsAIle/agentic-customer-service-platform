@@ -179,6 +179,7 @@ def test_latest_order_is_resolved_in_customer_scope_and_means_actual_latest(
             SemanticDecision(intent=Intent.ORDER_LOOKUP, target=target),
             "Show my latest order.",
         ),
+        user_message="Show my latest order.",
     )
     assert latest_read.tool_arguments == {"customer_id": 1, "order_id": 4}
 

@@ -108,6 +108,43 @@ _TICKET_REQUEST_MARKERS = frozenset(
 _GENERIC_REASON_WORDS = frozenset(
     {"a", "an", "and", "for", "i", "item", "my", "of", "order", "please", "refund", "the"}
 )
+_LATEST_ORDER_MARKERS = frozenset(
+    {
+        "latest",
+        "last order",
+        "most recent",
+        "recent order",
+        "recent orders",
+        "en son",
+        "son sipariş",
+        "son siparişler",
+        "en yeni",
+        "yakın tarihli",
+    }
+)
+_CONTRADICTORY_CANCEL_MARKERS = frozenset(
+    {
+        "don't cancel",
+        "do not cancel",
+        "no cancel",
+        "no, cancel",
+        "never cancel",
+        "not cancel",
+        "no longer cancel",
+        "not sure",
+        "uncertain",
+        "maybe",
+        "cancel etmeyin",
+        "hayır iptal",
+        "hayır, iptal",
+        "iptal etme",
+        "iptal etmeyin",
+        "iptal etmek istemiyorum",
+        "vazgeç",
+        "emin değilim",
+        "kararsız",
+    }
+)
 
 MEMORY_INTENTS: Final[frozenset[Intent]] = frozenset({Intent.MEMORY_REMEMBER, Intent.MEMORY_FORGET})
 
@@ -146,9 +183,15 @@ class DecisionCompiler:
         if route is None:
             return self._rejected(decision, "Semantic intent has no compiler route.")
         if route == "action":
+            if decision.intent == Intent.ORDER_CANCEL and self._is_contradictory_cancel(
+                user_message
+            ):
+                return self._clarification(
+                    decision, "The cancellation request is contradictory and needs clarification."
+                )
             return self._compile_action(decision, context, user_message)
         if route == "read":
-            return self._compile_read(decision, context)
+            return self._compile_read(decision, context, user_message)
         if route == "knowledge":
             return self._compile_knowledge(decision)
         if route == "knowledge_and_action":
@@ -241,7 +284,7 @@ class DecisionCompiler:
         return self._rejected(decision, "Executable semantic intent is unsupported.")
 
     def _compile_read(
-        self, decision: SemanticDecision, context: ExecutionContext
+        self, decision: SemanticDecision, context: ExecutionContext, user_message: str
     ) -> CompiledDecision:
         tool = READ_TOOLS[decision.intent]
         if decision.intent == Intent.CUSTOMER_LOOKUP:
@@ -259,6 +302,11 @@ class DecisionCompiler:
         if decision.intent == Intent.ORDER_LOOKUP:
             if self._wrong_order_target(decision.target):
                 return self._rejected(decision, "Order lookup received a ticket target.")
+            if decision.target is not None and decision.target.type == "latest_order":
+                if not self._is_latest_order_request(user_message):
+                    return self._clarification(
+                        decision, "A latest-order reference is not grounded in the current request."
+                    )
             order_id = self._order_target(decision.target, context.effective_customer_id)
             if order_id is None:
                 return self._clarification(decision, "A specific order is required.")
@@ -315,6 +363,18 @@ class DecisionCompiler:
     def _contains_ticket_request(user_message: str) -> bool:
         words = set(re.findall(r"[\w’]+", user_message.casefold()))
         return bool(words & _TICKET_REQUEST_MARKERS)
+
+    @staticmethod
+    def _is_latest_order_request(user_message: str) -> bool:
+        normalized = " ".join(user_message.casefold().split())
+        return any(marker in normalized for marker in _LATEST_ORDER_MARKERS)
+
+    @staticmethod
+    def _is_contradictory_cancel(user_message: str) -> bool:
+        normalized = " ".join(user_message.casefold().split())
+        if "cancel" not in normalized and "iptal" not in normalized:
+            return False
+        return any(marker in normalized for marker in _CONTRADICTORY_CANCEL_MARKERS)
 
     @staticmethod
     def _reason_is_user_supported(reason: str, user_message: str) -> bool:

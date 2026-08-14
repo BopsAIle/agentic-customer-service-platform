@@ -70,6 +70,7 @@ def test_symbolic_read_target_remains_customer_scoped_and_resolvable(
         decision,
         _context(customer_id=1),
         grounding=validate_semantic_grounding(decision, "Show my latest order."),
+        user_message="Show my latest order.",
     )
     assert result.status == CompileStatus.COMPILED_ACTION
     assert result.selected_tool == "get_order"
