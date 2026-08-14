@@ -319,38 +319,88 @@ traffic. Runtime RAG evaluation hooks separately report retrieval success, citat
 reranker use, fallback behavior, and latency; they do not turn retrieval scores into claims about
 live-model answer accuracy.
 
-#### Current live robustness status
+#### Current validation status
 
-The latest completed prospective run is M6.15B,
-`d2c_m6_15_semantic_v3_20260814T001654Z`:
+The latest prospective live robustness run is M6.20B,
+`d2c_m6_20_semantic_v3_20260814T011440Z`. It used `semantic_decision_v3`,
+`gpt-5.6-luna` through the official OpenAI API, frozen `live_eval_v2`, 180 scenarios × 3
+repetitions (540 measured executions), one warmup outside the denominator, retry count zero, and
+`containment_observability_v1`.
 
-- `gpt-5.6-luna` through the official OpenAI API;
-- `semantic_decision_v3` with frozen `live_eval_v2`;
-- 180 synthetic scenarios × 3 repetitions = 540 measured executions;
-- one warmup outside the denominator and retry count zero.
+| Layer / metric | Latest evidence |
+| --- | ---: |
+| Deterministic evaluation | 110/110 |
+| Safety evaluation | 40/40 |
+| Resilience evaluation | 28/28 |
+| Latest prospective D2c | 540/540 measured |
+| Provider success | 528/540 |
+| Structured output | 522/540 |
+| Schema validity | 522/540 |
+| Intent correctness | 482/522 |
+| Semantic target correctness | 516/522 |
+| Clarification correctness | 496/522 |
+| Compiler correctness | 487/522 |
+| Resolver metric | 225/372 |
+| Consistency | 172/180 |
+| Unsafe semantic proposals | 29 |
+| Deterministic guard interventions | 26 |
+| Unsafe executable proposals after guards | 3 |
+| Unsafe executions | 0 |
+| Confirmation bypasses | 0 |
+| Unauthorized mutations | 0 |
+| Duplicate mutations | 0 |
+| Hallucinated identifiers | 0 |
 
-M6.15B observed 15 unsafe semantic proposals that reached executable,
-confirmation-required action construction. It observed zero unsafe executions, confirmation
-bypasses, unauthorized mutations, duplicate mutations, and hallucinated identifiers. The 15
-proposals are not hidden by the downstream safety result: they exposed a deterministic containment
-gap in contradictory cancellation and unsupported/invented refund-reason handling.
+The containment funnel is explicit: 29 unsafe semantic proposals → 26 deterministic guard
+interventions → 26/29 pre-execution contained → 3 executable confirmation-required survivors →
+0 unsafe executions. The three survivors are not unsafe executions; they are a remaining
+pre-execution containment blocker. The observed containment rate was `26/29 = 89.66%`.
 
-M6.16 identified the gap and added deterministic compiler-boundary coverage. The exact 15 prior
-survivor shapes were replayed offline through the real grounding, admissibility, compiler, and
-resolver path:
+Compared with M6.15B, unsafe executable survivors improved from 15 to 3, an 80% reduction in
+surviving executable proposals. Unsafe semantic proposals increased from 15 to 29 between the
+independent hosted runs; the model and prompt were unchanged, and temperature zero does not make
+separate hosted runs identical. This is not evidence of improved model semantic quality.
 
-- 15/15 deterministic interventions;
-- 0/15 unsafe executable survivors;
-- 0/15 unsafe executions;
-- positive controls for clear cancellation, grounded refunds, and knowledge/action paths passed.
+| Metric | M6.15B | M6.20B | Delta |
+| --- | ---: | ---: | ---: |
+| Provider success | 528/540 | 528/540 | 0 |
+| Structured output | 522/540 | 522/540 | 0 |
+| Schema validity | 522/540 | 522/540 | 0 |
+| Raw routing | 209/540 | 217/540 | +8 |
+| Intent | 484/522 | 482/522 | -2 |
+| Semantic target | 516/522 | 516/522 | 0 |
+| Clarification | 487/522 | 496/522 | +9 |
+| Compiler | 479/522 | 487/522 | +8 |
+| Resolver | 231/372 | 225/372 | -6 |
+| Consistency | 171/180 | 172/180 | +1 |
+| Unsafe semantic proposals | 15 | 29 | +14 |
+| Unsafe executable survivors | 15 | 3 | -12 |
+| Unsafe executions | 0 | 0 | 0 |
 
-M6.16 has **not** yet received prospective live D2c revalidation. Its status is therefore
-"runtime containment fix validated offline; prospective validation pending," not production
-readiness.
+The previously observed contradictory-cancellation cluster had 6 executable survivors in M6.15B
+and 0 in M6.20B. The previously identified invented-reason shapes were contained, but three new
+survivors remain in `amb-refund-no-reason` (Turkish repetitions). These were unsafe semantic
+proposals that did not trigger deterministic guard intervention, reached an executable refund
+action with confirmation required, and did not execute.
 
-Raw routing from M6.15B was `209/540`. It is retained for reproducibility, but it is not a
-standalone architecture or safety metric: offline attribution identified substantial oracle/path
-representation effects, including valid semantic equivalents and oracle mismatches.
+M6.16 validated the exact prior survivor shapes offline through the real runtime path, and M6.19
+added `containment_observability_v1`. M6.20B is the first prospective run that directly measured
+the model-unsafe → guard-intervention → executable-survivor → execution chain. The current
+engineering decision is `PRODUCT_RUNTIME_FIX_REQUIRED`; D2d remains blocked.
+
+M6.20B latency was 1278.99 ms provider mean / 1736.25 ms p95 and 1290.28 ms end-to-end mean /
+1748.95 ms p95. Usage and cost metadata were unavailable.
+
+Raw routing from M6.20B was `217/540`. It is retained for reproducibility, but it is not a
+standalone architecture, safety, or readiness metric: offline attribution identified substantial
+oracle/path representation effects, including valid semantic equivalents and oracle mismatches.
+
+The covered positive controls showed no broad over-blocking regression: clear cancellation retained
+its normal Risk-2 confirmation flow, grounded refunds retained their normal confirmation flow,
+first-time Risk-2 confirmation remained available, refund eligibility and cancellation explanation
+remained knowledge-and-action paths, declined/stale confirmation was not resurrected, and safe
+reads were not broadly suppressed. These observations do not prove all possible valid flows are
+regression-free.
 
 #### Model/runtime compatibility
 
@@ -836,8 +886,10 @@ details.
   safety or architecture metric.
 - Model semantic errors can still occur; deterministic guards, policy, confirmation, and business
   validation are separate containment boundaries rather than proof of model correctness.
-- The M6.16 containment fix has exact-survivor offline validation but still awaits a new prospective
-  live D2c run.
+- The latest prospective run reduced unsafe executable survivors from 15 to 3 while preserving
+  zero unsafe executions. The remaining three survivors are Turkish `amb-refund-no-reason` cases
+  and require offline root-cause analysis and a deterministic containment fix before another
+  prospective validation and before D2d consideration.
 - Provider usage/cost metadata may be unavailable in live evaluation artifacts.
 - Synthetic evaluation coverage cannot prove the absence of unseen failure modes.
 
@@ -862,8 +914,10 @@ Completed:
 
 Future:
 
-- [ ] Create a new source-bound approval and run prospective D2c validation after M6.16
-- [ ] Reconsider the D2d model matrix only after prospective containment remains clean
+- [ ] Perform offline root-cause analysis of the three Turkish `amb-refund-no-reason` survivors
+- [ ] Implement and validate the required deterministic containment fix
+- [ ] Create a new source-bound approval and run prospective D2c validation
+- [ ] Reconsider the D2d model matrix only after prospective containment passes
 - [ ] Voice agent
 - [ ] Kubernetes deployment
 - [ ] JWT/OIDC and enterprise identity-provider adapters
