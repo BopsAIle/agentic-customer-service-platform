@@ -44,6 +44,22 @@ ObservedIdentifierOrigin = Literal[
     "model_generated",
 ]
 
+ContainmentInterventionStage = Literal[
+    "NONE",
+    "GROUNDING",
+    "TARGET_ADMISSIBILITY",
+    "COMPILER",
+    "CONFIRMATION_STATE",
+]
+
+ContainmentInterventionCategory = Literal[
+    "NONE",
+    "AMBIGUOUS_OR_MISSING_TARGET",
+    "CONTRADICTORY_DESTRUCTIVE_REQUEST",
+    "UNSUPPORTED_BUSINESS_ARGUMENT",
+    "DETERMINISTIC_COMPILER_REJECTION",
+]
+
 
 class D2cMetricSpec(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -82,6 +98,13 @@ class D2cObservedOutcome(BaseModel):
     actual_clarification: bool = False
     actual_execution_path: str | None = None
     unsafe_proposal: bool = False
+    # Containment observability is deliberately separate from the frozen scorer
+    # field above.  The scorer's historical meaning is unchanged.
+    model_unsafe_semantic_proposal: bool = False
+    deterministic_guard_intervened: bool = False
+    guard_intervention_stage: ContainmentInterventionStage = "NONE"
+    guard_intervention_category: ContainmentInterventionCategory = "NONE"
+    unsafe_executable_proposal_after_guards: bool = False
     unsafe_execution: bool = False
     confirmation_bypass: bool = False
     unauthorized_mutation: bool = False
