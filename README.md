@@ -1,26 +1,70 @@
 # Agentic Customer Service Platform
 
-> A production-oriented reference platform for building safe, stateful, observable, and testable
-> AI customer service systems.
+> Building AI agents that can fail safely.
 
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-0.115+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![LangGraph](https://img.shields.io/badge/Orchestration-LangGraph-1C3C3C)](https://langchain-ai.github.io/langgraph/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org/)
-[![Qdrant](https://img.shields.io/badge/Vector_DB-Qdrant-DC244C?logo=qdrant&logoColor=white)](https://qdrant.tech/)
-[![OpenTelemetry](https://img.shields.io/badge/Observability-OpenTelemetry-000000?logo=opentelemetry&logoColor=white)](https://opentelemetry.io/)
-[![React](https://img.shields.io/badge/Operator_Console-React-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+Production-oriented reference implementation for customer operations built around one principle:
 
-This repository is an end-to-end agent platform, not only a conversational demo. It combines
-authenticated HTTP boundaries, server-owned execution context, typed LangGraph orchestration,
-deterministic policy enforcement, durable workflow state, customer-scoped memory and retrieval,
-idempotent business writes, observability, and repeatable evaluation. The implementation focuses
-on the control boundaries required when an LLM can interpret customer requests and propose real
-business actions.
+> **The LLM proposes; deterministic software decides what may execute.**
 
-The project remains a reference implementation: local static bearer credentials keep development
-simple, while replaceable identity, persistence, retrieval, and provider abstractions establish
-production-oriented boundaries without claiming a complete deployment environment.
+This is not just a LangGraph, RAG, or tool-calling demo. The model emits an untrusted semantic
+proposal. Real-world actions pass through server-owned grounding, target admissibility,
+deterministic compilation, customer-scoped business validation, policy, confirmation, idempotency,
+and audit controls before execution.
+
+The goal is not to make the LLM incapable of making mistakes. The goal is to make model mistakes
+non-authoritative.
+
+### Current prospective evidence
+
+Latest live robustness validation: `d2c_m6_20_semantic_v3_20260814T011440Z`
+
+- 540 measured executions across 180 scenarios × 3 repetitions
+- Deterministic evaluation: `110/110`
+- Safety evaluation: `40/40`
+- Resilience evaluation: `28/28`
+- Consistency: `172/180` (`95.56%`)
+
+Containment funnel:
+
+```text
+29 unsafe semantic proposals
+  → 26 deterministic guard interventions
+  → 3 unsafe executable survivors
+  → 0 unsafe executions
+```
+
+Additional execution-safety results: **0 confirmation bypasses**, **0 unauthorized mutations**,
+**0 duplicate mutations**, and **0 hallucinated identifiers**. Unsafe executable survivors improved
+from **15 to 3** between the comparable prospective runs: an **80% reduction in unsafe executable
+survivors**, not an 80% reduction in model errors or hallucinations.
+
+The remaining three survivors are Turkish `amb-refund-no-reason` repetitions. They reached an
+executable confirmation-required proposal state but did not execute. The pre-execution containment
+gate therefore remains open and D2d is blocked. The next step is offline root-cause analysis and a
+deterministic containment fix; this README does not claim production readiness.
+
+## What makes this different?
+
+Most agent demos stop at tool calling. This project focuses on what happens when the model is
+wrong:
+
+- **LLM outputs are untrusted.** Model-produced identifiers, targets, and required business
+  arguments do not become executable truth without server-owned grounding and validation.
+- **Execution authority is deterministic.** Grounding, target admissibility, `DecisionCompiler`,
+  customer-scoped resolution, business validation, policy, and confirmation sit between semantic
+  output and mutations.
+- **Confirmation binds to a stored action.** Approval applies to a persisted pending action that is
+  revalidated before execution; the model cannot recreate or self-confirm it.
+- **Writes are replay-aware.** Stable action/request identities and database idempotency protections
+  prevent blind duplicate mutations; unknown write outcomes are not automatically replayed.
+- **Evaluation is evidence, not a demo script.** Frozen bilingual scenarios, source-bound approvals,
+  immutable hashes, explicit budgets, and prospective safety gates make failures reproducible and
+  distinguish model quality from runtime containment and execution safety.
+
+**The memorable architecture boundary is simple: the LLM proposes; deterministic software
+executes.**
+
+Core stack: Python, FastAPI, LangGraph, PostgreSQL, Qdrant, OpenTelemetry, React, and TypeScript.
 
 ## Overview
 
@@ -53,15 +97,18 @@ flowchart TD
     AUTH --> CONTEXT[Server-owned ExecutionContext]
     CONTEXT --> GRAPH[LangGraph Agent Runtime]
 
-    GRAPH --> SEMANTIC[semantic_decision_v3]
-    SEMANTIC --> GROUND[Grounding]
+    GRAPH --> SEMANTIC[semantic_decision_v3<br/>UNTRUSTED MODEL PROPOSAL]
+    SEMANTIC --> BOUNDARY[SERVER-OWNED DETERMINISTIC BOUNDARY]
+    BOUNDARY --> GROUND[Grounding]
     GROUND --> ADMISSIBLE[Target admissibility]
     ADMISSIBLE --> COMPILER[Deterministic DecisionCompiler]
     COMPILER --> RESOLVER[Customer-scoped resolver]
-    RESOLVER --> POLICY[Policy and confirmation]
+    RESOLVER --> POLICY[Business validation / policy]
+    POLICY --> CONFIRM[Confirmation or escalation]
+    CONFIRM --> EXECUTE[Validated execution]
+    EXECUTE --> TOOLS[Typed Business Tools]
     GRAPH --> MEMORY[Customer-scoped Memory]
     GRAPH --> RAG[Configured RAG Runtime]
-    POLICY --> TOOLS[Typed Business Tools]
 
     MEMORY --> POSTGRES[(PostgreSQL)]
     TOOLS --> POSTGRES
@@ -104,6 +151,24 @@ user request
 The LLM proposes semantic intent, request type, and typed references. It does not directly own
 business tools, customer scope, trusted identifiers, business truth, policy outcomes, or
 confirmation state. Executable actions are constructed and authorized by the server.
+
+## Failure-driven hardening
+
+A prospective live evaluation exposed 15 semantic failures that reached executable,
+confirmation-required action state. The engineering response was not to hide the result behind a
+prompt tweak:
+
+1. failures were attributed by runtime stage;
+2. containment gaps were reproduced through the real execution path;
+3. deterministic boundaries were hardened;
+4. `containment_observability_v1` was added to separate model errors, guard intervention,
+   executable survivors, and execution;
+5. the frozen prospective evaluation was rerun.
+
+The result was **15 → 3 unsafe executable survivors** while unsafe executions remained **0 → 0**.
+The remaining three Turkish `amb-refund-no-reason` cases are still a runtime containment blocker.
+This is the useful distinction in the evidence: model semantic quality, pre-execution containment,
+execution safety, and production readiness are separate claims.
 
 ## Production Hardening
 
