@@ -53,12 +53,16 @@ flowchart TD
     AUTH --> CONTEXT[Server-owned ExecutionContext]
     CONTEXT --> GRAPH[LangGraph Agent Runtime]
 
-    GRAPH --> POLICY[Policy and Confirmation]
+    GRAPH --> SEMANTIC[semantic_decision_v3]
+    SEMANTIC --> GROUND[Grounding]
+    GROUND --> ADMISSIBLE[Target admissibility]
+    ADMISSIBLE --> COMPILER[Deterministic DecisionCompiler]
+    COMPILER --> RESOLVER[Customer-scoped resolver]
+    RESOLVER --> POLICY[Policy and confirmation]
     GRAPH --> MEMORY[Customer-scoped Memory]
     GRAPH --> RAG[Configured RAG Runtime]
-    GRAPH --> TOOLS[Typed Business Tools]
+    POLICY --> TOOLS[Typed Business Tools]
 
-    POLICY --> TOOLS
     MEMORY --> POSTGRES[(PostgreSQL)]
     TOOLS --> POSTGRES
     GRAPH --> CHECKPOINTS[Durable Checkpoints]
@@ -80,6 +84,26 @@ behind typed tools, ownership checks, policy decisions, and confirmation rules.
 PostgreSQL owns business records, idempotency receipts, persistent memory, and LangGraph
 checkpoints. Qdrant provides the configured production retrieval path. OpenTelemetry and the
 deterministic evaluation harness observe behavior without becoming authorization inputs.
+
+The canonical semantic path is:
+
+```text
+user request
+  → context loading
+  → semantic_decision_v3
+  → semantic entity grounding
+  → target admissibility
+  → deterministic DecisionCompiler
+  → BusinessTargetResolver where permitted
+  → business validation
+  → policy
+  → confirmation or human escalation
+  → execution and observability
+```
+
+The LLM proposes semantic intent, request type, and typed references. It does not directly own
+business tools, customer scope, trusted identifiers, business truth, policy outcomes, or
+confirmation state. Executable actions are constructed and authorized by the server.
 
 ## Production Hardening
 
@@ -104,7 +128,9 @@ services, TLS termination, or infrastructure orchestration.
 
 ### Agent Orchestration
 
-The LangGraph state machine uses typed state, deterministic routing, and Pydantic-validated structured decisions. The graph separates understanding, tool selection, validation, policy evaluation, confirmation, retrieval, memory, execution, and response construction.
+The LangGraph state machine uses typed state, deterministic routing, and Pydantic-validated structured
+decisions. The graph separates semantic understanding, deterministic action compilation, validation,
+policy evaluation, confirmation, retrieval, memory, execution, and response construction.
 
 ```text
 load_context → retrieve_memory → check_pending_action
@@ -252,9 +278,23 @@ Memory candidates pass through consent, confidence, sensitivity, conflict, expir
 
 ### Evaluation Framework
 
-The deterministic offline harness executes versioned JSONL scenarios through the real graph with isolated SQLite state, a fake structured-decision provider, and scoped fault injection. It stores no chain-of-thought.
+The repository separates four questions that are often conflated in agent evaluations:
 
-Current verified results:
+1. model semantic quality;
+2. deterministic runtime containment;
+3. execution safety; and
+4. production readiness.
+
+The evaluation system includes deterministic regression, safety and resilience suites, structured
+contract compatibility gates, architecture comparisons, and approval-gated live robustness runs.
+Live results are evidence for a particular model, provider, contract, dataset, and source revision;
+they are not a certification of unrestricted deployment.
+
+The deterministic offline harness executes versioned scenarios through the real control-plane
+paths with isolated state, fake structured-decision inputs, and scoped fault injection. It stores
+no chain-of-thought.
+
+Current verified offline results:
 
 | Suite | Scenarios | Result |
 | --- | ---: | ---: |
@@ -274,10 +314,56 @@ Current verified results:
 | Unauthorized action rate | 0% |
 | Duplicate write rate | 0% |
 
-These are deterministic portfolio-scale evaluation results, not claims about live-model behavior or production traffic.
-Runtime RAG evaluation hooks separately report retrieval success, citation availability, reranker
-use, fallback behavior, and latency. They deliberately do not turn deterministic retrieval scores
-into claims about live-model answer accuracy.
+These are deterministic regression results, not claims about live-model behavior or production
+traffic. Runtime RAG evaluation hooks separately report retrieval success, citation availability,
+reranker use, fallback behavior, and latency; they do not turn retrieval scores into claims about
+live-model answer accuracy.
+
+#### Current live robustness status
+
+The latest completed prospective run is M6.15B,
+`d2c_m6_15_semantic_v3_20260814T001654Z`:
+
+- `gpt-5.6-luna` through the official OpenAI API;
+- `semantic_decision_v3` with frozen `live_eval_v2`;
+- 180 synthetic scenarios × 3 repetitions = 540 measured executions;
+- one warmup outside the denominator and retry count zero.
+
+M6.15B observed 15 unsafe semantic proposals that reached executable,
+confirmation-required action construction. It observed zero unsafe executions, confirmation
+bypasses, unauthorized mutations, duplicate mutations, and hallucinated identifiers. The 15
+proposals are not hidden by the downstream safety result: they exposed a deterministic containment
+gap in contradictory cancellation and unsupported/invented refund-reason handling.
+
+M6.16 identified the gap and added deterministic compiler-boundary coverage. The exact 15 prior
+survivor shapes were replayed offline through the real grounding, admissibility, compiler, and
+resolver path:
+
+- 15/15 deterministic interventions;
+- 0/15 unsafe executable survivors;
+- 0/15 unsafe executions;
+- positive controls for clear cancellation, grounded refunds, and knowledge/action paths passed.
+
+M6.16 has **not** yet received prospective live D2c revalidation. Its status is therefore
+"runtime containment fix validated offline; prospective validation pending," not production
+readiness.
+
+Raw routing from M6.15B was `209/540`. It is retained for reproducibility, but it is not a
+standalone architecture or safety metric: offline attribution identified substantial oracle/path
+representation effects, including valid semantic equivalents and oracle mismatches.
+
+#### Model/runtime compatibility
+
+The semantic architecture is contract-specific. The recorded V3 compatibility gate found high
+structured-output compatibility for `gpt-5.6-luna`. The tested local candidates
+`qwen3.5:4b`, `qwen3.5:9b`, and `qwen2.5:7b-instruct` did not meet the frozen
+`semantic_decision_v3` compatibility gate under their evaluated Ollama/function-calling
+configurations. This does not make a universal claim about Qwen models; it means those exact
+model/runtime identities were not eligible for the next behavioral matrix under that contract.
+
+The current evidence uses Luna as the hosted evaluation control, not as a hardcoded production
+model or universal recommendation. Local OpenAI-compatible/Ollama integration remains available,
+but every model must pass the same structured-contract compatibility gate first.
 
 ### Observability
 
@@ -363,8 +449,8 @@ evidence through `action_id`; it is not an authority source.
 
 The platform separates model reasoning from authority:
 
-1. **The LLM proposes.** It produces a typed intent, request type, candidate tool, and validated
-   arguments. Its output is untrusted input to the control plane.
+1. **The LLM proposes.** It produces a typed intent, request type, and semantic references. Its
+   output is untrusted input to the control plane.
 2. **Deterministic systems authorize.** Authenticated identity, effective customer scope,
    ownership checks, live database state, and tool schemas decide whether a proposal is valid.
 3. **Policy controls actions.** The policy engine assigns risk handling and returns a bounded
@@ -394,73 +480,59 @@ Verified deterministic evaluation guarantees:
 - ✓ Duplicate write rate: **0%**
 - ✓ Confirmation compliance: **100%**
 
-## Model Evaluation & Deployment Benchmark
+### Deterministic semantic guards
+
+The server-owned compiler and validation boundary fails closed for covered unsafe semantic shapes:
+
+- missing or ambiguous destructive targets require clarification;
+- contradictory cancellation does not become an executable cancellation proposal;
+- an unsupported or invented refund reason requires clarification instead of becoming a refund
+  proposal;
+- a user-grounded refund reason can continue through the normal validation and confirmation flow;
+- memory, retrieval content, and model-produced trust flags are not proof that the user supplied a
+  required destructive business argument.
+
+These controls reduce reliance on model correctness, but they do not make arbitrary model behavior
+safe by definition. Model semantic errors, runtime containment, and actual execution safety remain
+separate evaluation dimensions.
+
+## Historical architecture and model evidence
 
 Model selection was evaluated empirically through the same agent runtime and deterministic
-control plane used for deployment. The LLM output is an untrusted proposal: the model produces
-only a structured decision proposal, while the deterministic control plane remains responsible
-for validation, policy enforcement, confirmation requirements, execution safety, and the audit
-lifecycle.
+control plane used for evaluation. The LLM output is an untrusted proposal: the model produces
+semantic intent, request type, and typed references, while the deterministic control plane remains
+responsible for validation, policy enforcement, confirmation requirements, execution safety, and
+the audit lifecycle.
 
 ### Evaluation Setup
 
-The benchmark used the same runtime boundaries for every model:
+The canonical architecture decision compared `direct_tool_v1` and `semantic_decision_v3` with
+the same `gpt-5.6-luna` model, official OpenAI API provider, configuration, dataset, schedule,
+and deterministic safety stack. The corrected offline result used immutable outputs and did not
+regenerate model calls:
 
-- Case set: `live_eval_v1`
-- Scoring: `live_scoring_v2`
-- 28 bilingual scenarios
-- 14 English / 14 Turkish
-- 3 runs per case
-- 84 attempts per model
-- Same system prompt
-- Same AgentDecision schema
-- Same policy engine
-- Same confirmation workflow
-- Same deterministic execution layer
-- Same safety boundaries
+| Measure | Direct | Semantic V3 |
+|---|---:|---:|
+| Routing | 69/84 (82.14%) | 79/84 (94.05%) |
+| Effective clarification | 69/84 (82.14%) | 79/84 (94.05%) |
+| Case-level wins | 1 | 6 |
 
-Hosted models used the OpenAI-compatible provider with function-calling structured transport,
-`reasoning_effort=none`, and a 30 second timeout budget. Only a synthetic
-`StructuredDecision` function was exposed to the model. Business mutation tools were never
-directly exposed to the model.
-
-### Results
-
-| Model | Intent | Tool Selection | Clarification | Unsafe Proposal | Mean Latency |
-|---|---:|---:|---:|---:|---:|
-| Qwen2.5 7B (local) | 100.0% | 71.4% | 25.0% | 14.3% | 11.85s |
-| GPT-5.6 Luna | 84.6% | 70.2% | 66.7% | 0.0% | 1.42s |
-| GPT-5.6 Terra | 100.0% | 75.0% | 100.0% | 0.0% | 1.29s |
-| GPT-5.6 Sol | 100.0% | 71.4% | 91.7% | 0.0% | 2.13s |
+This selected `semantic_decision_v3` as the canonical semantic architecture for subsequent model
+evaluation. It did not change the current runtime default, which remains `direct_tool_v1`.
 
 ### Findings
 
-#### Larger models are not automatically better agents
+#### Compatibility is contract-specific
 
-Increasing model size alone did not guarantee better agent behavior.
-
-Qwen3.5 experiments showed:
-
-- Qwen3.5 9B improved some safety-related behaviors but exceeded the fixed latency budget and
-  regressed tool routing.
-- Qwen3.5 4B improved runtime efficiency but significantly reduced tool selection accuracy.
-
-The benchmark demonstrated that model selection requires workload-specific evaluation.
-
-#### Hosted model evaluation
-
-Under the evaluated workload, hosted models significantly improved operational characteristics,
-including clarification behavior, latency, and unsafe proposal behavior.
-
-GPT-5.6 Terra became the preferred candidate under the evaluated workload because it provided the
-strongest balance across tool selection, clarification, argument correctness, safety behavior,
-and latency. This is a workload-specific deployment decision, not a claim that it is universally
-the best model.
+The V3 compatibility gate is separate from behavioral quality. Luna produced 24/24 typed V3
+decisions in the hosted control. The tested local Qwen identities did not meet the same frozen
+structured-contract gate, so they were not promoted to the behavioral matrix. These results do not
+rank model families universally and do not imply that the current runtime default changed.
 
 ### Key Takeaway
 
-Model selection is treated as an engineering decision rather than assuming newer or larger models
-are automatically better.
+Model selection is treated as an engineering decision: first validate the fixed semantic contract,
+then measure behavior and runtime trade-offs for eligible candidates.
 
 ```text
 Measure
@@ -753,6 +825,22 @@ details.
 └── Makefile                # Development and verification commands
 ```
 
+## Known Limitations
+
+- This is a production-oriented reference implementation, not a production-readiness
+  certification or unrestricted deployment approval.
+- Current live evidence is bound to exact model, provider, contract, dataset, scorer, and source
+  identities.
+- The tested local models did not satisfy the frozen `semantic_decision_v3` compatibility gate.
+- Raw routing includes known oracle/path attribution noise and is not sufficient as a standalone
+  safety or architecture metric.
+- Model semantic errors can still occur; deterministic guards, policy, confirmation, and business
+  validation are separate containment boundaries rather than proof of model correctness.
+- The M6.16 containment fix has exact-survivor offline validation but still awaits a new prospective
+  live D2c run.
+- Provider usage/cost metadata may be unavailable in live evaluation artifacts.
+- Synthetic evaluation coverage cannot prove the absence of unseen failure modes.
+
 ## Roadmap
 
 Completed:
@@ -774,6 +862,8 @@ Completed:
 
 Future:
 
+- [ ] Create a new source-bound approval and run prospective D2c validation after M6.16
+- [ ] Reconsider the D2d model matrix only after prospective containment remains clean
 - [ ] Voice agent
 - [ ] Kubernetes deployment
 - [ ] JWT/OIDC and enterprise identity-provider adapters
@@ -809,7 +899,7 @@ cancellation. Local rerankers are allowed to finish; a provider-raised timeout o
 the original fused ranking. A business write whose commit outcome is unknown remains
 `UnknownWriteOutcomeError` and is never automatically replayed.
 
-### Optional live-model evaluation
+### Optional legacy live-provider diagnostic
 
 The deterministic evaluation suites remain the CI quality and safety gates. An opt-in live
 behavioral runner is available for measuring a real provider without making Ollama a CI
@@ -825,14 +915,15 @@ The runner uses the existing `OpenAICompatibleProvider`, freezes the current pro
 baseline, and writes JSON/Markdown reports under `artifacts/live-eval/` (ignored by Git). Layer A
 scores model decisions without executing business mutations. Layer B runs a small isolated set of
 real control-plane scenarios and reports unsafe proposals separately from unsafe execution and
-confirmation bypass. Cases are versioned as `live_eval_v1`, and reports can be compared with:
+confirmation bypass. This is a legacy diagnostic path, distinct from the frozen `live_eval_v2`
+D2c workflow, and reports can be compared with:
 
 ```bash
 python -m evaluation.live compare baseline.json candidate.json
 ```
 
-The local `qwen2.5:7b-instruct` model is a development baseline, not a production recommendation.
-Live results are non-deterministic and latency is machine-dependent; they do not change global LLM
-health, which remains configured/not-probed unless an explicit health probe exists. Ollama is
-optional and must be configured explicitly; it is never a silent fallback for deterministic or
-hosted providers.
+The local Ollama model is a development baseline, not validated `semantic_decision_v3` evidence or
+a production recommendation. This diagnostic is non-deterministic and machine-dependent; it is
+not the canonical D2c path. The approval-gated D2c workflow uses frozen `live_eval_v2`, the fixed
+V3 contract, and an explicitly approved hosted runtime. Ollama is optional and never a silent
+fallback for deterministic or hosted providers.
