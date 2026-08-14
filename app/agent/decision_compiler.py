@@ -143,6 +143,21 @@ _CONTRADICTORY_CANCEL_MARKERS = frozenset(
         "vazgeç",
         "emin değilim",
         "kararsız",
+        "keep it active",
+        "keep it open",
+        "aktif kalsın",
+        "açık kalsın",
+    }
+)
+_UNSUPPORTED_REASON_INSTRUCTION_MARKERS = frozenset(
+    {
+        "make up a reason",
+        "invent a reason",
+        "fabricate a reason",
+        "bir neden uydur",
+        "neden uydur",
+        "bir sebep uydur",
+        "sebep uydur",
     }
 )
 
@@ -378,6 +393,9 @@ class DecisionCompiler:
 
     @staticmethod
     def _reason_is_user_supported(reason: str, user_message: str) -> bool:
+        normalized_message = " ".join(user_message.casefold().split())
+        if any(marker in normalized_message for marker in _UNSUPPORTED_REASON_INSTRUCTION_MARKERS):
+            return False
         reason_words = set(re.findall(r"[\w’]+", reason.casefold())) - _GENERIC_REASON_WORDS
         message_words = set(re.findall(r"[\w’]+", user_message.casefold()))
         return bool(reason_words & message_words)

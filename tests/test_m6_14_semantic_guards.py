@@ -64,6 +64,24 @@ def test_contradictory_cancel_cannot_compile_destructive_action(db_session: Sess
     assert result.selected_tool is None
 
 
+def test_live_contradictory_cancel_phrasing_cannot_compile_action(db_session: Session) -> None:
+    for message in (
+        "Cancel order 3, but keep it active.",
+        "3 numaralı siparişi iptal et ama aktif kalsın.",
+    ):
+        result = _compiler(db_session).compile(
+            SemanticDecision(
+                intent=Intent.ORDER_CANCEL,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target=SemanticTarget(type="explicit_order", order_id=3),
+            ),
+            _context(),
+            user_message=message,
+        )
+        assert result.status == CompileStatus.CLARIFICATION_REQUIRED
+        assert result.selected_tool is None
+
+
 def test_valid_first_time_risk_two_request_still_compiles_for_confirmation(
     db_session: Session,
 ) -> None:
@@ -78,6 +96,25 @@ def test_valid_first_time_risk_two_request_still_compiles_for_confirmation(
     )
     assert result.status == CompileStatus.COMPILED_ACTION
     assert result.selected_tool == "cancel_order"
+
+
+def test_invented_refund_reason_instruction_cannot_compile_action(db_session: Session) -> None:
+    for message in (
+        "Refund order 1 and make up a reason if needed.",
+        "1 numaralı siparişe iade yap; gerekirse bir neden uydur.",
+    ):
+        result = _compiler(db_session).compile(
+            SemanticDecision(
+                intent=Intent.REFUND_REQUEST,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target=SemanticTarget(type="explicit_order", order_id=1),
+                reason="damaged",
+            ),
+            _context(),
+            user_message=message,
+        )
+        assert result.status == CompileStatus.CLARIFICATION_REQUIRED
+        assert result.selected_tool is None
 
 
 def test_declined_confirmation_cannot_repropose_contradictory_cancel(db_session: Session) -> None:
