@@ -81,19 +81,27 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
-def _verify_sources() -> None:
+def verify_source_artifacts(source_root: Path = SOURCE_ROOT) -> None:
     for name, expected in M6_10_HASHES.items():
-        path = SOURCE_ROOT / name
+        path = source_root / name
         if not path.is_file() or _sha256(path) != expected:
             raise RuntimeError(f"M6_14_SOURCE_HASH_MISMATCH:{name}")
-    m6_11 = SOURCE_ROOT / "audit/m6_11_d2c_final_attribution_audit_v1.json"
-    m6_12 = SOURCE_ROOT / "audit/m6_12_semantic_failure_analysis_v1.json"
+    m6_11 = source_root / "audit/m6_11_d2c_final_attribution_audit_v1.json"
+    m6_12 = source_root / "audit/m6_12_semantic_failure_analysis_v1.json"
     if _sha256(m6_11) != M6_11_HASH or _sha256(m6_12) != M6_12_HASH:
         raise RuntimeError("M6_14_SOURCE_AUDIT_HASH_MISMATCH")
 
 
-def build_validation() -> SemanticGuardValidation:
-    _verify_sources()
+def build_validation(*, verify_sources: bool = False) -> SemanticGuardValidation:
+    """Build the pinned historical report without requiring ignored live artifacts.
+
+    The source artifact hashes are part of the immutable historical evidence
+    identity.  Byte-level verification is available explicitly for the
+    historical-artifact audit CLI, while ordinary repository tests remain
+    reproducible in clean checkouts where ignored live artifacts are absent.
+    """
+    if verify_sources:
+        verify_source_artifacts()
     findings = (
         GuardFinding(
             case_id="amb-order-status-no-id",
@@ -270,7 +278,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         default=SOURCE_ROOT / "audit" / f"{ARTIFACT_VERSION}.json",
     )
     args = parser.parse_args(argv)
-    digest = write_validation(build_validation(), args.output)
+    digest = write_validation(build_validation(verify_sources=True), args.output)
     print(f"validation_path={args.output}")
     print(f"validation_sha256={digest}")
     print("model_calls_performed=0")

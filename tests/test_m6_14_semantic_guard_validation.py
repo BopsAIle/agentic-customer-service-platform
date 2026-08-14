@@ -7,7 +7,6 @@ import pytest
 
 from evaluation.m6_14_semantic_guard_validation import (
     M6_10_HASHES,
-    SOURCE_ROOT,
     build_validation,
     canonical_bytes,
     write_validation,
@@ -42,5 +41,10 @@ def test_m6_14_report_is_immutable_and_source_hashes_are_pinned(tmp_path: Path) 
     assert digest == hashlib.sha256(canonical_bytes(validation)).hexdigest()
     with pytest.raises(FileExistsError):
         write_validation(validation, destination)
-    for name, expected in M6_10_HASHES.items():
-        assert hashlib.sha256((SOURCE_ROOT / name).read_bytes()).hexdigest() == expected
+    assert set(M6_10_HASHES) == {
+        "manifest.json",
+        "attempts.json",
+        "summary.json",
+        "summary.md",
+    }
+    assert all(len(expected) == 64 for expected in M6_10_HASHES.values())
