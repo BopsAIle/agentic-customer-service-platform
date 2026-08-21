@@ -467,6 +467,14 @@ remained knowledge-and-action paths, declined/stale confirmation was not resurre
 reads were not broadly suppressed. These observations do not prove all possible valid flows are
 regression-free.
 
+The release-hardening source now contains a narrow deterministic refund-reason provenance fix. It
+fails closed when the proposed reason is absent, contains only refund/request boilerplate, or adds
+unsupported qualifiers; bilingual explicit reasons remain on the normal Risk-2 path. Focused
+offline tests and the existing deterministic, safety, resilience, grounding, admissibility,
+policy, confirmation, and replay suites validate the local behavior. The historical M6.20B result
+is unchanged: a new source-bound prospective D2c run is still required to verify that the three
+Turkish survivors become zero before the P0 blocker is closed.
+
 #### Model/runtime compatibility
 
 The semantic architecture is contract-specific. The recorded V3 compatibility gate found high
@@ -979,8 +987,8 @@ Completed:
 
 Future:
 
-- [ ] Perform offline root-cause analysis of the three Turkish `amb-refund-no-reason` survivors
-- [ ] Implement and validate the required deterministic containment fix
+- [x] Perform offline root-cause analysis of the three Turkish `amb-refund-no-reason` survivors
+- [x] Implement and validate the required deterministic containment fix offline
 - [ ] Create a new source-bound approval and run prospective D2c validation
 - [ ] Reconsider the D2d model matrix only after prospective containment passes
 - [ ] Voice agent

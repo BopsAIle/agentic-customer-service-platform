@@ -106,7 +106,44 @@ _TICKET_REQUEST_MARKERS = frozenset(
     {"ticket", "support", "open", "create", "record", "kayıt", "destek", "aç", "oluştur"}
 )
 _GENERIC_REASON_WORDS = frozenset(
-    {"a", "an", "and", "for", "i", "item", "my", "of", "order", "please", "refund", "the"}
+    {
+        "a",
+        "an",
+        "and",
+        "arrived",
+        "because",
+        "for",
+        "i",
+        "item",
+        "it",
+        "my",
+        "need",
+        "number",
+        "of",
+        "order",
+        "please",
+        "refund",
+        "request",
+        "the",
+        "to",
+        "want",
+        "bir",
+        "ben",
+        "benim",
+        "geldi",
+        "geldiği",
+        "iade",
+        "iadesi",
+        "için",
+        "lütfen",
+        "numaralı",
+        "para",
+        "sipariş",
+        "siparişe",
+        "siparişi",
+        "yap",
+        "yapın",
+    }
 )
 _LATEST_ORDER_MARKERS = frozenset(
     {
@@ -229,7 +266,7 @@ class DecisionCompiler:
                 return self._action(decision, context, tool, {"order_id": order_id})
             if not decision.reason:
                 return self._clarification(decision, "A refund reason is required.")
-            if user_message and not self._reason_is_user_supported(decision.reason, user_message):
+            if not self._reason_is_user_supported(decision.reason, user_message):
                 return self._clarification(
                     decision, "The refund reason must come from the customer request."
                 )
@@ -393,12 +430,20 @@ class DecisionCompiler:
 
     @staticmethod
     def _reason_is_user_supported(reason: str, user_message: str) -> bool:
+        """Require an extractive, non-boilerplate reason from authoritative user text.
+
+        Refund action language is not business justification.  In particular, a Turkish
+        request such as ``para iadesi yap`` must not support a model-provided reason of
+        ``para iadesi`` merely because the words overlap.  Requiring every meaningful
+        reason token to be present also prevents the model from appending an unsupported
+        qualifier to an otherwise supported reason.
+        """
         normalized_message = " ".join(user_message.casefold().split())
         if any(marker in normalized_message for marker in _UNSUPPORTED_REASON_INSTRUCTION_MARKERS):
             return False
         reason_words = set(re.findall(r"[\w’]+", reason.casefold())) - _GENERIC_REASON_WORDS
-        message_words = set(re.findall(r"[\w’]+", user_message.casefold()))
-        return bool(reason_words & message_words)
+        message_words = set(re.findall(r"[\w’]+", user_message.casefold())) - _GENERIC_REASON_WORDS
+        return bool(reason_words) and reason_words <= message_words
 
     def _compile_memory(self, decision: SemanticDecision) -> CompiledDecision:
         if decision.intent == Intent.MEMORY_REMEMBER and decision.memory_candidate is None:

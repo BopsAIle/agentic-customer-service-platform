@@ -213,6 +213,7 @@ def test_refund_ticket_escalation_and_read_compilation(db_session: Session) -> N
             reason="The delivered item was damaged.",
         ),
         context(),
+        user_message="Refund order 2 because the delivered item was damaged.",
     )
     assert refund.selected_tool == "request_refund"
     assert refund.tool_arguments == {
@@ -412,6 +413,70 @@ def test_user_supported_refund_reason_can_compile(
     )
     assert result.status == CompileStatus.COMPILED_ACTION
     assert result.selected_tool == "request_refund"
+
+
+@pytest.mark.parametrize(
+    ("reason", "message"),
+    [
+        ("para iadesi", "1 numaralı siparişe para iadesi yap."),
+        ("damaged", "Refund order 1."),
+        ("order need", "Refund order 1 because I need help."),
+        ("changed my mind", "Refund order 1 and make up a reason if needed."),
+    ],
+)
+def test_refund_reason_must_be_supported_by_authoritative_non_boilerplate_text(
+    db_session: Session, reason: str, message: str
+) -> None:
+    result = compiler(db_session).compile(
+        SemanticDecision(
+            intent=Intent.REFUND_REQUEST,
+            target=SemanticTarget(type="explicit_order", order_id=1),
+            reason=reason,
+        ),
+        context(),
+        user_message=message,
+    )
+    assert result.status == CompileStatus.CLARIFICATION_REQUIRED
+    assert result.selected_tool is None
+    assert result.tool_arguments == {}
+
+
+@pytest.mark.parametrize(
+    ("reason", "message"),
+    [
+        ("hasarlı", "1 numaralı sipariş hasarlı geldiği için para iadesi istiyorum."),
+        ("damaged", "Refund order 1 because it arrived damaged."),
+    ],
+)
+def test_explicit_english_and_turkish_refund_reasons_remain_executable(
+    db_session: Session, reason: str, message: str
+) -> None:
+    result = compiler(db_session).compile(
+        SemanticDecision(
+            intent=Intent.REFUND_REQUEST,
+            target=SemanticTarget(type="explicit_order", order_id=1),
+            reason=reason,
+        ),
+        context(),
+        user_message=message,
+    )
+    assert result.status == CompileStatus.COMPILED_ACTION
+    assert result.selected_tool == "request_refund"
+
+
+def test_refund_reason_without_authoritative_user_message_fails_closed(
+    db_session: Session,
+) -> None:
+    result = compiler(db_session).compile(
+        SemanticDecision(
+            intent=Intent.REFUND_REQUEST,
+            target=SemanticTarget(type="explicit_order", order_id=1),
+            reason="damaged",
+        ),
+        context(),
+    )
+    assert result.status == CompileStatus.CLARIFICATION_REQUIRED
+    assert result.selected_tool is None
 
 
 @pytest.mark.parametrize("intent", sorted(KNOWLEDGE_AND_ACTION_INTENTS, key=str))

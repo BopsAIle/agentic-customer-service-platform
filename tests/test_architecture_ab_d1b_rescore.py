@@ -195,6 +195,7 @@ def test_refund_with_explicit_reason_can_compile_to_action() -> None:
                     "effective_customer_id": 3,
                 }
             ),
+            user_message="Package arrived damaged.",
         )
     assert result.status is CompileStatus.COMPILED_ACTION
     assert result.selected_tool == "request_refund"

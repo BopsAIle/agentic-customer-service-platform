@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import pytest
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.agent.decision_compiler import BusinessTargetResolver, CompileStatus, DecisionCompiler
@@ -8,7 +10,8 @@ from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentRequestType, Intent, SemanticDecision, SemanticTarget
 from app.auth.models import ActorType, Principal
 from app.core.context import ExecutionContext
-from app.models import Order, OrderStatus
+from app.models import Order, OrderStatus, RefundRequest
+from app.policies.models import PendingActionStatus
 
 
 def _context() -> ExecutionContext:
@@ -192,6 +195,117 @@ def test_knowledge_action_and_grounded_refund_paths_remain_intact(db_session: Se
     )
     assert refund.status == CompileStatus.COMPILED_ACTION
     assert refund.selected_tool == "request_refund"
+
+
+@pytest.mark.parametrize(
+    ("reason", "message"),
+    [
+        ("para iadesi", "2 numaralı siparişe para iadesi yap."),
+        ("refund", "Refund order 2."),
+    ],
+)
+def test_bilingual_refund_without_reason_has_no_executable_runtime_action(
+    db_session: Session, reason: str, message: str
+) -> None:
+    provider = FakeSemanticDecisionProvider(
+        [
+            SemanticDecision(
+                intent=Intent.REFUND_REQUEST,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target=SemanticTarget(type="explicit_order", order_id=2),
+                reason=reason,
+            )
+        ]
+    )
+    response = AgentRuntime(
+        provider=provider, decision_contract_version="semantic_decision_v2"
+    ).run(
+        conversation_id=f"m6-14-missing-reason-{reason}",
+        customer_id=1,
+        message=message,
+        session=db_session,
+    )
+    assert response.pending_action is None
+    assert response.tool_call is None
+
+
+@pytest.mark.parametrize(
+    ("reason", "message"),
+    [
+        ("hasarlı", "2 numaralı sipariş hasarlı geldiği için para iadesi istiyorum."),
+        ("damaged", "Refund order 2 because it arrived damaged."),
+    ],
+)
+def test_bilingual_valid_refund_reaches_risk_two_confirmation(
+    db_session: Session, reason: str, message: str
+) -> None:
+    provider = FakeSemanticDecisionProvider(
+        [
+            SemanticDecision(
+                intent=Intent.REFUND_REQUEST,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target=SemanticTarget(type="explicit_order", order_id=2),
+                reason=reason,
+            )
+        ]
+    )
+    response = AgentRuntime(
+        provider=provider, decision_contract_version="semantic_decision_v2"
+    ).run(
+        conversation_id=f"m6-14-valid-reason-{reason}",
+        customer_id=1,
+        message=message,
+        session=db_session,
+    )
+    assert response.pending_action is not None
+    assert response.pending_action.status == PendingActionStatus.PENDING
+    assert response.pending_action.risk_level == 2
+    assert response.tool_call is None
+
+
+def test_confirmed_refund_executes_once_and_replay_is_noop(db_session: Session) -> None:
+    provider = FakeSemanticDecisionProvider(
+        [
+            SemanticDecision(
+                intent=Intent.REFUND_REQUEST,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target=SemanticTarget(type="explicit_order", order_id=2),
+                reason="damaged",
+            )
+        ]
+    )
+    runtime = AgentRuntime(provider=provider, decision_contract_version="semantic_decision_v2")
+
+    pending = runtime.run(
+        conversation_id="m6-14-refund-replay",
+        customer_id=1,
+        message="Refund order 2 because it arrived damaged.",
+        session=db_session,
+    )
+    executed = runtime.run(
+        conversation_id="m6-14-refund-replay",
+        customer_id=1,
+        message="yes",
+        session=db_session,
+    )
+    replayed = runtime.run(
+        conversation_id="m6-14-refund-replay",
+        customer_id=1,
+        message="yes",
+        session=db_session,
+    )
+
+    assert pending.pending_action is not None
+    assert pending.pending_action.status == PendingActionStatus.PENDING
+    assert executed.pending_action is not None
+    assert executed.pending_action.status == PendingActionStatus.EXECUTED
+    assert executed.tool_call is not None
+    assert executed.tool_call.name == "request_refund"
+    assert replayed.pending_action is not None
+    assert replayed.pending_action.status == PendingActionStatus.EXECUTED
+    assert replayed.tool_call is None
+    assert len(provider.calls) == 1
+    assert db_session.scalar(select(func.count()).select_from(RefundRequest)) == 1
 
 
 def test_refund_without_or_invented_reason_and_escalation_stay_fail_closed(
