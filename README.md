@@ -18,7 +18,7 @@ non-authoritative.
 
 Latest live robustness validation: `d2c_m6_20_semantic_v3_20260814T011440Z`
 
-- 540 measured executions across 180 scenarios × 3 repetitions
+- 540 measured executions across 180 scenarios × 3 repetitions 
 - Deterministic evaluation: `110/110`
 - Safety evaluation: `40/40`
 - Resilience evaluation: `28/28`
