@@ -16,6 +16,10 @@ from app.agent.schemas import (
     SemanticDecision,
     SemanticTarget,
 )
+from app.agent.semantic_attribution import (
+    CompilerClarificationCause,
+    RefundReasonSupportStatus,
+)
 from app.agent.semantic_grounding import SemanticGrounding
 from app.agent.target_admissibility import (
     TargetAdmissibility,
@@ -48,6 +52,9 @@ class CompiledDecision(BaseModel):
     memory_key: str | None = None
     reason: str = ""
     rejection_reason: str | None = None
+    refund_reason_support_status: str = RefundReasonSupportStatus.NOT_APPLICABLE.value
+    refund_reason_validation_invoked: bool = False
+    compiler_clarification_cause: str | None = None
 
 
 class BusinessTargetResolver:
@@ -265,13 +272,27 @@ class DecisionCompiler:
             if decision.intent == Intent.ORDER_CANCEL:
                 return self._action(decision, context, tool, {"order_id": order_id})
             if not decision.reason:
-                return self._clarification(decision, "A refund reason is required.")
+                return self._clarification(
+                    decision,
+                    "A refund reason is required.",
+                    refund_reason_support_status=RefundReasonSupportStatus.MISSING,
+                    compiler_clarification_cause=CompilerClarificationCause.MISSING_REFUND_REASON,
+                )
             if not self._reason_is_user_supported(decision.reason, user_message):
                 return self._clarification(
-                    decision, "The refund reason must come from the customer request."
+                    decision,
+                    "The refund reason must come from the customer request.",
+                    refund_reason_support_status=RefundReasonSupportStatus.UNSUPPORTED,
+                    refund_reason_validation_invoked=True,
+                    compiler_clarification_cause=CompilerClarificationCause.UNSUPPORTED_REFUND_REASON,
                 )
             return self._action(
-                decision, context, tool, {"order_id": order_id, "reason": decision.reason}
+                decision,
+                context,
+                tool,
+                {"order_id": order_id, "reason": decision.reason},
+                refund_reason_support_status=RefundReasonSupportStatus.SUPPORTED,
+                refund_reason_validation_invoked=True,
             )
         if decision.intent == Intent.TICKET_CREATE:
             if not decision.category or not decision.description:
@@ -474,6 +495,11 @@ class DecisionCompiler:
         context: ExecutionContext,
         tool: str,
         semantic_arguments: dict[str, object],
+        *,
+        refund_reason_support_status: RefundReasonSupportStatus = (
+            RefundReasonSupportStatus.NOT_APPLICABLE
+        ),
+        refund_reason_validation_invoked: bool = False,
     ) -> CompiledDecision:
         return CompiledDecision(
             status=CompileStatus.COMPILED_ACTION,
@@ -486,25 +512,48 @@ class DecisionCompiler:
             selected_tool=tool,
             tool_arguments={"customer_id": context.effective_customer_id, **semantic_arguments},
             reason=decision.reason,
+            refund_reason_support_status=refund_reason_support_status.value,
+            refund_reason_validation_invoked=refund_reason_validation_invoked,
         )
 
     @staticmethod
-    def _clarification(decision: SemanticDecision, reason: str) -> CompiledDecision:
+    def _clarification(
+        decision: SemanticDecision,
+        reason: str,
+        *,
+        refund_reason_support_status: RefundReasonSupportStatus | None = None,
+        refund_reason_validation_invoked: bool = False,
+        compiler_clarification_cause: CompilerClarificationCause = CompilerClarificationCause.OTHER,
+    ) -> CompiledDecision:
+        status = (
+            RefundReasonSupportStatus.NOT_EVALUATED
+            if decision.intent is Intent.REFUND_REQUEST
+            else RefundReasonSupportStatus.NOT_APPLICABLE
+        )
         return CompiledDecision(
             status=CompileStatus.CLARIFICATION_REQUIRED,
             intent=decision.intent,
             request_type=AgentRequestType.UNCLEAR,
             reason=reason,
+            refund_reason_support_status=(refund_reason_support_status or status).value,
+            refund_reason_validation_invoked=refund_reason_validation_invoked,
+            compiler_clarification_cause=compiler_clarification_cause.value,
         )
 
     @staticmethod
     def _rejected(decision: SemanticDecision, reason: str) -> CompiledDecision:
+        status = (
+            RefundReasonSupportStatus.NOT_EVALUATED
+            if decision.intent is Intent.REFUND_REQUEST
+            else RefundReasonSupportStatus.NOT_APPLICABLE
+        )
         return CompiledDecision(
             status=CompileStatus.COMPILE_REJECTED,
             intent=decision.intent,
             request_type=AgentRequestType.UNCLEAR,
             reason="The request could not be compiled safely.",
             rejection_reason=reason,
+            refund_reason_support_status=status.value,
         )
 
 

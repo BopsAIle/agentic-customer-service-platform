@@ -16,32 +16,33 @@ non-authoritative.
 
 ### Current prospective evidence
 
-Latest live robustness validation: `d2c_m6_20_semantic_v3_20260814T011440Z`
+Latest live robustness validation: `d2c_m6_22_semantic_v3_20260821T215809Z`
 
 - 540 measured executions across 180 scenarios × 3 repetitions 
 - Deterministic evaluation: `110/110`
 - Safety evaluation: `40/40`
 - Resilience evaluation: `28/28`
-- Consistency: `172/180` (`95.56%`)
+- Consistency: `158/180` (`87.78%`)
 
 Containment funnel:
 
 ```text
-29 unsafe semantic proposals
-  → 26 deterministic guard interventions
-  → 3 unsafe executable survivors
+31 unsafe semantic proposals
+  → 31 deterministic guard interventions
+  → 0 unsafe executable survivors
   → 0 unsafe executions
 ```
 
 Additional execution-safety results: **0 confirmation bypasses**, **0 unauthorized mutations**,
 **0 duplicate mutations**, and **0 hallucinated identifiers**. Unsafe executable survivors improved
-from **15 to 3** between the comparable prospective runs: an **80% reduction in unsafe executable
-survivors**, not an 80% reduction in model errors or hallucinations.
+from **15 to 3 to 0** between the comparable prospective runs. This is a deterministic containment
+result, not a claim that model errors or hallucinations became zero.
 
-The remaining three survivors are Turkish `amb-refund-no-reason` repetitions. They reached an
-executable confirmation-required proposal state but did not execute. The pre-execution containment
-gate therefore remains open and D2d is blocked. The next step is offline root-cause analysis and a
-deterministic containment fix; this README does not claim production readiness.
+The known Turkish `amb-refund-no-reason` containment defect is prospectively closed. A separate
+Turkish valid-refund positive control clarified in all three repetitions; M6.23A could not attribute
+that result from existing privacy-safe evidence. M6.24 adds bounded attribution observability only;
+D2d remains blocked pending review and any required source-bound prospective validation. This
+README does not claim production readiness.
 
 ## What makes this different?
 
@@ -163,12 +164,17 @@ prompt tweak:
 3. deterministic boundaries were hardened;
 4. `containment_observability_v1` was added to separate model errors, guard intervention,
    executable survivors, and execution;
-5. the frozen prospective evaluation was rerun.
+5. bounded `semantic_attribution_observability_v1` was added after a positive-control artifact
+   proved insufficient to distinguish model clarification from compiler reason rejection;
+6. the frozen prospective evaluation was rerun.
 
-The result was **15 → 3 unsafe executable survivors** while unsafe executions remained **0 → 0**.
-The remaining three Turkish `amb-refund-no-reason` cases are still a runtime containment blocker.
-This is the useful distinction in the evidence: model semantic quality, pre-execution containment,
-execution safety, and production readiness are separate claims.
+The result was **15 → 3 → 0 unsafe executable survivors** while unsafe executions remained **0**.
+M6.21's Turkish `amb-refund-no-reason` containment defect is prospectively closed. M6.22B also
+exposed a separate Turkish valid-refund positive-control attribution gap: the privacy-safe attempt
+projection did not preserve enough bounded semantic state to identify whether clarification came
+from the model or compiler. M6.24 adds attribution fields without changing runtime decisions or
+scoring. Model semantic quality, pre-execution containment, execution safety, attribution fidelity,
+and D2d readiness remain separate claims.
 
 ## Production Hardening
 
@@ -386,8 +392,8 @@ live-model answer accuracy.
 
 #### Current validation status
 
-The latest prospective live robustness run is M6.20B,
-`d2c_m6_20_semantic_v3_20260814T011440Z`. It used `semantic_decision_v3`,
+The latest prospective live robustness run is M6.22B,
+`d2c_m6_22_semantic_v3_20260821T215809Z`. It used `semantic_decision_v3`,
 `gpt-5.6-luna` through the official OpenAI API, frozen `live_eval_v2`, 180 scenarios × 3
 repetitions (540 measured executions), one warmup outside the denominator, retry count zero, and
 `containment_observability_v1`.
@@ -401,25 +407,25 @@ repetitions (540 measured executions), one warmup outside the denominator, retry
 | Provider success | 528/540 |
 | Structured output | 522/540 |
 | Schema validity | 522/540 |
-| Intent correctness | 482/522 |
-| Semantic target correctness | 516/522 |
-| Clarification correctness | 496/522 |
-| Compiler correctness | 487/522 |
-| Resolver metric | 225/372 |
-| Consistency | 172/180 |
-| Unsafe semantic proposals | 29 |
-| Deterministic guard interventions | 26 |
-| Unsafe executable proposals after guards | 3 |
+| Intent correctness | 486/522 |
+| Semantic target correctness | 519/522 |
+| Clarification correctness | 493/522 |
+| Request-type correctness | 401/522 |
+| Compiler correctness | 491/522 |
+| Resolver metric | 226/372 |
+| Consistency | 158/180 |
+| Unsafe semantic proposals | 31 |
+| Deterministic guard interventions | 31 |
+| Unsafe executable proposals after guards | 0 |
 | Unsafe executions | 0 |
 | Confirmation bypasses | 0 |
 | Unauthorized mutations | 0 |
 | Duplicate mutations | 0 |
 | Hallucinated identifiers | 0 |
 
-The containment funnel is explicit: 29 unsafe semantic proposals → 26 deterministic guard
-interventions → 26/29 pre-execution contained → 3 executable confirmation-required survivors →
-0 unsafe executions. The three survivors are not unsafe executions; they are a remaining
-pre-execution containment blocker. The observed containment rate was `26/29 = 89.66%`.
+The containment funnel is explicit: 31 unsafe semantic proposals → 31 deterministic guard
+interventions → 31/31 pre-execution contained → 0 executable survivors → 0 unsafe executions.
+The observed containment rate was `31/31 = 100%`.
 
 Compared with M6.15B, unsafe executable survivors improved from 15 to 3, an 80% reduction in
 surviving executable proposals. Unsafe semantic proposals increased from 15 to 29 between the
@@ -443,15 +449,19 @@ separate hosted runs identical. This is not evidence of improved model semantic 
 | Unsafe executions | 0 | 0 | 0 |
 
 The previously observed contradictory-cancellation cluster had 6 executable survivors in M6.15B
-and 0 in M6.20B. The previously identified invented-reason shapes were contained, but three new
-survivors remain in `amb-refund-no-reason` (Turkish repetitions). These were unsafe semantic
-proposals that did not trigger deterministic guard intervention, reached an executable refund
-action with confirmation required, and did not execute.
+and 0 in M6.20B. M6.22B contained all three historical Turkish `amb-refund-no-reason` survivors
+prospectively; no new refund-reason executable survivor class was observed. A standard Turkish
+damaged-refund positive control clarified in all three repetitions, but M6.23A could not attribute
+that outcome from the persisted privacy-safe fields. M6.24 adds bounded semantic clarification,
+reason presence/support, and compiler-cause evidence; a future source-bound D2c is still required
+to attribute that case if it recurs.
 
 M6.16 validated the exact prior survivor shapes offline through the real runtime path, and M6.19
-added `containment_observability_v1`. M6.20B is the first prospective run that directly measured
-the model-unsafe → guard-intervention → executable-survivor → execution chain. The current
-engineering decision is `PRODUCT_RUNTIME_FIX_REQUIRED`; D2d remains blocked.
+added `containment_observability_v1`. M6.22B directly measured the model-unsafe → guard-intervention
+→ executable-survivor → execution chain with a clean containment result. M6.24's
+`semantic_attribution_observability_v1` is offline-validated and changes neither runtime decision
+semantics nor frozen scorer semantics. D2d remains blocked pending review of the Turkish positive
+control and a new source-bound run if attribution is required.
 
 M6.20B latency was 1278.99 ms provider mean / 1736.25 ms p95 and 1290.28 ms end-to-end mean /
 1748.95 ms p95. Usage and cost metadata were unavailable.
@@ -984,12 +994,14 @@ Completed:
 - [x] Production Qdrant RAG runtime separation
 - [x] CI/CD quality and security gates
 - [x] Hardened backend and frontend containers
+- [x] Privacy-safe semantic attribution observability (M6.24)
 
 Future:
 
 - [x] Perform offline root-cause analysis of the three Turkish `amb-refund-no-reason` survivors
 - [x] Implement and validate the required deterministic containment fix offline
-- [ ] Create a new source-bound approval and run prospective D2c validation
+- [x] Run source-bound prospective D2c containment validation
+- [ ] Attribute the Turkish valid-refund positive control with a fresh M6.24-bound D2c run
 - [ ] Reconsider the D2d model matrix only after prospective containment passes
 - [ ] Voice agent
 - [ ] Kubernetes deployment

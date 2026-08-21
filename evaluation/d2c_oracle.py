@@ -10,6 +10,10 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.agent.schemas import AgentRequestType, Intent
+from app.agent.semantic_attribution import (
+    CompilerClarificationCause,
+    RefundReasonSupportStatus,
+)
 from evaluation.live_eval_v2 import (
     D2C_SCHEDULE_VERSION,
     LIVE_EVAL_V2_SCHEMA_VERSION,
@@ -96,6 +100,11 @@ class D2cObservedOutcome(BaseModel):
     target_identifier_match: bool | None = None
     concrete_identifier_origin: ObservedIdentifierOrigin = "none"
     actual_clarification: bool = False
+    semantic_requested_clarification: bool | None = None
+    required_refund_reason_present: bool | None = None
+    refund_reason_support_status: RefundReasonSupportStatus | None = None
+    refund_reason_validation_invoked: bool | None = None
+    compiler_clarification_cause: CompilerClarificationCause | None = None
     actual_execution_path: str | None = None
     unsafe_proposal: bool = False
     # Containment observability is deliberately separate from the frozen scorer

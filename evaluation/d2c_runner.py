@@ -22,6 +22,10 @@ from app.agent.decision_compiler import BusinessTargetResolver, CompileStatus, D
 from app.agent.llm.diagnostics import StructuredDecisionValidationDiagnostic, ValidationStage
 from app.agent.llm.provider import OpenAICompatibleProvider
 from app.agent.schemas import Intent, SemanticDecisionV3, normalize_semantic_decision
+from app.agent.semantic_attribution import (
+    CompilerClarificationCause,
+    RefundReasonSupportStatus,
+)
 from app.agent.semantic_grounding import GroundingStatus, validate_semantic_grounding
 from app.agent.state import ConversationMessage
 from app.agent.target_admissibility import TargetAdmissibility, assess_target_admissibility
@@ -71,6 +75,9 @@ from evaluation.structured_output_openai_control import (
 RUNNER_VERSION: Literal["d2c_execution_harness_v1"] = "d2c_execution_harness_v1"
 CONTAINMENT_OBSERVABILITY_VERSION: Literal["containment_observability_v1"] = (
     "containment_observability_v1"
+)
+SEMANTIC_ATTRIBUTION_OBSERVABILITY_VERSION: Literal["semantic_attribution_observability_v1"] = (
+    "semantic_attribution_observability_v1"
 )
 RUNTIME: Literal["OpenAI API"] = "OpenAI API"
 MODEL = APPROVED_MODEL
@@ -139,6 +146,11 @@ class D2cAttemptArtifact(BaseModel):
     identifier_origin: str = "none"
     target_identifier_match: bool | None = None
     actual_clarification: bool = False
+    semantic_requested_clarification: bool | None = None
+    required_refund_reason_present: bool | None = None
+    refund_reason_support_status: RefundReasonSupportStatus | None = None
+    refund_reason_validation_invoked: bool | None = None
+    compiler_clarification_cause: CompilerClarificationCause | None = None
     actual_execution_path: str | None = None
     actual_grounding: str | None = None
     actual_target_admissibility: str | None = None
@@ -164,6 +176,9 @@ class D2cRunMetadata(BaseModel):
     containment_observability_version: Literal["containment_observability_v1"] = (
         CONTAINMENT_OBSERVABILITY_VERSION
     )
+    semantic_attribution_observability_version: (
+        Literal["semantic_attribution_observability_v1"] | None
+    ) = None
     spec_version: Literal["d2c_production_robustness_v1"] = "d2c_production_robustness_v1"
     spec_artifact_sha256: str
     experiment_id: str
@@ -333,6 +348,7 @@ def validate_approved_run(
         contract_schema_hash=CONTRACT_SCHEMA_HASH,
         function_schema_hash=FUNCTION_SCHEMA_HASH,
         prompt_hash=PROMPT_HASH,
+        semantic_attribution_observability_version=SEMANTIC_ATTRIBUTION_OBSERVABILITY_VERSION,
         dataset_hash=approval.dataset_hash,
         oracle_hash=approval.oracle_hash,
         schedule_hash=approval.schedule_hash,
@@ -573,6 +589,25 @@ def _observe_decision(
         target_identifier_match=_identifier_match(case, proposal),
         concrete_identifier_origin=cast(Any, identifier_origin),
         actual_clarification=compiled.status is CompileStatus.CLARIFICATION_REQUIRED,
+        semantic_requested_clarification=proposal.clarification_required,
+        required_refund_reason_present=(
+            bool(decision.reason) if decision.intent is Intent.REFUND_REQUEST else None
+        ),
+        refund_reason_support_status=(
+            RefundReasonSupportStatus(compiled.refund_reason_support_status)
+            if decision.intent is Intent.REFUND_REQUEST
+            else RefundReasonSupportStatus.NOT_APPLICABLE
+        ),
+        refund_reason_validation_invoked=(
+            compiled.refund_reason_validation_invoked
+            if decision.intent is Intent.REFUND_REQUEST
+            else None
+        ),
+        compiler_clarification_cause=(
+            CompilerClarificationCause(compiled.compiler_clarification_cause)
+            if compiled.compiler_clarification_cause is not None
+            else None
+        ),
         actual_execution_path=_safe_path(case, observed_stages),
         unsafe_proposal=unsafe_proposal,
         model_unsafe_semantic_proposal=model_unsafe_semantic_proposal,
@@ -643,6 +678,11 @@ def _attempt_from_observation(
         identifier_origin=observed.concrete_identifier_origin,
         target_identifier_match=observed.target_identifier_match,
         actual_clarification=observed.actual_clarification,
+        semantic_requested_clarification=observed.semantic_requested_clarification,
+        required_refund_reason_present=observed.required_refund_reason_present,
+        refund_reason_support_status=observed.refund_reason_support_status,
+        refund_reason_validation_invoked=observed.refund_reason_validation_invoked,
+        compiler_clarification_cause=observed.compiler_clarification_cause,
         actual_execution_path=observed.actual_execution_path,
         actual_grounding=observed.actual_grounding,
         actual_target_admissibility=observed.actual_target_admissibility,

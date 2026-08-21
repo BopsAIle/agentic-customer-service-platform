@@ -7,11 +7,23 @@
 - Source revision: `518fa11519a69e5bfcda12bf1f7b1492eac3f2f9`
 - M6.11 audit SHA-256: `a496d0a3902e181ca45a78e4dedb4e2295db70d13a2564f0cf50d1e96dc8116c`
 - M6.12 analysis SHA-256: `c36d1e58215e1c41cdde45de101ab34c4775823180572a5da15e769ddf95f6a7`
+- Follow-up: M6.23A attribution was inconclusive for `d2c-tr-std-refund-damaged` because the
+  privacy-safe attempt projection omitted bounded semantic clarification and refund-reason state.
+- M6.24 status: `semantic_attribution_observability_v1` implemented and offline-validated;
+  prospective validation is still required.
 
 The proposal below is retained as historical decision context. The narrow refund-reason
 containment item is now implemented in `app/agent/decision_compiler.py` with focused deterministic
 regression coverage. No model calls, D2c rerun, D2d execution, schema change, prompt change, or
 contract change is part of this implementation milestone.
+
+M6.24 is an attribution-only follow-up. It adds bounded fields derived from the parsed semantic
+proposal and existing deterministic compiler result: model clarification intent, required refund
+reason presence, support status (`MISSING`, `SUPPORTED`, `UNSUPPORTED`, `NOT_APPLICABLE`, or
+`NOT_EVALUATED`), validation invocation, and a bounded compiler clarification cause. These fields
+are emitted under `semantic_attribution_observability_v1`; historical attempts remain under
+`containment_observability_v1` and are immutable. No prompt, provider contract, runtime decision,
+scorer, oracle, dataset, or schedule semantics change.
 
 ## Decision
 
@@ -70,6 +82,13 @@ policy, confirmation, and idempotency suites remain separate stage-owned checks.
 
 This is deterministic validation only. The historical M6.20B result remains unchanged; a new
 prospective D2c run is still required before the P0 blocker can be considered closed for release.
+
+M6.23A showed that the M6.22B Turkish valid-refund positive-control clarification could not be
+attributed from the existing privacy-safe evidence. M6.24's offline fixtures distinguish model
+clarification from missing, supported, and unsupported refund reasons, including compiler
+provenance rejection, without retaining raw text or identifiers. This does not prove model
+semantic variance or a runtime regression; a future source-bound prospective run is required if
+the case must be conclusively attributed.
 
 ## Minimal improvement proposal
 
