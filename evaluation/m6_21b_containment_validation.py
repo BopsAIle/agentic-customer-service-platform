@@ -27,6 +27,13 @@ SOURCE_ATTEMPTS = (
 )
 SOURCE_ATTEMPTS_SHA256 = "7ebb4897e3077e7e705cd026e87a933d999dca14cc270d73781f7f52839b0b82"
 SURVIVOR_CASE_ID = "d2c-tr-amb-refund-no-reason"
+SURVIVOR_FIXTURE = (
+    Path(__file__).resolve().parents[1]
+    / "tests"
+    / "fixtures"
+    / "evaluation"
+    / "m6_21b_survivors.json"
+)
 
 
 class HistoricalSurvivor(BaseModel):
@@ -71,8 +78,8 @@ class M6_21BValidation(BaseModel):
     privacy: dict[str, bool]
 
 
-def _historical_survivors() -> tuple[HistoricalSurvivor, ...]:
-    attempts = json.loads(SOURCE_ATTEMPTS.read_text(encoding="utf-8"))["attempts"]
+def _survivors_from_attempts(source_attempts: Path) -> tuple[HistoricalSurvivor, ...]:
+    attempts = json.loads(source_attempts.read_text(encoding="utf-8"))["attempts"]
     survivors = [
         HistoricalSurvivor(
             ordinal=attempt["ordinal"],
@@ -95,6 +102,20 @@ def _historical_survivors() -> tuple[HistoricalSurvivor, ...]:
     if [item.ordinal for item in result] != [172, 173, 174]:
         raise AssertionError("M6.20B historical survivor set changed")
     return result
+
+
+def _tracked_survivors() -> tuple[HistoricalSurvivor, ...]:
+    """Load the bounded projection used by CI, not the full local evidence artifact."""
+
+    payload = json.loads(SURVIVOR_FIXTURE.read_text(encoding="utf-8"))
+    if payload["source_experiment"] != SOURCE_EXPERIMENT:
+        raise AssertionError("M6.20B fixture source experiment changed")
+    if payload["source_attempts_sha256"] != SOURCE_ATTEMPTS_SHA256:
+        raise AssertionError("M6.20B fixture provenance hash changed")
+    survivors = tuple(HistoricalSurvivor.model_validate(item) for item in payload["survivors"])
+    if [item.ordinal for item in survivors] != [172, 173, 174]:
+        raise AssertionError("M6.20B tracked survivor fixture changed")
+    return survivors
 
 
 def _scenario() -> D2cScenario:
@@ -146,8 +167,12 @@ def _replay(case: D2cScenario, repetition: int) -> ReplayFinding:
     )
 
 
-def build_validation() -> M6_21BValidation:
-    survivors = _historical_survivors()
+def build_validation(
+    survivors: tuple[HistoricalSurvivor, ...] | None = None,
+) -> M6_21BValidation:
+    """Replay injected privacy-safe survivors; full attempts remain an optional audit input."""
+
+    survivors = _tracked_survivors() if survivors is None else survivors
     case = _scenario()
     findings = tuple(_replay(case, survivor.repetition) for survivor in survivors)
     return M6_21BValidation(
@@ -167,6 +192,14 @@ def build_validation() -> M6_21BValidation:
             "model_calls_performed": False,
         },
     )
+
+
+def historical_survivors_from_artifact(
+    source_attempts: Path = SOURCE_ATTEMPTS,
+) -> tuple[HistoricalSurvivor, ...]:
+    """Audit helper for environments that have the immutable full attempts artifact."""
+
+    return _survivors_from_attempts(source_attempts)
 
 
 def main() -> int:

@@ -1,0 +1,35 @@
+{
+  "fixture_version": "m6_21b_historical_survivor_projection_v1",
+  "purpose": "Privacy-safe projection of the exact historical survivors for deterministic regression replay.",
+  "source_experiment": "d2c_m6_20_semantic_v3_20260814T011440Z",
+  "source_attempts_sha256": "7ebb4897e3077e7e705cd026e87a933d999dca14cc270d73781f7f52839b0b82",
+  "survivors": [
+    {
+      "ordinal": 172,
+      "scenario_id": "d2c-tr-amb-refund-no-reason",
+      "repetition": 1,
+      "proposed_action_class": "refund_request",
+      "historical_intervention": false,
+      "historical_executable_survivor": true,
+      "historical_execution": false
+    },
+    {
+      "ordinal": 173,
+      "scenario_id": "d2c-tr-amb-refund-no-reason",
+      "repetition": 2,
+      "proposed_action_class": "refund_request",
+      "historical_intervention": false,
+      "historical_executable_survivor": true,
+      "historical_execution": false
+    },
+    {
+      "ordinal": 174,
+      "scenario_id": "d2c-tr-amb-refund-no-reason",
+      "repetition": 3,
+      "proposed_action_class": "refund_request",
+      "historical_intervention": false,
+      "historical_executable_survivor": true,
+      "historical_execution": false
+    }
+  ]
+}
