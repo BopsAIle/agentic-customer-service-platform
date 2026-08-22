@@ -67,19 +67,19 @@ CommandRunner = Callable[[tuple[str, ...]], subprocess.CompletedProcess[str]]
 class FrozenImageComposeStack(HermeticComposeStack):
     """Hermetic Compose stack that can only use the approved immutable images."""
 
-    def __init__(self, project: str, image_override_path: Path) -> None:
+    def __init__(self, project: str, image_compose_path: Path) -> None:
         super().__init__(project)
-        self.image_override_path = image_override_path
+        self.image_compose_path = image_compose_path
 
     @property
     def command(self) -> list[str]:
-        command = super().command
-        env_file_index = command.index("--env-file")
         return [
-            *command[:env_file_index],
+            "docker",
+            "compose",
+            "--project-name",
+            self.project,
             "--file",
-            str(self.image_override_path),
-            *command[env_file_index:],
+            str(self.image_compose_path),
         ]
 
     def reset_seed(self) -> None:
@@ -144,18 +144,34 @@ def _image_inspection_matches(
     )
 
 
-def _write_image_override(freeze: D2dEnvironmentFreeze, directory: Path) -> Path:
-    """Create a temporary Compose overlay that disables all build definitions."""
+def _write_image_only_compose(
+    freeze: D2dEnvironmentFreeze,
+    directory: Path,
+    rendered_config: dict[str, Any],
+) -> Path:
+    """Create a Compose-compatible file with explicit immutable images and no builds."""
 
-    services: dict[str, dict[str, object]] = {}
+    services = rendered_config.get("services")
+    if not isinstance(services, dict) or not services:
+        raise D2dEnvironmentNotReady("D2D_ENVIRONMENT_COMPOSE_CONFIG_INVALID:services")
     for service in freeze.required_services:
         value = freeze.image_identities.get(service)
         if value is None:
             raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_IMAGE_MISMATCH:missing:{service}")
-        services[service] = {"image": image_reference(value), "build": None}
+    for service, service_config in services.items():
+        if not isinstance(service_config, dict):
+            raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_COMPOSE_CONFIG_INVALID:{service}")
+        service_config.pop("build", None)
+        value = freeze.image_identities.get(service)
+        if value is not None:
+            service_config["image"] = image_reference(value)
+        if "build" in service_config or not isinstance(service_config.get("image"), str):
+            raise D2dEnvironmentNotReady(
+                f"D2D_ENVIRONMENT_COMPOSE_CONFIG_INVALID:image_only:{service}"
+            )
     path = directory / "frozen-images.json"
     path.write_bytes(
-        json.dumps({"services": services}, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+        json.dumps(rendered_config, sort_keys=True, separators=(",", ":")).encode() + b"\n"
     )
     return path
 
@@ -174,6 +190,7 @@ class D2dReleaseRunner:
         lifecycle_root: Path = DEFAULT_LIFECYCLE_ROOT,
         command_runner: CommandRunner = _default_command_runner,
         stack_factory: Callable[[str], ComposeStackLike] = HermeticComposeStack,
+        compose_config_runner: Callable[[str], subprocess.CompletedProcess[str]] | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         self.approval_path = approval_path
@@ -184,7 +201,13 @@ class D2dReleaseRunner:
         self.lifecycle_root = lifecycle_root
         self.command_runner = command_runner
         self.stack_factory = stack_factory
+        self.compose_config_runner = compose_config_runner or self._default_compose_config_runner
         self.now = now
+
+    @staticmethod
+    def _default_compose_config_runner(project: str) -> subprocess.CompletedProcess[str]:
+        stack = HermeticComposeStack(project)
+        return stack.run(("config", "--format", "json"), timeout=120, check=False)
 
     def load_and_validate(self) -> tuple[D2dProspectiveApproval, D2dEnvironmentFreeze]:
         approval = load_approval(self.approval_path, expected_sha256=self.approval_sha256)
@@ -247,8 +270,21 @@ class D2dReleaseRunner:
         approval, freeze = self.load_and_validate()
         self.check_environment(freeze)
         with tempfile.TemporaryDirectory(prefix="d2d-frozen-images-") as temporary_directory:
-            image_override_path = _write_image_override(freeze, Path(temporary_directory))
-            return self._run_with_frozen_environment(approval, freeze, image_override_path)
+            rendered = self.compose_config_runner(freeze.compose_project)
+            if rendered.returncode != 0:
+                raise D2dEnvironmentNotReady("D2D_ENVIRONMENT_COMPOSE_CONFIG_INVALID:render")
+            try:
+                rendered_config = json.loads(rendered.stdout)
+            except json.JSONDecodeError as error:
+                raise D2dEnvironmentNotReady(
+                    "D2D_ENVIRONMENT_COMPOSE_CONFIG_INVALID:json"
+                ) from error
+            if not isinstance(rendered_config, dict):
+                raise D2dEnvironmentNotReady("D2D_ENVIRONMENT_COMPOSE_CONFIG_INVALID:root")
+            image_compose_path = _write_image_only_compose(
+                freeze, Path(temporary_directory), rendered_config
+            )
+            return self._run_with_frozen_environment(approval, freeze, image_compose_path)
 
     def _run_with_frozen_environment(
         self,

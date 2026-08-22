@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import shutil
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -20,7 +21,7 @@ from evaluation.d2d.release_runner import (
     D2dEnvironmentNotReady,
     D2dReleaseRunner,
     FrozenImageComposeStack,
-    _write_image_override,
+    _write_image_only_compose,
 )
 from evaluation.d2d_approval import (
     D2D_D2C_SUMMARY_SHA256,
@@ -309,6 +310,16 @@ def _available_image_inspection(command: tuple[str, ...]) -> subprocess.Complete
     return subprocess.CompletedProcess(command, 0, "", "")
 
 
+def _rendered_compose_config() -> dict[str, object]:
+    return {
+        "services": {
+            service: {"build": ".", "image": f"old-{service}:local"}
+            for service in ("db", "qdrant", "demo-setup", "backend", "frontend", "jaeger")
+        },
+        "volumes": {"postgres_data": {}, "qdrant_data": {}},
+    }
+
+
 def test_frozen_image_identity_match_passes_environment_check() -> None:
     runner = D2dReleaseRunner(
         approval_path=Path("unused"),
@@ -386,6 +397,29 @@ def test_image_mismatch_does_not_consume_approval(tmp_path: Path) -> None:
     assert not (tmp_path / "lifecycle").exists()
 
 
+def test_invalid_rendered_compose_does_not_consume_approval(tmp_path: Path) -> None:
+    source = subprocess.check_output(("git", "rev-parse", "HEAD"), text=True).strip()
+    freeze = _freeze(source)
+    approval = _approval(freeze, source)
+    approval_path = tmp_path / "d2d-release-test.json"
+    freeze_path = tmp_path / "d2d-release-test.environment-freeze.json"
+    approval_sha = write_approval(approval, approval_path)
+    freeze_sha = write_environment_freeze(freeze, freeze_path)
+
+    with pytest.raises(D2dEnvironmentNotReady, match="D2D_ENVIRONMENT_COMPOSE_CONFIG_INVALID"):
+        D2dReleaseRunner(
+            approval_path=approval_path,
+            approval_sha256=approval_sha,
+            environment_path=freeze_path,
+            environment_sha256=freeze_sha,
+            artifact_root=tmp_path / "release",
+            lifecycle_root=tmp_path / "lifecycle",
+            command_runner=_available_image_inspection,
+            compose_config_runner=lambda _: subprocess.CompletedProcess([], 0, "{}", ""),
+        ).run()
+    assert not (tmp_path / "lifecycle").exists()
+
+
 def test_release_runner_requires_an_approval(tmp_path: Path) -> None:
     runner = D2dReleaseRunner(
         approval_path=tmp_path / "missing-approval.json",
@@ -445,6 +479,9 @@ def test_release_runner_consumes_once_and_publishes_release_bundle(
         artifact_root=tmp_path / "release",
         lifecycle_root=tmp_path / "lifecycle",
         command_runner=_available_image_inspection,
+        compose_config_runner=lambda _: subprocess.CompletedProcess(
+            [], 0, json.dumps(_rendered_compose_config()), ""
+        ),
         stack_factory=lambda _: stack,
     )
     run_id, artifact_path, _ = runner.run()
@@ -455,17 +492,54 @@ def test_release_runner_consumes_once_and_publishes_release_bundle(
     assert len(list((tmp_path / "lifecycle").glob("*.json"))) == 3
 
 
-def test_frozen_compose_override_pins_images_and_disables_build(tmp_path: Path) -> None:
+def test_frozen_compose_file_pins_images_and_disables_build(tmp_path: Path) -> None:
     freeze = _freeze()
-    override = _write_image_override(freeze, tmp_path)
-    payload = json.loads(override.read_text())
+    compose_path = _write_image_only_compose(freeze, tmp_path, _rendered_compose_config())
+    payload = json.loads(compose_path.read_text())
     assert all(service in payload["services"] for service in freeze.required_services)
     for service, service_config in payload["services"].items():
         identity = freeze.image_identities[service]
         assert isinstance(identity, D2dImageIdentity)
         assert service_config["image"].endswith(f"@sha256:{identity.image_digest}")
-        assert service_config["build"] is None
-    stack = FrozenImageComposeStack(freeze.compose_project, override)
+        assert "build" not in service_config
+    stack = FrozenImageComposeStack(freeze.compose_project, compose_path)
     command = stack.command
     assert "--build" not in command
-    assert str(override) in command
+    assert str(compose_path) in command
+
+
+@pytest.mark.skipif(shutil.which("docker") is None, reason="Docker is unavailable")
+def test_frozen_compose_file_is_accepted_by_docker_compose_config(tmp_path: Path) -> None:
+    freeze = _freeze()
+    rendered = subprocess.run(
+        (
+            "docker",
+            "compose",
+            "--file",
+            "docker-compose.yml",
+            "--file",
+            "docker-compose.integration.yml",
+            "--env-file",
+            ".env.example",
+            "config",
+            "--format",
+            "json",
+        ),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert rendered.returncode == 0, rendered.stderr
+    compose_path = _write_image_only_compose(freeze, tmp_path, json.loads(rendered.stdout))
+    checked = subprocess.run(
+        ("docker", "compose", "--file", str(compose_path), "config", "--format", "json"),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert checked.returncode == 0, checked.stderr
+    checked_config = json.loads(checked.stdout)
+    assert all("build" not in service for service in checked_config["services"].values())
+    for service, identity in freeze.image_identities.items():
+        assert isinstance(identity, D2dImageIdentity)
+        assert checked_config["services"][service]["image"] == identity.reference
