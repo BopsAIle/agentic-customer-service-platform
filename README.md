@@ -2,720 +2,199 @@
 
 > Building AI agents that can fail safely.
 
-Production-oriented reference implementation of an agentic customer service platform with semantic
-guardrails, provenance enforcement, deterministic execution controls, and operational release
-validation.
+Production-oriented reference implementation of an agentic customer service platform with semantic guardrails, provenance checks, deterministic execution controls, and operational release validation.
 
-It is built around one principle:
+The central design rule is simple:
 
-> **The LLM proposes; deterministic software decides what may execute.**
+> **The LLM proposes. Deterministic software decides what may execute.**
 
-This is not just a LangGraph, RAG, or tool-calling demo. The model emits an untrusted semantic
-proposal. Real-world actions pass through server-owned grounding, target admissibility,
-deterministic compilation, customer-scoped business validation, policy, confirmation, idempotency,
-and audit controls before execution.
+The model can misunderstand a request or produce an unsupported argument. That output remains a proposal until server-owned grounding, target validation, compilation, policy, confirmation, and idempotency checks allow an action to proceed.
 
-The goal is not to make the LLM incapable of making mistakes. The goal is to make model mistakes
-non-authoritative.
+## Why this project exists
 
-### Current prospective evidence
+Customer-service agents do more than generate text. They read customer-scoped state, retrieve knowledge, choose among tools, handle confirmation, survive dependency failures, and leave an audit trail that an operator can inspect.
 
-Latest live robustness validation: `d2c_m6_29_semantic_v3_20260822T011436Z`
+This project treats those concerns as separate boundaries. The result is a platform that can be demonstrated as a real agent workflow and evaluated as a controlled system, not only as a chat response.
 
-- 540 measured executions across 180 scenarios × 3 repetitions
-- Deterministic evaluation: `110/110`
-- Safety evaluation: `40/40`
-- Resilience evaluation: `28/28`
-- Provider success: `528/540`
-- Structured output / schema validity: `522/540`
-- Critical Turkish valid refund: `3/3` supported → Risk-2 confirmation
+## What to see first
 
-Containment funnel:
+The React Operator Console is designed as a compact AI platform control plane:
 
-```text
-30 unsafe semantic proposals
-  → 30 deterministic guard interventions
-  → 0 unsafe executable survivors
-  → 0 unsafe executions
-```
+1. **Overview** explains the architecture and release evidence.
+2. **Agent Playground** lets an engineer submit a business or safety scenario through the existing API.
+3. **Investigation** shows the bounded trace, grounding evidence, policy result, and execution state.
+4. **Safety** shows the deterministic evaluation and operational release-gate evidence.
 
-Additional execution-safety results: **0 confirmation bypasses**, **0 unauthorized mutations**,
-**0 duplicate mutations**, and **0 hallucinated identifiers**. Unsafe executable survivors improved
-from **15 → 3 → 0 → 0 → 0** across the prospective containment sequence. This is a deterministic
-containment result, not a claim that model errors or hallucinations became zero.
+No screen exposes chain-of-thought, raw provider responses, secrets, or direct production mutation controls.
 
-The known Turkish `amb-refund-no-reason` containment defect is prospectively closed. M6.27B aligned
-the prompt with the existing provenance contract, M6.28B passed the targeted validation, and
-M6.29B generalized the result across the full benchmark: the standard Turkish damaged-refund
-positive control reached supported Risk-2 confirmation in all three repetitions. D2c is closed for
-the current release candidate. M6.34 subsequently passed the source-bound D2d operational release
-gate. The consolidated evidence is in [`docs/release-evidence.md`](docs/release-evidence.md). This
-README does not claim production readiness.
-
-## What makes this different?
-
-Most agent demos stop at tool calling. This project focuses on what happens when the model is
-wrong:
-
-- **LLM outputs are untrusted.** Model-produced identifiers, targets, and required business
-  arguments do not become executable truth without server-owned grounding and validation.
-- **Execution authority is deterministic.** Grounding, target admissibility, `DecisionCompiler`,
-  customer-scoped resolution, business validation, policy, and confirmation sit between semantic
-  output and mutations.
-- **Confirmation binds to a stored action.** Approval applies to a persisted pending action that is
-  revalidated before execution; the model cannot recreate or self-confirm it.
-- **Writes are replay-aware.** Stable action/request identities and database idempotency protections
-  prevent blind duplicate mutations; unknown write outcomes are not automatically replayed.
-- **Evaluation is evidence, not a demo script.** Frozen bilingual scenarios, source-bound approvals,
-  immutable hashes, explicit budgets, and prospective safety gates make failures reproducible and
-  distinguish model quality from runtime containment and execution safety.
-
-**The memorable architecture boundary is simple: the LLM proposes; deterministic software decides
-what may execute.**
-
-Core stack: Python, FastAPI, LangGraph, PostgreSQL, Qdrant, OpenTelemetry, React, and TypeScript.
-
-## Overview
-
-Enterprise customer support agents need more than conversational fluency. They must authenticate
-callers, preserve customer isolation, select tools, respect live business state, enforce safety
-rules, recover from dependency failures, and expose enough telemetry for operators to understand
-what happened.
-
-This project provides those capabilities as separate, testable layers:
-
-- ✓ LangGraph orchestration with typed state and structured decisions
-- ✓ Authentication, role enforcement, and server-owned customer scope
-- ✓ Actor-scoped PostgreSQL checkpoint persistence
-- ✓ Hybrid RAG with citations
-- ✓ Selective persistent customer memory
-- ✓ Deterministic policy engine and confirmation boundaries
-- ✓ Database-backed write idempotency and timeout-aware resilience
-- ✓ Human escalation for high-risk work
-- ✓ Offline evaluation framework with fault injection
-- ✓ OpenTelemetry traces exported to Jaeger with bounded in-process metrics
-- ✓ Reproducible CI gates and hardened non-root containers
-- ✓ React Operator Console with metadata-only inspection
-
-## Architecture Overview
+## Architecture overview
 
 ```mermaid
-flowchart TD
-    CLIENT[Customer / Support Operator] --> API[FastAPI HTTP Boundary]
-    API --> AUTH[Authentication and RBAC]
-    AUTH --> CONTEXT[Server-owned ExecutionContext]
-    CONTEXT --> GRAPH[LangGraph Agent Runtime]
-
-    GRAPH --> SEMANTIC[semantic_decision_v3<br/>UNTRUSTED MODEL PROPOSAL]
-    SEMANTIC --> BOUNDARY[SERVER-OWNED DETERMINISTIC BOUNDARY]
-    BOUNDARY --> GROUND[Grounding]
-    GROUND --> ADMISSIBLE[Target admissibility]
-    ADMISSIBLE --> COMPILER[Deterministic DecisionCompiler]
-    COMPILER --> RESOLVER[Customer-scoped resolver]
-    RESOLVER --> POLICY[Business validation / policy]
-    POLICY --> CONFIRM[Confirmation or escalation]
-    CONFIRM --> EXECUTE[Validated execution]
-    EXECUTE --> TOOLS[Typed Business Tools]
-    GRAPH --> MEMORY[Customer-scoped Memory]
-    GRAPH --> RAG[Configured RAG Runtime]
-
-    MEMORY --> POSTGRES[(PostgreSQL)]
-    TOOLS --> POSTGRES
-    GRAPH --> CHECKPOINTS[Durable Checkpoints]
-    CHECKPOINTS --> POSTGRES
+flowchart TB
+    USER[User / Support Operator] --> CONSOLE[React Operator Console]
+    CONSOLE --> AGENT[Agent Orchestration]
+    AGENT --> LLM[LLM semantic proposal\nUNTRUSTED]
+    LLM --> VALIDATE[Provenance and target validation]
+    VALIDATE --> COMPILER[Decision Compiler]
+    COMPILER --> POLICY[Policy Engine]
+    POLICY --> CONFIRM[Confirmation Gate]
+    CONFIRM --> AUTHORITY[Execution Authority]
+    AUTHORITY --> TOOLS[Typed Business Tools]
+    TOOLS --> POSTGRES[(PostgreSQL)]
+    AGENT --> RAG[RAG / Knowledge]
     RAG --> QDRANT[(Qdrant)]
-
-    API -. safe metadata .-> OBS[OpenTelemetry / Jaeger]
-    GRAPH -. safe metadata .-> OBS
-    GRAPH -. deterministic scenarios .-> EVAL[Evaluation Harness]
-    CONSOLE[React Operator Console] --> API
+    AGENT -. bounded metadata .-> OTEL[OpenTelemetry]
+    OTEL --> JAEGER[Jaeger]
+    AGENT -. async work .-> WORKERS[Background Workers]
 ```
 
-Authentication resolves a typed principal before protected HTTP work begins. The server derives an
-`ExecutionContext` containing actor identity, effective customer scope, request ID, and conversation
-ID; request bodies and model output cannot replace that identity. The LLM proposes a structured
-decision, but customer, order, ticket, refund, cancellation, and escalation operations remain
-behind typed tools, ownership checks, policy decisions, and confirmation rules.
-
-PostgreSQL owns business records, idempotency receipts, persistent memory, and LangGraph
-checkpoints. Qdrant provides the configured production retrieval path. OpenTelemetry and the
-deterministic evaluation harness observe behavior without becoming authorization inputs.
-
-The canonical semantic path is:
+The trust boundary is explicit:
 
 ```text
-user request
-  → context loading
-  → semantic_decision_v3
-  → semantic entity grounding
-  → target admissibility
-  → deterministic DecisionCompiler
-  → BusinessTargetResolver where permitted
-  → business validation
-  → policy
-  → confirmation or human escalation
-  → execution and observability
+User request
+  -> Agent orchestration
+  -> Semantic proposal
+  -> Provenance validation
+  -> Decision Compiler
+  -> Policy evaluation
+  -> Confirmation or escalation
+  -> Execution authority
 ```
 
-The LLM proposes semantic intent, request type, and typed references. It does not directly own
-business tools, customer scope, trusted identifiers, business truth, policy outcomes, or
-confirmation state. Executable actions are constructed and authorized by the server.
+The LLM does not establish customer scope, trusted identifiers, policy outcomes, or confirmation state. RAG, memory, and observability provide context or evidence. They do not authorize a business mutation.
 
-For a presentation-level view of the trust boundaries and supporting systems, see
-[`docs/architecture.md`](docs/architecture.md). The core flow is:
+See the detailed [architecture document](docs/architecture.md) for the full system diagram and trust-boundary notes.
 
-```text
-User Request
-  → Agent Orchestration
-  → Semantic Proposal
-  → Provenance Validation
-  → Decision Compiler
-  → Policy Evaluation
-  → Confirmation
-  → Execution Authority
-```
+## Safety model
 
-The LLM output is proposal-only. Deterministic layers own validation authority, policy authority,
-and execution authority. RAG, memory, and observability provide bounded context or evidence; they
-cannot authorize a business mutation.
+The runtime fails closed when the proposal is unsupported or cannot be grounded.
 
-## Safety Architecture
+- Model-produced identifiers and arguments do not become trusted facts automatically.
+- Deterministic validation checks customer scope, target admissibility, required fields, and business state.
+- Risk 2 mutations require confirmation bound to persisted action state.
+- Risk 3 work follows a human escalation path.
+- Database-backed idempotency prevents duplicate business effects on covered paths.
+- Replays cannot resurrect stale or declined confirmations.
+- Unknown write outcomes are not blindly replayed.
 
-The execution boundary is fail-closed. Unsupported or ungrounded arguments are rejected before
-execution, and model output cannot create trusted identifiers or bypass customer scope. Risk-2
-mutations require confirmation bound to persisted action state; higher-risk work follows the
-policy-controlled escalation path.
+The platform's safety claim is about authority placement and measured containment. It is not a claim that the model never makes a mistake.
 
-The runtime also enforces database-backed idempotent mutations, replay protection, and stale or
-declined confirmation protection. These controls prevent blind duplicate effects and keep
-confirmation state non-resurrecting across replay and restart paths.
+## Validation evidence
 
-## Validation Summary
+The current release candidate has two separate gates:
 
 | Area | Result |
 | --- | --- |
-| Semantic safety | PASS |
-| Unsafe executable survivors | `0` |
-| D2c validation | PASS |
-| D2d operational gate | PASS |
-| Concurrency | PASS |
-| Restart/Persistence | PASS |
-| Fault recovery | PASS |
-| Observability/Privacy | PASS |
-
-The measured executable-survivor trend is `15 → 3 → 0 → 0 → 0`. This is prospective evidence
-for the frozen release-candidate contracts, not a universal claim about LLM reliability.
-
-## Failure-driven hardening
-
-A prospective live evaluation exposed semantic failures that reached executable,
-confirmation-required action state. The engineering response was to make the authority boundary
-measurable and fail closed:
-
-1. failures were attributed by runtime stage;
-2. containment gaps were reproduced through the real execution path;
-3. deterministic boundaries were hardened;
-4. `containment_observability_v1` was added to separate model errors, guard intervention,
-   executable survivors, and execution;
-5. bounded `semantic_attribution_observability_v1` was added after a positive-control artifact
-   proved insufficient to distinguish model clarification from compiler reason rejection;
-6. the frozen prospective evaluation was rerun;
-7. the semantic prompt was hardened to require provenance-preserving executable arguments;
-8. targeted and full prospective validation confirmed the prompt intervention without weakening
-   deterministic containment.
-
-The executable-survivor sequence is **15 → 3 → 0 → 0 → 0** while unsafe executions remained
-**0**. M6.21's Turkish `amb-refund-no-reason` containment defect is prospectively closed.
-M6.26B conclusively attributed the separate Turkish valid-refund positive-control failure to
-unsupported model-proposed reasons; the compiler correctly blocked them. M6.24 added attribution
-fields and M6.27B aligned the prompt without changing runtime decisions or scoring. Model semantic
-quality, pre-execution containment, execution safety, attribution fidelity, and operational D2d
-readiness remain separate claims.
-
-## Production Hardening
-
-The current implementation includes the following production-oriented controls:
-
-| Area | Current boundary |
-| --- | --- |
-| Authentication and RBAC | Typed principals, replaceable authenticator protocol, static bearer development backend, protected business routes, operator-only APIs, and central customer-scope resolution |
-| Durable checkpoints | Official PostgreSQL LangGraph checkpointer behind an application provider boundary; memory backend remains available for deterministic tests |
-| Confirmation persistence | Pending actions survive process restarts and are bound to actor, actor type, customer scope, and conversation |
-| Idempotent writes | Request-scoped keys and database uniqueness prevent duplicate refunds, cancellations, tickets, and escalations across workers |
-| Timeout-aware resilience | Explicit LLM, retrieval, reranker, database, and HTTP timeouts; unknown write outcomes are not automatically replayed |
-| Production RAG runtime | Configurable local or Qdrant retrieval, provider-neutral embeddings, optional reranking, citation preservation, and safe fallback metadata |
-| CI/CD gates | Frozen backend and frontend installs, lint, types, tests, deterministic evaluations, vulnerability and secret scanning, image builds, Compose validation, and authenticated full-stack lifecycle smoke checks |
-| Hardened containers | Multi-stage builds, non-root runtime users, graceful SIGTERM handling, bounded telemetry flush, readiness checks, security headers, and a production-oriented Compose overlay |
-
-Together these controls make the repository a production-oriented deployment reference, but they
-do not replace environment-specific identity providers, secret management, high-availability data
-services, TLS termination, or infrastructure orchestration.
-
-## Core Capabilities
-
-### Agent Orchestration
-
-The LangGraph state machine uses typed state, deterministic routing, and Pydantic-validated structured
-decisions. The graph separates semantic understanding, deterministic action compilation, validation,
-policy evaluation, confirmation, retrieval, memory, execution, and response construction.
-
-```text
-load_context → retrieve_memory → check_pending_action
-  ├─ confirmation → policy_revalidation → execute_confirmed_action → respond
-  └─ new request → understand_request → select_tool → validate_tool
-       → evaluate_policy → allow / confirm / human → execute / retrieve → respond
-```
-
-Short-term conversation state is durably checkpointed in PostgreSQL through the official
-LangGraph checkpointer. Threads are scoped by actor type, actor ID, effective customer ID, and
-conversation ID so caller-selected conversation identifiers cannot collide across principals.
-Checkpoint reconstruction uses an explicit, exact-symbol allowlist for application-owned state;
-unknown Python types cause checkpoint loading to fail. Pickle fallback is disabled. Local Compose,
-integration, and production set `LANGGRAPH_STRICT_MSGPACK=true`, which also enables LangGraph's
-schema-derived allowlist support. Existing msgpack checkpoints remain compatible because the
-serialized format is unchanged and every intentional application state type is allowlisted.
-`CHECKPOINT_BACKEND=memory` keeps tests and lightweight local runs deterministic. Tool inputs are
-validated before use, and expected domain failures are mapped to bounded responses.
-
-Policy decisions emit a durable operational audit trail to PostgreSQL when
-`POLICY_AUDIT_BACKEND=postgres` (the production and integration requirement). Events contain only
-bounded policy lifecycle metadata and are queried in deterministic, limited windows. Audit is
-observational evidence: authentication, authorization, confirmation validity, business state,
-and idempotency never consult it. The optional in-memory adapter is bounded and intended only for
-tests/lightweight local runs. Database retention and pruning remain an operator responsibility;
-this is not a compliance-grade immutable ledger.
-
-The audit lifecycle covers every agent-originated mutating tool without persisting tool arguments
-or business free text. Risk 1 records policy allow, execution attempt, and success/failure/unknown
-outcome. Risk 2 records confirmation, revalidation, and the same execution outcomes. Risk 3 records
-the human-required policy decision plus the actual escalation persistence outcome. Execution event
-IDs are deterministic for a run/action/stage/outcome, so replayed observations do not create an
-unbounded duplicate trail. Audit is persisted before a protected write is attempted; audit and the
-business mutation are not one distributed transaction, so idempotency receipts remain authoritative
-when post-commit audit evidence is unavailable.
-
-Qdrant knowledge is deployed as immutable, versioned hybrid snapshots. The logical
-`QDRANT_COLLECTION` name is an atomic alias (for example, `customer_service_knowledge`) pointing
-to a physical `*_v_<snapshot-spec-prefix>` collection. `corpus_hash` identifies only the canonical
-complete source corpus; `snapshot_id`/`snapshot_spec_hash` identifies the immutable index artifact
-and includes embedding provider/model/dimension plus dense/sparse schema, knowledge-schema,
-chunking, and lexical-index semantics. Therefore one corpus may safely have multiple snapshots
-when its embedding or index specification changes. The full spec hash is retained in provenance;
-the collection name uses only its first 16 hexadecimal characters.
-
-`scripts.rag_ingest` builds the complete corpus, derives lexical vocabulary/IDF from that corpus,
-validates dense+sparse schema and provenance, then switches the alias atomically. Incremental
-mutation of the active hybrid collection is not supported because lexical semantics belong to the
-complete snapshot. Use `python -m scripts.rag_ingest list` to inspect snapshot and corpus identities
-and `python -m scripts.rag_ingest rollback <physical-collection>` for a controlled rollback; old
-snapshots are retained until operators explicitly retire them. Readiness and activation validate
-the full stored spec hash and runtime embedding compatibility. Legacy corpus-only snapshots without
-spec provenance are incompatible and require a controlled rebuild; they are never silently reused.
-Rollback across embedding-model versions also requires coordinated runtime embedding configuration.
-
-Snapshot builds record a safe Qdrant `build_state` (`building`, `failed`, or `complete`) and the
-expected point count in provenance. A retry can fully rebuild an exact, managed, inactive failed or
-incomplete snapshot; complete compatible snapshots are validated and reused. Active snapshots are
-never automatically repaired or deleted, and collections without matching managed provenance are
-treated as collisions rather than deletion candidates. This is deterministic operator-triggered
-rebuild/recovery, not background self-healing or automated snapshot pruning.
-
-### Business Tools
-
-The explicit tool registry currently includes:
-
-- `get_customer`
-- `get_customer_orders`
-- `get_order`
-- `get_customer_tickets`
-- `get_ticket`
-- `create_support_ticket`
-- `cancel_order`
-- `request_refund`
-- `escalate_to_human`
-
-Tools receive database sessions explicitly. The agent does not query persistence directly or bypass service-level ownership and state checks.
-
-All business writes use actor-scoped idempotency receipts committed in the same database
-transaction as the resulting mutation. Direct operator write APIs require an `Idempotency-Key`;
-agent writes use their server-generated policy action ID. PostgreSQL also enforces one active
-refund per order. If a commit response is lost, the operation is reported as outcome-unknown and
-is never automatically replayed; retrying with the same key safely reconciles the stored receipt.
-
-### Policy Engine
-
-Risk is metadata on each registered tool and is evaluated outside the model:
-
-| Risk | Handling | Examples |
-| ---: | --- | --- |
-| 0 | Automatic after validation | Customer, order, and ticket reads |
-| 1 | Automatic after policy evaluation | Create a support ticket |
-| 2 | Explicit confirmation required | Cancel an order, request a refund |
-| 3 | Human handling path | Escalate a case |
-
-The policy engine returns `allow`, `require_confirmation`, `require_human`, or `deny` with bounded reason codes. A policy evaluation failure denies the operation rather than guessing.
-
-### Confirmation Workflow
-
-Risk 2 proposals create a typed pending action with a stable `action_id`, validated arguments, customer and conversation ownership, and a default 300-second TTL.
-
-- Confirmation is parsed deterministically.
-- The exact stored action is confirmed; the model does not regenerate it.
-- Ownership and live business state are revalidated immediately before execution.
-- Expired, rejected, executed, failed, or substituted actions cannot run.
-- Business operations enforce idempotency and duplicate-action rules.
-
-### RAG
-
-The agent depends on a provider-neutral knowledge retriever. `RAG_BACKEND=qdrant` is the production
-default and queries the configured collection at runtime with independent dense and deterministic
-lexical sparse branches fused by Qdrant's reciprocal-rank fusion, followed by optional reranking.
-`RAG_BACKEND=local` loads the version-controlled Markdown corpus into a deterministic in-process
-hybrid retriever with dense plus BM25-style lexical scoring for tests, offline evaluation, and
-lightweight development. The storage-specific fusion implementations differ, but both paths
-return the same ranked chunk schema and citation metadata.
-
-Qdrant ingestion creates an unnamed dense vector plus a named `lexical` sparse vector and stores
-the deterministic lexical vocabulary/weights as collection metadata. A dense-only or otherwise
-incompatible existing collection is rejected; it is not deleted or silently upgraded. Re-run the
-knowledge ingestion step into a fresh compatible collection (or explicitly replace the old
-collection under operator control) when adopting this schema.
-
-Embeddings are selected independently with `EMBEDDING_PROVIDER=deterministic|openai|huggingface`.
-The OpenAI-compatible adapter uses the existing LangChain integration, while Hugging Face remains
-an optional lazy adapter so the base installation does not pull a model runtime. Reranking can be
-disabled with `RERANKER_ENABLED=false`; a reranker failure retains the original retrieval ranking
-and is marked as degraded.
-
-Answers expose citations derived only from retrieved `document_id#section` metadata. Retrieved content is evidence, not authority: it cannot select tools, authorize actions, or override business state. When retrieval is unavailable or insufficient, the agent declines to invent policy details.
-
-### Persistent Memory
-
-Selective memory is stored separately from short-term graph state and authoritative business records. Supported memory types are:
-
-- `preference`
-- `support_context`
-- `explicit_instruction`
-- `unresolved_issue`
-- `interaction_summary`
-
-Memory candidates pass through consent, confidence, sensitivity, conflict, expiry, and compaction rules. Retrieval is customer-scoped and bounded.
-
-> Memory is contextual evidence, not authorization. It cannot select tools, confirm a Risk 2 action, bypass policy, or override current business state.
-
-### Evaluation Framework
-
-The concise gate split is documented in [`docs/evaluation-overview.md`](docs/evaluation-overview.md).
-
-The repository separates four questions that are often conflated in agent evaluations:
-
-1. model semantic quality;
-2. deterministic runtime containment;
-3. execution safety; and
-4. operational release readiness.
-
-The evaluation system includes deterministic regression, safety and resilience suites, structured
-contract compatibility gates, architecture comparisons, and approval-gated live robustness runs.
-Live results are evidence for a particular model, provider, contract, dataset, and source revision;
-they are not a certification of unrestricted deployment.
-
-The deterministic offline harness executes versioned scenarios through the real control-plane
-paths with isolated state, fake structured-decision inputs, and scoped fault injection. It stores
-no chain-of-thought. These are runtime regression results, not claims about live-model behavior or
-production traffic. Runtime RAG hooks separately report retrieval success, citation availability,
-reranker use, fallback behavior, and latency; they do not turn retrieval scores into claims about
-live-model answer accuracy.
-
-### Deterministic offline gates
-
-The deterministic suites exercise the real control-plane paths with isolated state, fake
-structured-decision inputs, and scoped fault injection. They store no chain-of-thought and are the
-repeatable CI gates for runtime behavior.
-
-| Suite | Result |
-| --- | ---: |
 | Deterministic evaluation | `110/110` |
 | Safety evaluation | `40/40` |
 | Resilience evaluation | `28/28` |
+| M6.29B D2c semantic and safety validation | `540/540` |
+| Unsafe executable survivors | `0` |
+| Unsafe executions | `0` |
+| M6.34 D2d operational release gate | `D2D_RELEASE_GATE_PASS` |
 
-### Latest prospective D2c evidence
-
-M6.29B (`d2c_m6_29_semantic_v3_20260822T011436Z`) used the current prompt-hardened
-`semantic_decision_v3` contract with the official OpenAI API and frozen `live_eval_v2`. It
-completed 540/540 measured attempts across 180 scenarios × 3 repetitions.
-
-| Metric | M6.29B |
-| --- | ---: |
-| Measured attempts | 540/540 |
-| Provider success | 528/540 |
-| Structured output | 522/540 |
-| Schema validity | 522/540 |
-| Raw routing (diagnostic) | 210/540 |
-| Intent | 484/522 |
-| Semantic target | 518/522 |
-| Clarification | 501/522 |
-| Request type | 448/522 |
-| Compiler | 495/522 |
-| Resolver | 225/372 |
-| Consistency | 162/180 |
-| Unsafe semantic proposals | 30 |
-| Deterministic guard interventions | 30 |
-| Unsafe executable survivors | 0 |
-| Unsafe executions | 0 |
-
-Raw routing is retained as diagnostic evidence; it is not a standalone safety, architecture, or
-release-readiness metric. The containment funnel was **30 unsafe semantic proposals → 30
-deterministic guard interventions → 0 unsafe executable survivors → 0 unsafe executions**. The
-run also recorded zero confirmation bypasses, unauthorized mutations, duplicate mutations, stale
-or declined resurrection, and hallucinated identifier safety violations.
-
-The critical semantic provenance case progressed as follows:
+M6.29B containment evidence:
 
 ```text
-M6.20B: 3/3
-M6.22B: 0/3
-M6.26B: 0/3 — unsupported model-proposed reasons
-M6.28B: 3/3 — supported, targeted validation
-M6.29B: 3/3 — supported, full benchmark
+15 -> 3 -> 0 -> 0 -> 0 executable survivors
 ```
 
-The deterministic compiler was not weakened. It correctly failed closed when the model proposed
-unsupported refund-reason provenance; M6.27B clarified the prompt contract, and M6.28B/M6.29B
-then supplied targeted and full prospective evidence consistent with the intervention improving
-that case. This is evidence for the current contract and release candidate, not a universal claim
-about future hosted-model behavior.
+The full prospective run recorded 30 unsafe semantic proposals, 30 deterministic interventions, zero unsafe executable survivors, and zero unsafe executions. The critical Turkish standard-refund positive control reached supported action and Risk 2 confirmation in `3/3` repetitions.
 
-### Release Status
+M6.34 validated the source-bound operational reference deployment:
 
-| Gate | Status |
-| --- | --- |
-| Deterministic regression | PASS |
-| Safety regression | PASS |
-| Resilience regression | PASS |
-| Prospective D2c | CLOSED for current release candidate |
-| D2d contract | FROZEN |
-| D2d harness | IMPLEMENTED |
-| D2d execution | RELEASE_GATE_PASS |
+- `18/18` operational scenarios;
+- `8/8` mandatory phases;
+- `6/6` fault classes recovered;
+- same-action committed effects `1, 1, 1`;
+- independent-action committed effects `2, 2, 2`;
+- zero duplicate mutations, unauthorized mutations, confirmation bypasses, stale resurrection, declined resurrection, and privacy violations.
 
-D2c is the model semantic and deterministic-safety evidence gate. D2d is a separate operational
-release-candidate gate, not another model benchmark. Its authoritative contract is
-[`docs/d2d-release-gate.md`](docs/d2d-release-gate.md), with the machine-readable source in
-[`evaluation/d2d_spec.py`](evaluation/d2d_spec.py). The frozen contract is
-`d2d_release_candidate_operational_v1` with identity
-`ebe77e28973a6314a3892ce896994c8e3897cd87ccf60e27ab5d1f1f8b8e0aa0`. M6.34 passed the
-source-bound operational gate; the complete evidence index is
-[`docs/release-evidence.md`](docs/release-evidence.md). This is a release-candidate gate result,
-not a claim of unrestricted production readiness.
+Read the [release evidence index](docs/release-evidence.md) for experiment identities, artifact paths, and hashes. Read the [evaluation overview](docs/evaluation-overview.md) for the D2c/D2d gate split and the [D2d contract](docs/d2d-release-gate.md) for operational acceptance criteria.
 
-#### Model/runtime compatibility
+## Console walkthrough
 
-The semantic architecture is contract-specific. The recorded V3 compatibility gate found high
-structured-output compatibility for `gpt-5.6-luna`. The tested local candidates
-`qwen3.5:4b`, `qwen3.5:9b`, and `qwen2.5:7b-instruct` did not meet the frozen
-`semantic_decision_v3` compatibility gate under their evaluated Ollama/function-calling
-configurations. This does not make a universal claim about Qwen models; it means those exact
-model/runtime identities were not eligible for the next behavioral matrix under that contract.
+The screenshots below are captured from the local Operator Console using a deterministic integration
+provider. They show real bounded projections, not fabricated production telemetry. Fields unavailable
+from the backend remain explicitly unavailable.
 
-The current evidence uses Luna as the hosted evaluation control, not as a hardcoded production
-model or universal recommendation. Local OpenAI-compatible/Ollama integration remains available,
-but every model must pass the same structured-contract compatibility gate first.
+### 1. Platform overview
 
-### Observability
+The `/overview` screen introduces the platform boundary, published safety guarantees, D2c/D2d
+validation status, and the guided path from a scenario to an evidence review.
 
-OpenTelemetry captures bounded operational telemetry across:
+![Platform overview dashboard](docs/assets/screenshots/overview-desktop.png)
 
-- `agent.run` and meaningful graph nodes
-- structured LLM decisions
-- tool execution
-- policy evaluation and revalidation
-- confirmation handling
-- RAG embedding, dense search, sparse search, fusion, reranking, and context construction
-- memory retrieval, policy evaluation, persistence, deletion, and compaction
-- resilience retry and recovery paths
+*Platform overview showing the proposal-to-authority boundary, guided journey, and scoped release evidence.*
 
-Metrics cover request and tool latency, failures, retries, policy outcomes, confirmation results, RAG behavior, and escalations. High-cardinality customer data and free-form content are excluded from labels.
+### 2. Agent Playground
 
-Compose exports OTLP over gRPC on port `4317` to the reproducibly pinned `jaegertracing/all-in-one:1.62.0` image. The Jaeger UI is exposed on port `16686`.
+The Playground lets engineers submit a business or safety scenario through the existing API and
+inspect the resulting lifecycle projection. It does not provide direct tool execution, policy
+overrides, confirmation bypasses, or hidden model reasoning.
 
-### Resilience
+![Agent Playground](docs/assets/screenshots/playground-desktop.png)
 
-Failures are classified before the platform chooses a retry, degraded mode, or safe stop.
+*Agent Playground showing scenario input, a bounded response, trace availability, and the observed lifecycle.*
 
-- Retryable reads use bounded retry and backoff.
-- Writes are never blindly replayed.
-- Unknown write outcomes are reported as ambiguous and require reconciliation.
-- Reranker failure preserves fused dense and sparse results.
-- RAG failure preserves valid business results but suppresses unsupported policy claims.
-- Memory read failure continues without personalization; explicit memory writes fail visibly.
-- Policy failure fails closed.
+### 3. Agent investigation
 
-Runtime failures use a small source-aware taxonomy. `LLM_ERROR` is reserved for model/provider
-interaction, `TOOL_ERROR` for controlled business-tool failures, `DEPENDENCY_ERROR` for external
-service or infrastructure failures, and `INTERNAL_ERROR` for unexpected platform/runtime
-failures. Existing validation, policy, retrieval, reranker, timeout, and domain categories remain
-meaningful where they carry more specific semantics. `UNKNOWN_WRITE_OUTCOME` remains distinct
-because a mutation may have committed. An error category describes failure source; it does not
-decide retryability. The resilience coordinator and idempotency rules remain authoritative for
-retry and reconciliation.
-
-## Operator Console
-
-The React control plane includes:
-
-- **Playground** — send customer-scoped requests and inspect responses
-- **Overview** — run metadata, intent, request type, risk, latency, and execution path
-- **Tools** — selected and executed tools with risk and duration
-- **Policy** — deterministic outcomes and bounded reason codes
-- **RAG** — retrieved document metadata
-- **Memory** — memory usage and customer-scoped lifecycle metadata
-- **Trace** — ordered, safe execution events
-- **Resilience** — dependency health, failures, retries, and degraded components
-
-The console does **not** expose chain-of-thought, raw prompts, raw model responses, retrieved
-document content, free-form tool arguments, customer names or emails, persisted memory body text,
-or other sensitive payloads. The standard `/ui/memory/{customer_id}` response contains only memory
-identity, type, normalized key, source, status, timestamps, and expiration metadata.
-Memory content remains internal to the agent runtime under the existing customer scope and memory
-policy. Removing the former operator-facing `content` field is an intentional privacy-hardening API
-contract change.
-
-Operator run projections are a durable PostgreSQL-backed read model in integration and production.
-They survive backend restart and are visible across backend instances. Each row represents one graph
-invocation: a confirmation request creates a new `run_id`, `request_id`, and trace while retaining
-the same `conversation_id` and pending-action `action_id`. This keeps invocation duration and path
-data historical; policy audit correlates the complete action lifecycle across runs by `action_id`.
-They are bounded operator inspection data—not authorization, business state, checkpoint state,
-idempotency state, or policy authority. Lightweight development and unit tests may use the bounded,
-thread-safe memory adapter. List queries are capped at 100 rows and projection retention/pruning
-remains an operator or database responsibility; policy audit remains the separate durable policy
-evidence trail.
-
-Identity semantics are explicit: `request_id` identifies one inbound HTTP request, `run_id` identifies
-one graph invocation, and `trace_id` identifies that invocation's telemetry trace. `conversation_id`
-is the stable application conversation/checkpoint grouping, while `action_id` is the opaque stable
-correlation for one pending/destructive action across proposal, confirmation, revalidation, execution,
-restart, and replay. The checkpoint `thread_id` is conversation/workflow continuity, not a run ID.
-
-Consequently, an initial Risk-2 request and its confirmation produce separate run projections with
-independent request/trace/path/duration data. Policy audit remains the cross-invocation lifecycle
-evidence through `action_id`; it is not an authority source.
-
-## Safety Model
-
-The platform separates model reasoning from authority:
-
-1. **The LLM proposes.** It produces a typed intent, request type, and semantic references. Its
-   output is untrusted input to the control plane.
-2. **Deterministic systems authorize.** Authenticated identity, effective customer scope,
-   ownership checks, live database state, and tool schemas decide whether a proposal is valid.
-3. **Policy controls actions.** The policy engine assigns risk handling and returns a bounded
-   `allow`, `require_confirmation`, `require_human`, or `deny` decision. Policy failures fail
-   closed.
-4. **Confirmation protects risky operations.** Refund and cancellation proposals bind a durable
-   pending action to the actor, customer, and conversation. Confirmation revalidates ownership,
-   expiry, policy, and current business state before an idempotent write executes.
-
-Authorization precedence is explicit:
+Selecting a run opens `/runs/:runId`. The investigation view exposes the observed decision lifecycle:
 
 ```text
-Policy Engine
-    > validated Business State
-        > Current User Request
-            > RAG Knowledge
-                > Persistent Memory
-```
-
-Business state remains authoritative for ownership and valid transitions. Retrieved knowledge is
-untrusted evidence and cannot authorize tools or change customer scope. Memory is non-authoritative
-context and cannot confirm an action, bypass policy, or grant access.
-
-Verified deterministic evaluation guarantees:
-
-- ✓ Unauthorized action rate: **0%**
-- ✓ Duplicate write rate: **0%**
-- ✓ Confirmation compliance: **100%**
-
-### Deterministic semantic guards
-
-The server-owned compiler and validation boundary fails closed for covered unsafe semantic shapes:
-
-- missing or ambiguous destructive targets require clarification;
-- contradictory cancellation does not become an executable cancellation proposal;
-- an unsupported or invented refund reason requires clarification instead of becoming a refund
-  proposal;
-- a user-grounded refund reason can continue through the normal validation and confirmation flow;
-- memory, retrieval content, and model-produced trust flags are not proof that the user supplied a
-  required destructive business argument.
-
-These controls reduce reliance on model correctness, but they do not make arbitrary model behavior
-safe by definition. Model semantic errors, runtime containment, and actual execution safety remain
-separate evaluation dimensions.
-
-## Historical architecture and model evidence
-
-Model selection was evaluated empirically through the same agent runtime and deterministic
-control plane used for evaluation. The LLM output is an untrusted proposal: the model produces
-semantic intent, request type, and typed references, while the deterministic control plane remains
-responsible for validation, policy enforcement, confirmation requirements, execution safety, and
-the audit lifecycle.
-
-### Evaluation Setup
-
-The canonical architecture decision compared `direct_tool_v1` and `semantic_decision_v3` with
-the same `gpt-5.6-luna` model, official OpenAI API provider, configuration, dataset, schedule,
-and deterministic safety stack. The corrected offline result used immutable outputs and did not
-regenerate model calls:
-
-| Measure | Direct | Semantic V3 |
-|---|---:|---:|
-| Routing | 69/84 (82.14%) | 79/84 (94.05%) |
-| Effective clarification | 69/84 (82.14%) | 79/84 (94.05%) |
-| Case-level wins | 1 | 6 |
-
-This selected `semantic_decision_v3` as the canonical semantic architecture for subsequent model
-evaluation. It did not change the current runtime default, which remains `direct_tool_v1`.
-
-### Findings
-
-#### Compatibility is contract-specific
-
-The V3 compatibility gate is separate from behavioral quality. Luna produced 24/24 typed V3
-decisions in the hosted control. The tested local Qwen identities did not meet the same frozen
-structured-contract gate, so they were not promoted to the behavioral matrix. These results do not
-rank model families universally and do not imply that the current runtime default changed.
-
-### Key Takeaway
-
-Model selection is treated as an engineering decision: first validate the fixed semantic contract,
-then measure behavior and runtime trade-offs for eligible candidates.
-
-```text
-Measure
-   ↓
-Identify failure modes
-   ↓
-Benchmark candidates
-   ↓
-Choose deployment model based on workload trade-offs
-```
-
-The control plane remains authoritative regardless of the underlying model:
-
-```text
-LLM proposal
-      ↓
-Typed decision validation
-      ↓
+User request
+  ↓
+Agent proposal
+  ↓
+Grounding validation
+  ↓
 Policy evaluation
-      ↓
-Confirmation / revalidation
-      ↓
-Idempotent execution
-      ↓
-Audit lifecycle
+  ↓
+Confirmation state
+  ↓
+Execution authority
 ```
 
-## Local Development
+![Agent investigation view](docs/assets/screenshots/investigation-desktop.png)
+
+*Operator investigation view showing trace stages, bounded grounding evidence, policy projection, confirmation state, and execution authority.*
+
+### 4. Architecture
+
+The `/architecture` view makes the trust boundary visible: the LLM produces a proposal, while
+deterministic validation, policy, confirmation, and execution layers decide what may proceed.
+
+![Architecture view](docs/assets/screenshots/architecture-desktop.png)
+
+*Architecture view showing the separation between semantic proposal, deterministic controls, and execution authority.*
+
+### 5. Safety evidence
+
+The Safety view connects the console workflow to the published validation evidence. It presents
+scoped D2c semantic/safety results, the D2d operational release-gate result, and the measured
+safety invariants. It is not live production telemetry and does not imply unrestricted production
+certification.
+
+![Safety and evaluation evidence](docs/assets/screenshots/safety-desktop.png)
+
+*Safety dashboard connecting deterministic guarantees, D2c validation, D2d operational validation, and the hardening trend.*
+
+<details>
+<summary>Mobile capture set</summary>
+
+The mobile captures were checked at a `390 × 844` viewport and contain no horizontal overflow:
+
+- [Mobile overview](docs/assets/screenshots/mobile-overview.png)
+- [Mobile Playground](docs/assets/screenshots/mobile-playground.png)
+- [Mobile architecture](docs/assets/screenshots/mobile-architecture.png)
+
+</details>
+
+For the written version of this tour, see the [public release notes](docs/release-notes.md). The
+[architecture document](docs/architecture.md) remains the source for the system diagram and
+trust-boundary details.
+
+## Local demo
 
 ### Requirements
 
@@ -723,372 +202,101 @@ Audit lifecycle
 - Python 3.12 and [`uv`](https://docs.astral.sh/uv/)
 - Node.js and npm
 
-### Start the complete local demo stack
+### Start the complete stack
 
 ```bash
 cp .env.example .env
-docker compose up --build
+docker compose up --build --detach
 ```
 
-Open <http://localhost:5173>. The base Compose stack migrates PostgreSQL, loads deterministic demo
-records, ingests the bundled knowledge into Qdrant, waits for backend readiness, and builds the
-console with the same explicitly non-secret local demo credential used by the backend. The setup
-step resets the demo business records each time it runs; it is not a production migration pattern.
+Open <http://localhost:5173>. The local stack starts PostgreSQL, Qdrant, Jaeger, the backend, and the Operator Console. Setup migrates the database, loads deterministic demo records, and ingests the bundled knowledge base.
 
-`AUTH_MODE=local_demo` still authenticates every protected request through a real support-operator
-`Principal`. `LOCAL_DEMO_AUTH_TOKEN=local-demo-support-token` is public localhost/demo
-configuration, not a secret and not production IAM. Anonymous protected calls continue to return
-401. `FRONTEND_AUTH_MODE=local_demo` selects the frontend's explicit in-memory demo provider; the
-token is neither logged nor persisted to localStorage.
+A real `/agent/chat` result requires a reachable OpenAI-compatible provider. The local configuration may use Ollama or another explicitly configured provider. Provider calls are not part of the offline evaluation gates.
 
-The default agent provider expects a real OpenAI-compatible LLM. For Compose, start an appropriate
-model on the host (the defaults expect Ollama model `llama3.1` at port 11434), or set
-`COMPOSE_LLM_BASE_URL`, `LLM_MODEL`, and `LLM_API_KEY` for your runtime. Without a reachable LLM,
-health, readiness, authentication, operator reads, PostgreSQL, and Qdrant remain testable, but a
-successful real-agent conversation is not available.
-
-### Optional Ollama provider smoke
-
-The local real-provider smoke uses the existing `OpenAICompatibleProvider`; Ollama is not a CI or
-production dependency. Install and run the development baseline `qwen2.5:7b` in Ollama, then use:
-
-```bash
-LLM_PROVIDER=openai_compatible \
-LLM_BASE_URL=http://localhost:11434/v1 \
-LLM_MODEL=qwen2.5:7b \
-LLM_API_KEY=ollama
-```
-
-The OpenAI-compatible provider also accepts the optional `LLM_REASONING_EFFORT` setting with
-`none`, `low`, `medium`, or `high`. When unset, no reasoning override is sent and the provider's
-default behavior is preserved. For example, a local model can be run with
-`LLM_REASONING_EFFORT=none`; this is an opt-in provider setting, not a production recommendation.
-
-For the Compose backend on macOS, set `COMPOSE_LLM_BASE_URL=http://host.docker.internal:11434/v1`.
-The live smoke is opt-in and non-deterministic; `qwen2.5:7b` is a development baseline, not a
-production recommendation. Deterministic integration mode remains the default for CI and the
-canonical authenticated smoke.
-
-### Deterministic authenticated integration smoke
-
-CI and local integration verification do not depend on Ollama, OpenAI, API keys, or a developer
-machine. Run the hermetic full-stack lifecycle smoke with:
+For a hermetic integration proof without a live model, run:
 
 ```bash
 make e2e-smoke
 ```
 
-The script creates a unique Compose project with fresh PostgreSQL and Qdrant volumes and applies
-`docker-compose.integration.yml`. That explicit override selects a narrowly scoped deterministic
-decision provider under `APP_ENV=integration`; application configuration rejects that provider in
-every other environment. The request still traverses nginx and FastAPI authentication, invokes the
-real LangGraph, creates a Risk-2 cancellation proposal, persists it to PostgreSQL, restarts the
-backend, resumes confirmation, executes one idempotent mutation, and verifies safe Operator Console
-projections. The script always removes its isolated containers, network, and volumes unless
-explicitly asked to leave a failed stack for CI diagnostics.
+The smoke uses an isolated Compose project and fresh volumes, then removes those resources. It validates authenticated request handling, a Risk 2 proposal, persistence across backend restart, one idempotent mutation, replay safety, and bounded Operator Console projections. It does not measure real-model semantic quality.
 
-This smoke validates platform integration and deterministic control flow. It does not measure
-real-model intent recognition, response quality, or semantic robustness; the optional local model
-configuration above remains a separate development workflow.
-
-For a dependency-free host-based RAG loop, set `RAG_BACKEND=local`; no Qdrant or external embedding
-service is then required. Keep the embedding provider consistent between Qdrant ingestion and
-runtime queries.
-
-For a host-based backend development loop:
-
-```bash
-uv sync --frozen
-make migrate
-make seed
-make dev
-```
-
-In another terminal, the Vite server reads the root `.env`, keeps the demo token in memory, and
-proxies all backend API route families to `VITE_BACKEND_TARGET` (default
-`http://localhost:8000`):
-
-```bash
-cd frontend
-npm ci
-npm run dev
-```
-
-Quick authentication checks:
-
-```bash
-curl --fail http://127.0.0.1:8000/health
-curl --fail http://127.0.0.1:8000/ready
-curl --write-out '%{http_code}\n' http://127.0.0.1:8000/ui/system-health
-curl --fail -H 'Authorization: Bearer local-demo-support-token' \
-  http://127.0.0.1:8000/ui/system-health
-```
-
-The third command returns 401; the fourth authenticates as `operator-local-demo`.
-
-### Local services
+Useful local endpoints:
 
 | Service | URL |
 | --- | --- |
-| Operator Console | http://localhost:5173 |
-| FastAPI | http://localhost:8000 |
-| Jaeger | http://localhost:16686 |
-| Qdrant | http://localhost:6333 |
-| PostgreSQL | `localhost:5432` |
+| Operator Console | <http://localhost:5173> |
+| FastAPI | <http://localhost:8000> |
+| Jaeger | <http://localhost:16686> |
+| Qdrant | <http://localhost:6333> |
 
-Stop the Compose stack with `docker compose down` or `make down`.
-
-## Deployment
-
-Docker Compose is the supported local deployment workflow. The base `docker-compose.yml` starts
-PostgreSQL, Qdrant, Jaeger, the backend, and the frontend with development-friendly defaults:
+Stop the stack with:
 
 ```bash
-docker compose up --build --detach
 docker compose down
 ```
 
-`docker-compose.prod.yml` is a production-oriented Compose reference layered over the base file.
-It adds external database credential requirements, restart policies, read-only application
-filesystems, dropped capabilities, temporary writable filesystems, and configurable CPU and memory
-limits:
+See [deployment.md](docs/deployment.md) for health, readiness, container, and production-oriented Compose details.
+
+## Testing and CI
+
+Backend quality gates:
 
 ```bash
-export POSTGRES_PASSWORD='set-outside-source-control'
-export DATABASE_URL='postgresql+psycopg://app:encoded-password@db:5432/customer_service'
-export PRODUCTION_AUTH_TOKENS_JSON='{"replace-with-secret":{"actor_id":"operator","actor_type":"support_operator","roles":["support_operator"]}}'
-docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build --detach
-```
-
-The overlay is a deployment reference rather than a high-availability production orchestrator.
-It forcibly disables the frontend demo credential and selects externally configured static bearer
-authentication. Application startup rejects disabled or `local_demo` authentication when
-`APP_ENV=production`, and rejects an empty static principal map. The static backend demonstrates
-the replaceable `Authenticator` boundary; it is not a substitute for an environment-specific IAM
-system or secret manager. The production frontend is built with `FRONTEND_AUTH_MODE=external_session`
-and no browser credential. It remains fail-closed until a trusted external identity/session layer
-supplies the `window.__OPERATOR_AUTH__` provider adapter; this repository does not ship OIDC, OAuth2,
-BFF, gateway, or enterprise login code. Static bearer authentication remains a backend/service
-adapter and is not browser IAM.
-The production overlay runs migrations but does not seed demo records or ingest bundled knowledge;
-operators must provision the configured Qdrant collection and ingest knowledge separately before
-`/ready` can become healthy.
-Kubernetes, Helm, cloud infrastructure, and automated deployment are future scope.
-
-### Health and readiness
-
-- `GET /health` is process liveness only and returns `{"status":"ok"}` while FastAPI can serve.
-- `GET /ready` verifies PostgreSQL, checkpoint persistence, and the configured knowledge backend.
-  It returns only `ready` or `not_ready`; dependency details are not exposed.
-- Authenticated `GET /ui/system-health` projects the same request-scoped runtime health snapshot
-  into safe component statuses for PostgreSQL, checkpoint persistence, retrieval, LLM configuration,
-  and memory configuration. `healthy` means the boundary was actually checked; `not_probed` means
-  LLM availability was not actively tested.
-
-When `RAG_BACKEND=qdrant`, readiness additionally requires the configured collection to exist,
-contain the repository's single unnamed dense vector plus the named `lexical` sparse vector,
-use `Distance.COSINE`, match `EMBEDDING_DIMENSION`, contain valid lexical metadata, and contain at
-least one indexed point from knowledge ingestion. Readiness observes this state and never creates
-or changes a collection. `RAG_BACKEND=local` does not require Qdrant. Snapshot provenance also
-validates the configured embedding identity and semantic index versions.
-
-The health view does not make remote LLM calls. A configured LLM is reported as `not_probed`, not
-healthy. Qdrant outage or incompatible active-snapshot provenance makes `/ready` return
-`not_ready` and the authenticated health view report retrieval as `unavailable` or `incompatible`.
-Health checks are observational and never build, activate, delete, or repair snapshots.
-
-The backend and frontend images run as non-root users. For a production-oriented local Compose
-model with read-only application filesystems, restart policies, and configurable CPU/memory
-limits, layer `docker-compose.prod.yml` over the development file. It requires externally supplied
-database credentials and does not provide secret management or deployment automation.
-
-See [docs/deployment.md](docs/deployment.md) for probe semantics, graceful shutdown, external
-configuration, resource limits, and container expectations.
-
-## Testing
-
-```bash
-# Backend tests, lint, and types
 make test
 make lint
 make typecheck
+```
 
-# Frontend tests, types, and production build
+Frontend quality gates:
+
+```bash
 make frontend-test
 make frontend-typecheck
 make frontend-lint
 make frontend-build
+```
 
-# Agent evaluation
+Offline evaluation gates:
+
+```bash
 make eval
 make eval-safety
 make eval-resilience
 ```
 
-The default evaluation is offline and deterministic. Its CI gate fails on any unauthorized action, confirmation compliance below 100%, a failed critical safety scenario, task completion below 90%, or tool-selection accuracy below 90%.
+CI also validates dependencies, secrets, Docker/Compose configuration, image policy, and the authenticated lifecycle smoke. See [ci.md](docs/ci.md) for the gate graph.
 
-## Continuous Integration
-
-GitHub Actions runs ordered, blocking gates for backend quality, frontend quality, dependency and
-secret scanning, deterministic evaluation, Docker/Compose validation, and image scanning. Pushes
-to `main` additionally start the complete Compose stack and verify backend readiness
-and frontend. Dependencies are installed only from `uv.lock` and `frontend/package-lock.json`.
-
-Local equivalents:
-
-```bash
-make ci-backend
-make ci-frontend
-make eval && make eval-safety && make eval-resilience
-make security-audit
-make docker-validate
-```
-
-See [docs/ci.md](docs/ci.md) for the gate graph, scanner behavior, and authenticated lifecycle-smoke
-details.
-
-## Project Structure
+## Project structure
 
 ```text
-.
-├── app/
-│   ├── agent/              # LangGraph state, nodes, providers, and runtime
-│   ├── api/                # FastAPI routes and transport boundaries
-│   ├── auth/               # Principal, authenticator, RBAC, and scope boundaries
-│   ├── core/               # Configuration, execution context, and database runtime
-│   ├── memory/             # Selective persistent memory
-│   ├── observability/      # OpenTelemetry traces, metrics, and middleware
-│   ├── persistence/        # LangGraph checkpoint provider boundary
-│   ├── policies/           # Risk policy, confirmation, and revalidation
-│   ├── rag/                # Ingestion, retrieval, fusion, and generation
-│   ├── resilience/         # Failure classification, retry, and fallback
-│   ├── services/           # Business persistence operations
-│   ├── tools/              # Typed agent-facing business tools
-│   └── ui/                 # Safe operator projections
-├── evaluation/
-│   ├── datasets/           # Deterministic and live evaluation datasets
-│   ├── metrics/            # Behavior and safety metrics
-│   ├── d2d_spec.py         # Frozen operational release-gate contract
-│   ├── d2d/                 # Operational dry-run and prospective release-gate harness
-│   └── runner.py           # Isolated deterministic evaluation harness
-├── docs/                   # Architecture, evaluation, deployment, and release evidence
-├── frontend/               # React, TypeScript, Vite, and Tailwind console
-├── tests/                  # Backend unit and integration tests
-├── alembic/                # Database migrations
-├── scripts/                # Seed and RAG ingestion commands
-├── docker-compose.yml      # Local PostgreSQL, Qdrant, Jaeger, API, and frontend stack
-├── docker-compose.integration.yml # Hermetic authenticated lifecycle smoke override
-├── docker-compose.prod.yml # Production-oriented Compose policy overlay
-└── Makefile                # Development and verification commands
+app/                 FastAPI, agent graph, policy, persistence, RAG, tools, observability
+evaluation/          Deterministic evaluation and frozen D2d release-gate tooling
+frontend/            React, TypeScript, Vite, Tailwind Operator Console
+tests/               Backend unit and integration tests
+docs/                Architecture, deployment, evaluation, and release evidence
+alembic/             Database migrations
+scripts/             Seed, ingestion, and integration helpers
+docker-compose*.yml  Local, integration, and production-oriented Compose definitions
+Makefile             Development and verification commands
 ```
 
-## Known Limitations
+## Limitations and scope
 
-- This is a production-oriented reference implementation, not a production-readiness
-  certification or unrestricted deployment approval.
-- Current live evidence is bound to exact model, provider, contract, dataset, scorer, and source
-  identities.
-- The tested local models did not satisfy the frozen `semantic_decision_v3` compatibility gate.
-- Raw routing includes known oracle/path attribution noise and is not sufficient as a standalone
-  safety or architecture metric.
-- Model semantic errors can still occur; deterministic guards, policy, confirmation, and business
-  validation are separate containment boundaries rather than proof of model correctness.
-- M6.29B completed 540/540 attempts with zero unsafe executable survivors and zero unsafe executions.
-  The measured deterministic survivor progression is 15 → 3 → 0 → 0 → 0. This is not a claim that
-  model semantic errors or unseen failure modes are impossible.
-- Provider usage/cost metadata may be unavailable in live evaluation artifacts.
-- Synthetic evaluation coverage cannot prove the absence of unseen failure modes.
+- This repository is a production-oriented reference implementation, not a production-readiness, enterprise, capacity, or compliance certification.
+- Live evidence is bound to exact source, provider, model, prompt, schema, dataset, scorer, and contract identities.
+- Model semantic errors can still occur. Deterministic containment does not prove that unseen failures are impossible.
+- The Operator Console displays bounded projections and intentionally omits raw prompts, provider responses, secrets, memory bodies, and hidden reasoning.
+- The release gate covers the documented single-environment reference deployment. It does not certify public-internet TLS, enterprise IAM, Kubernetes, multi-region operation, disaster recovery, or autoscaling capacity.
+- Full application load and capacity characterization, provider cost telemetry, longer soak tests, and stronger chaos exercises remain outside the validated release scope.
+- Enterprise identity integration is not included. Production deployment requires an environment-specific identity/session boundary and external secret management.
 
-## Roadmap
+## Further reading
 
-### Current release candidate
-
-Completed in the current candidate: core platform, authentication and customer scope, durable
-checkpoints, RAG, memory, resilience, observability, Operator Console, deterministic evaluation,
-prompt semantic-contract hardening, privacy-safe attribution observability, prospective D2c, and
-the prospective D2d operational release gate, and release evidence consolidation.
-
-The current release evidence is consolidated in [`docs/release-evidence.md`](docs/release-evidence.md).
-Feature freeze remains active for the current release candidate.
-
-### Post-RC hardening
-
-- Full application load and capacity characterization.
-- Longer soak and stronger chaos exercises.
-- Provider usage and cost telemetry.
-- Operational alerting and explicit migration downgrade policy.
-- Advanced cost controls.
-- Larger-scale load testing.
-- Kubernetes deployment and managed deployment examples.
-- Multi-region architecture.
-
-### V2 / future scope
-
-- Voice agent.
-- Enterprise IAM/OIDC and identity-provider adapters.
-- Cloud automation and stronger disaster-recovery topologies.
-- Multi-agent workflows.
-
-Feature freeze remains active for the current release candidate. The frozen D2d scope is documented
-in [`docs/d2d-release-gate.md`](docs/d2d-release-gate.md), and the completed evidence is indexed in
-[`docs/release-evidence.md`](docs/release-evidence.md).
-
-## Engineering Decisions
-
-### Why LangGraph?
-
-Customer-support workflows are stateful and branch around retrieval, tools, confirmation, and recovery. An explicit graph makes those transitions inspectable, testable, and resumable without hiding control flow inside a prompt.
-
-### Why deterministic policy?
-
-Language models are useful for interpreting intent, not granting authority. Deterministic policy provides stable risk handling, reason codes, ownership enforcement, and a fail-closed boundary around real actions.
-
-### Why isolate memory?
-
-Personalization data has a different lifecycle and authority level from business records and conversation checkpoints. Isolation enables consent, TTL, conflict handling, deletion, and the invariant that remembered text cannot authorize work.
-
-### Why evaluation-first?
-
-Agent quality is behavioral. Versioned scenarios make confirmation, safety, retrieval, memory, escalation, and recovery measurable across complete multi-turn workflows rather than only individual functions.
-
-### Why a resilience layer?
-
-Provider, retrieval, database, and tool failures require different handling. Central classification makes retry and fallback behavior bounded, observable, and consistent—especially where repeating a write could create harm.
-
-Dependency timeouts are enforced by the dependency client wherever native request deadlines are
-available. LLM and embedding HTTP clients disable hidden SDK retries, Qdrant receives the effective
-retrieval attempt timeout directly, and the application retry loop starts the next attempt only
-after the previous call has returned. The platform does not use detached daemon threads to fake
-cancellation. Local rerankers are allowed to finish; a provider-raised timeout or failure keeps
-the original fused ranking. A business write whose commit outcome is unknown remains
-`UnknownWriteOutcomeError` and is never automatically replayed.
-
-### Optional legacy live-provider diagnostic
-
-The deterministic evaluation suites remain the CI quality and safety gates. An opt-in live
-behavioral runner is available for measuring a real provider without making Ollama a CI
-dependency:
-
-```bash
-ollama list
-python -m evaluation.live --model qwen2.5:7b-instruct \
-  --base-url http://localhost:11434/v1 --runs-per-case 3 --layer both
-```
-
-The runner uses the existing `OpenAICompatibleProvider`, freezes the current prompt for the
-baseline, and writes JSON/Markdown reports under `artifacts/live-eval/` (ignored by Git). Layer A
-scores model decisions without executing business mutations. Layer B runs a small isolated set of
-real control-plane scenarios and reports unsafe proposals separately from unsafe execution and
-confirmation bypass. This is a legacy diagnostic path, distinct from the frozen `live_eval_v2`
-D2c workflow, and reports can be compared with:
-
-```bash
-python -m evaluation.live compare baseline.json candidate.json
-```
-
-The local Ollama model is a development baseline, not validated `semantic_decision_v3` evidence or
-a production recommendation. This diagnostic is non-deterministic and machine-dependent; it is
-not the canonical D2c path. The approval-gated D2c workflow uses frozen `live_eval_v2`, the fixed
-V3 contract, and an explicitly approved hosted runtime. Ollama is optional and never a silent
-fallback for deterministic or hosted providers.
+- [Architecture](docs/architecture.md)
+- [Evaluation overview](docs/evaluation-overview.md)
+- [Release evidence](docs/release-evidence.md)
+- [Public release notes](docs/release-notes.md)
+- [D2d operational contract](docs/d2d-release-gate.md)
+- [Deployment expectations](docs/deployment.md)
+- [Frontend design guidelines](docs/frontend-design-guidelines.md)

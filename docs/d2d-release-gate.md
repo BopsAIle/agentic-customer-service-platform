@@ -1,6 +1,6 @@
 # D2d Release-Candidate Operational Gate
 
-Status: **CONTRACT FROZEN — HARNESS IMPLEMENTED; OFFLINE DRY-RUN COMPLETE; PROSPECTIVE EXECUTION NOT STARTED**
+Status: **CONTRACT FROZEN — HARNESS IMPLEMENTED; PROSPECTIVE EXECUTION COMPLETE; D2D_RELEASE_GATE_PASS**
 
 Contract: `d2d_release_candidate_operational_v1`
 
@@ -77,19 +77,19 @@ seam without changing runtime behavior; this is not a product defect.
 
 ## Harness and dry-run status
 
-The executable, non-approving harness is `evaluation.d2d.runner.D2dDryRunRunner`. Run the
-development validation with:
+The executable harness is `evaluation.d2d.runner.D2dDryRunRunner`. Its development validation
+path is non-approving and can be run with:
 
 ```bash
 make d2d-dry-run
 ```
 
-The harness uses an isolated Compose project, fresh volumes, an explicitly controlled
+The dry-run uses an isolated Compose project, fresh volumes, an explicitly controlled
 deterministic integration provider, and publishes bounded bundles under
-`artifacts/d2d/dry-runs/<dry-run-id>/`. Every bundle is marked `execution_mode=dry_run` and
-`approval_status=not_approved`; `D2D_DRY_RUN_PASS` validates the harness only and is not
-`D2D_RELEASE_GATE_PASS`. The prospective D2d gate has not executed and requires a new
-source-bound approval after the harness milestone.
+`artifacts/d2d/dry-runs/<dry-run-id>/`. Every dry-run bundle is marked
+`execution_mode=dry_run` and `approval_status=not_approved`; `D2D_DRY_RUN_PASS` validates the
+harness only and is not `D2D_RELEASE_GATE_PASS`. The approved prospective execution completed
+as M6.34. Its release-gate artifacts are indexed in [`docs/release-evidence.md`](release-evidence.md).
 
 ## Acceptance criteria
 
