@@ -1,4 +1,4 @@
-.PHONY: sync dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-report eval-baseline observability-up observability-down frontend-install frontend-dev frontend-build frontend-test frontend-typecheck frontend-lint ci-backend ci-frontend security-audit docker-validate e2e-smoke
+.PHONY: sync dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-report eval-baseline d2d-dry-run observability-up observability-down frontend-install frontend-dev frontend-build frontend-test frontend-typecheck frontend-lint ci-backend ci-frontend security-audit docker-validate e2e-smoke
 
 sync:
 	uv sync --frozen
@@ -47,6 +47,9 @@ eval-report:
 
 eval-baseline:
 	uv run --frozen python -m evaluation.runner --save-baseline
+
+d2d-dry-run:
+	uv run --frozen python -m evaluation.d2d.runner
 
 observability-up:
 	docker compose up --build -d

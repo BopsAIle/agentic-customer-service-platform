@@ -44,8 +44,9 @@ The known Turkish `amb-refund-no-reason` containment defect is prospectively clo
 the prompt with the existing provenance contract, M6.28B passed the targeted validation, and
 M6.29B generalized the result across the full benchmark: the standard Turkish damaged-refund
 positive control reached supported Risk-2 confirmation in all three repetitions. D2c is closed for
-the current release candidate. D2d is contract-frozen but has not executed. This README does not
-claim production readiness.
+the current release candidate. D2d is contract-frozen, its non-approving offline harness dry-run
+has completed, and prospective D2d execution has not started. This README does not claim
+production readiness.
 
 ## What makes this different?
 
@@ -442,7 +443,7 @@ about future hosted-model behavior.
 | Resilience regression | PASS |
 | Prospective D2c | CLOSED for current release candidate |
 | D2d contract | FROZEN |
-| D2d harness | NOT YET IMPLEMENTED |
+| D2d harness | IMPLEMENTED — OFFLINE DRY-RUN COMPLETE |
 | D2d execution | NOT STARTED |
 
 D2c is the model semantic and deterministic-safety evidence gate. D2d is a separate operational
@@ -450,8 +451,9 @@ release-candidate gate, not another model benchmark. Its authoritative contract 
 [`docs/d2d-release-gate.md`](docs/d2d-release-gate.md), with the machine-readable source in
 [`evaluation/d2d_spec.py`](evaluation/d2d_spec.py). The frozen contract is
 `d2d_release_candidate_operational_v1` with identity
-`ebe77e28973a6314a3892ce896994c8e3897cd87ccf60e27ab5d1f1f8b8e0aa0`. The next milestone is
-**M6.32 — D2d Harness Implementation and Offline Dry-Run**. No D2d execution has started.
+`ebe77e28973a6314a3892ce896994c8e3897cd87ccf60e27ab5d1f1f8b8e0aa0`. The harness dry-run is
+explicitly non-approved and does not constitute a D2d release-gate pass. The next milestone is
+**M6.33 — D2d Prospective Approval and Environment Freeze**. No D2d execution has started.
 
 #### Model/runtime compatibility
 
@@ -916,7 +918,8 @@ details.
 │   ├── datasets/           # Deterministic and live evaluation datasets
 │   ├── metrics/            # Behavior and safety metrics
 │   ├── d2d_spec.py         # Frozen operational release-gate contract
-│   └── runner.py           # Isolated deterministic harness
+│   ├── d2d/                 # Non-approving operational dry-run harness
+│   └── runner.py           # Isolated deterministic evaluation harness
 ├── frontend/               # React, TypeScript, Vite, and Tailwind console
 ├── tests/                  # Backend unit and integration tests
 ├── alembic/                # Database migrations
@@ -950,12 +953,13 @@ details.
 
 Completed in the current candidate: core platform, authentication and customer scope, durable
 checkpoints, RAG, memory, resilience, observability, Operator Console, deterministic evaluation,
-prompt semantic-contract hardening, privacy-safe attribution observability, and prospective D2c.
+prompt semantic-contract hardening, privacy-safe attribution observability, prospective D2c, and
+the non-approving D2d harness dry-run.
 
-The D2d operational release-gate contract is frozen. Next steps are:
+The D2d operational release-gate contract is frozen and the harness dry-run is complete. Next
+steps are:
 
-- Implement and offline dry-run the D2d harness.
-- Prepare a source-bound D2d approval.
+- Prepare a source-bound D2d approval and environment freeze.
 - Execute the D2d operational release gate.
 
 ### Post-RC hardening
