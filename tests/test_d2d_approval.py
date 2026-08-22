@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import json
+import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 
+from evaluation.d2d.images import D2dImageIdentity
 from evaluation.d2d_approval import (
     D2D_APPROVAL_RECORD_SCHEMA_VERSION,
     D2D_D2C_EXPERIMENT_ID,
@@ -14,7 +17,9 @@ from evaluation.d2d_approval import (
     D2D_DRY_RUN_RECORDED_SOURCE,
     D2D_DRY_RUN_SUMMARY_SHA256,
     D2dEnvironmentFreeze,
+    D2dEnvironmentImageValidationError,
     D2dProspectiveApproval,
+    create_approval,
     load_approval,
     load_environment_freeze,
     model_sha256,
@@ -90,6 +95,39 @@ def _approval(freeze: D2dEnvironmentFreeze) -> D2dProspectiveApproval:
     )
 
 
+def _fully_pinned_freeze() -> D2dEnvironmentFreeze:
+    freeze = _freeze()
+    identities = {
+        service: D2dImageIdentity(
+            reference=f"d2d-test-{service}:frozen@sha256:{digest}",
+            image_digest=digest,
+            source="test",
+            resolution_method="local_immutable_digest",
+        )
+        for service, digest in {
+            "db": "1" * 64,
+            "qdrant": "2" * 64,
+            "demo-setup": "3" * 64,
+            "backend": "4" * 64,
+            "frontend": "5" * 64,
+            "jaeger": "6" * 64,
+        }.items()
+    }
+    return freeze.model_copy(update={"image_identities": identities})
+
+
+def _matching_image_inspector(
+    command: tuple[str, ...],
+) -> subprocess.CompletedProcess[str]:
+    digest = command[-1].rsplit("@sha256:", 1)[-1]
+    return subprocess.CompletedProcess(
+        command,
+        0,
+        json.dumps([{"Id": f"sha256:{digest}"}]),
+        "",
+    )
+
+
 def test_canonical_freeze_and_approval_round_trip_is_immutable(tmp_path: Path) -> None:
     freeze = _freeze()
     approval = _approval(freeze)
@@ -137,3 +175,79 @@ def test_approval_never_starts_execution() -> None:
     assert approval.consumed is False
     assert D2D_D2C_EXPERIMENT_ID in approval.d2c_prerequisite_experiment_id
     assert approval.m6_32_dry_run_id == D2D_DRY_RUN_ID
+
+
+def test_missing_frozen_image_prevents_approval_creation(tmp_path: Path) -> None:
+    freeze = _freeze()
+    approval = _approval(freeze)
+    destination = tmp_path / "approval.json"
+
+    with pytest.raises(D2dEnvironmentImageValidationError, match="IMAGE_UNAVAILABLE"):
+        create_approval(
+            approval,
+            freeze,
+            destination,
+            expected_source=SOURCE,
+            image_inspector=_matching_image_inspector,
+        )
+    assert not destination.exists()
+
+
+def test_frozen_image_digest_mismatch_prevents_approval_creation(tmp_path: Path) -> None:
+    freeze = _fully_pinned_freeze()
+    approval = _approval(freeze)
+    destination = tmp_path / "approval.json"
+
+    def mismatch(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        if command[-1].startswith("d2d-test-frontend:"):
+            return subprocess.CompletedProcess(
+                command, 0, json.dumps([{"Id": "sha256:" + "f" * 64}]), ""
+            )
+        return _matching_image_inspector(command)
+
+    with pytest.raises(D2dEnvironmentImageValidationError, match="DIGEST_MISMATCH"):
+        create_approval(
+            approval,
+            freeze,
+            destination,
+            expected_source=SOURCE,
+            image_inspector=mismatch,
+        )
+    assert not destination.exists()
+
+
+def test_mutable_frozen_image_prevents_approval_creation(tmp_path: Path) -> None:
+    pinned = _fully_pinned_freeze()
+    freeze = pinned.model_copy(
+        update={"image_identities": {**pinned.image_identities, "backend": "backend:latest"}}
+    )
+    approval = _approval(freeze)
+    destination = tmp_path / "approval.json"
+
+    with pytest.raises(D2dEnvironmentImageValidationError, match="IMAGE_INVALID"):
+        create_approval(
+            approval,
+            freeze,
+            destination,
+            expected_source=SOURCE,
+            image_inspector=_matching_image_inspector,
+        )
+    assert not destination.exists()
+
+
+def test_valid_local_frozen_images_create_approval(tmp_path: Path) -> None:
+    freeze = _fully_pinned_freeze()
+    approval = _approval(freeze)
+    destination = tmp_path / "d2d-review-test.json"
+
+    approval_sha = create_approval(
+        approval,
+        freeze,
+        destination,
+        expected_source=SOURCE,
+        image_inspector=_matching_image_inspector,
+    )
+
+    assert load_approval(destination, expected_sha256=approval_sha) == approval
+    assert approval.execution_started is False
+    assert approval.consumed is False

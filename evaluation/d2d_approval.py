@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
+import subprocess
 import tempfile
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Literal
@@ -14,7 +16,7 @@ from typing import Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from evaluation.d2d.artifacts import canonical_json
-from evaluation.d2d.images import FrozenImageValue
+from evaluation.d2d.images import FrozenImageValue, structured_image_identity
 from evaluation.d2d_spec import (
     D2D_ALEMBIC_HEAD,
     D2D_ARTIFACT_SCHEMA_VERSION,
@@ -217,6 +219,72 @@ class D2dApprovalLifecycle(BaseModel):
         return self
 
 
+class D2dEnvironmentImageValidationError(RuntimeError):
+    """A frozen image cannot be proven locally available at approval creation time."""
+
+
+ImageInspector = Callable[[tuple[str, ...]], subprocess.CompletedProcess[str]]
+
+
+def _default_image_inspector(
+    command: tuple[str, ...],
+) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(command, capture_output=True, text=True, check=False, timeout=120)
+
+
+def validate_frozen_images_available(
+    freeze: D2dEnvironmentFreeze,
+    *,
+    image_inspector: ImageInspector = _default_image_inspector,
+) -> None:
+    """Require every approved image to be locally present at its exact immutable digest.
+
+    This performs inspection only. It never pulls, builds, or mutates the Docker environment.
+    """
+
+    for service in freeze.required_services:
+        value = freeze.image_identities.get(service)
+        try:
+            identity = structured_image_identity(value) if value is not None else None
+        except ValueError as error:
+            raise D2dEnvironmentImageValidationError(
+                f"D2D_APPROVAL_IMAGE_INVALID:{service}"
+            ) from error
+        if identity is None:
+            raise D2dEnvironmentImageValidationError(
+                f"D2D_APPROVAL_IMAGE_UNAVAILABLE:{service}:missing_binding"
+            )
+        result = image_inspector(("docker", "image", "inspect", identity.reference))
+        if result.returncode != 0:
+            raise D2dEnvironmentImageValidationError(
+                f"D2D_APPROVAL_IMAGE_UNAVAILABLE:{service}:{identity.reference}"
+            )
+        try:
+            payload = json.loads(result.stdout)
+        except json.JSONDecodeError as error:
+            raise D2dEnvironmentImageValidationError(
+                f"D2D_APPROVAL_IMAGE_INSPECTION_INVALID:{service}"
+            ) from error
+        digest = f"sha256:{identity.image_digest}"
+        if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+            raise D2dEnvironmentImageValidationError(
+                f"D2D_APPROVAL_IMAGE_INSPECTION_INVALID:{service}"
+            )
+        inspected = payload[0]
+        repo_digests = inspected.get("RepoDigests")
+        matches = inspected.get("Id") == digest or (
+            isinstance(repo_digests, list)
+            and any(
+                isinstance(value, str) and value.rsplit("@", 1)[-1] == digest
+                for value in repo_digests
+            )
+        )
+        if not matches:
+            raise D2dEnvironmentImageValidationError(
+                f"D2D_APPROVAL_IMAGE_DIGEST_MISMATCH:{service}:{identity.reference}"
+            )
+
+
 def _canonical_model_bytes(model: BaseModel) -> bytes:
     # Failure diagnostics were added compatibly: historical lifecycle records omit the
     # optional fields, while new FAILED records include them.  Other immutable records keep
@@ -259,6 +327,21 @@ def write_environment_freeze(freeze: D2dEnvironmentFreeze, destination: Path) ->
 
 def write_approval(approval: D2dProspectiveApproval, destination: Path) -> str:
     return _write_immutable(approval, destination, f"{approval.approval_record_id}.json")
+
+
+def create_approval(
+    approval: D2dProspectiveApproval,
+    freeze: D2dEnvironmentFreeze,
+    destination: Path,
+    *,
+    expected_source: str,
+    image_inspector: ImageInspector = _default_image_inspector,
+) -> str:
+    """Validate all bindings and local frozen images before persisting an approval."""
+
+    validate_approval(approval, freeze, expected_source=expected_source)
+    validate_frozen_images_available(freeze, image_inspector=image_inspector)
+    return write_approval(approval, destination)
 
 
 def write_lifecycle_state(state: D2dApprovalLifecycle, destination: Path) -> str:
