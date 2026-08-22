@@ -2,7 +2,11 @@
 
 > Building AI agents that can fail safely.
 
-Production-oriented reference implementation for customer operations built around one principle:
+Production-oriented reference implementation of an agentic customer service platform with semantic
+guardrails, provenance enforcement, deterministic execution controls, and operational release
+validation.
+
+It is built around one principle:
 
 > **The LLM proposes; deterministic software decides what may execute.**
 
@@ -93,7 +97,7 @@ This project provides those capabilities as separate, testable layers:
 - ✓ Reproducible CI gates and hardened non-root containers
 - ✓ React Operator Console with metadata-only inspection
 
-## Architecture
+## Architecture Overview
 
 ```mermaid
 flowchart TD
@@ -156,6 +160,51 @@ user request
 The LLM proposes semantic intent, request type, and typed references. It does not directly own
 business tools, customer scope, trusted identifiers, business truth, policy outcomes, or
 confirmation state. Executable actions are constructed and authorized by the server.
+
+For a presentation-level view of the trust boundaries and supporting systems, see
+[`docs/architecture.md`](docs/architecture.md). The core flow is:
+
+```text
+User Request
+  → Agent Orchestration
+  → Semantic Proposal
+  → Provenance Validation
+  → Decision Compiler
+  → Policy Evaluation
+  → Confirmation
+  → Execution Authority
+```
+
+The LLM output is proposal-only. Deterministic layers own validation authority, policy authority,
+and execution authority. RAG, memory, and observability provide bounded context or evidence; they
+cannot authorize a business mutation.
+
+## Safety Architecture
+
+The execution boundary is fail-closed. Unsupported or ungrounded arguments are rejected before
+execution, and model output cannot create trusted identifiers or bypass customer scope. Risk-2
+mutations require confirmation bound to persisted action state; higher-risk work follows the
+policy-controlled escalation path.
+
+The runtime also enforces database-backed idempotent mutations, replay protection, and stale or
+declined confirmation protection. These controls prevent blind duplicate effects and keep
+confirmation state non-resurrecting across replay and restart paths.
+
+## Validation Summary
+
+| Area | Result |
+| --- | --- |
+| Semantic safety | PASS |
+| Unsafe executable survivors | `0` |
+| D2c validation | PASS |
+| D2d operational gate | PASS |
+| Concurrency | PASS |
+| Restart/Persistence | PASS |
+| Fault recovery | PASS |
+| Observability/Privacy | PASS |
+
+The measured executable-survivor trend is `15 → 3 → 0 → 0 → 0`. This is prospective evidence
+for the frozen release-candidate contracts, not a universal claim about LLM reliability.
 
 ## Failure-driven hardening
 
@@ -355,6 +404,8 @@ Memory candidates pass through consent, confidence, sensitivity, conflict, expir
 > Memory is contextual evidence, not authorization. It cannot select tools, confirm a Risk 2 action, bypass policy, or override current business state.
 
 ### Evaluation Framework
+
+The concise gate split is documented in [`docs/evaluation-overview.md`](docs/evaluation-overview.md).
 
 The repository separates four questions that are often conflated in agent evaluations:
 
@@ -921,6 +972,7 @@ details.
 │   ├── d2d_spec.py         # Frozen operational release-gate contract
 │   ├── d2d/                 # Operational dry-run and prospective release-gate harness
 │   └── runner.py           # Isolated deterministic evaluation harness
+├── docs/                   # Architecture, evaluation, deployment, and release evidence
 ├── frontend/               # React, TypeScript, Vite, and Tailwind console
 ├── tests/                  # Backend unit and integration tests
 ├── alembic/                # Database migrations
@@ -955,7 +1007,7 @@ details.
 Completed in the current candidate: core platform, authentication and customer scope, durable
 checkpoints, RAG, memory, resilience, observability, Operator Console, deterministic evaluation,
 prompt semantic-contract hardening, privacy-safe attribution observability, prospective D2c, and
-the prospective D2d operational release gate.
+the prospective D2d operational release gate, and release evidence consolidation.
 
 The current release evidence is consolidated in [`docs/release-evidence.md`](docs/release-evidence.md).
 Feature freeze remains active for the current release candidate.
@@ -966,13 +1018,16 @@ Feature freeze remains active for the current release candidate.
 - Longer soak and stronger chaos exercises.
 - Provider usage and cost telemetry.
 - Operational alerting and explicit migration downgrade policy.
-- Managed deployment examples.
+- Advanced cost controls.
+- Larger-scale load testing.
+- Kubernetes deployment and managed deployment examples.
+- Multi-region architecture.
 
 ### V2 / future scope
 
 - Voice agent.
-- Enterprise OIDC and identity-provider adapters.
-- Kubernetes, Helm, and cloud automation.
+- Enterprise IAM/OIDC and identity-provider adapters.
+- Cloud automation and stronger disaster-recovery topologies.
 - Multi-agent workflows.
 
 Feature freeze remains active for the current release candidate. The frozen D2d scope is documented
