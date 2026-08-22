@@ -44,9 +44,9 @@ The known Turkish `amb-refund-no-reason` containment defect is prospectively clo
 the prompt with the existing provenance contract, M6.28B passed the targeted validation, and
 M6.29B generalized the result across the full benchmark: the standard Turkish damaged-refund
 positive control reached supported Risk-2 confirmation in all three repetitions. D2c is closed for
-the current release candidate. D2d is contract-frozen, its non-approving offline harness dry-run
-has completed, and prospective D2d execution has not started. This README does not claim
-production readiness.
+the current release candidate. M6.34 subsequently passed the source-bound D2d operational release
+gate. The consolidated evidence is in [`docs/release-evidence.md`](docs/release-evidence.md). This
+README does not claim production readiness.
 
 ## What makes this different?
 
@@ -443,17 +443,18 @@ about future hosted-model behavior.
 | Resilience regression | PASS |
 | Prospective D2c | CLOSED for current release candidate |
 | D2d contract | FROZEN |
-| D2d harness | IMPLEMENTED — OFFLINE DRY-RUN COMPLETE |
-| D2d execution | NOT STARTED |
+| D2d harness | IMPLEMENTED |
+| D2d execution | RELEASE_GATE_PASS |
 
 D2c is the model semantic and deterministic-safety evidence gate. D2d is a separate operational
 release-candidate gate, not another model benchmark. Its authoritative contract is
 [`docs/d2d-release-gate.md`](docs/d2d-release-gate.md), with the machine-readable source in
 [`evaluation/d2d_spec.py`](evaluation/d2d_spec.py). The frozen contract is
 `d2d_release_candidate_operational_v1` with identity
-`ebe77e28973a6314a3892ce896994c8e3897cd87ccf60e27ab5d1f1f8b8e0aa0`. The harness dry-run is
-explicitly non-approved and does not constitute a D2d release-gate pass. The next milestone is
-**M6.33 — D2d Prospective Approval and Environment Freeze**. No D2d execution has started.
+`ebe77e28973a6314a3892ce896994c8e3897cd87ccf60e27ab5d1f1f8b8e0aa0`. M6.34 passed the
+source-bound operational gate; the complete evidence index is
+[`docs/release-evidence.md`](docs/release-evidence.md). This is a release-candidate gate result,
+not a claim of unrestricted production readiness.
 
 #### Model/runtime compatibility
 
@@ -918,7 +919,7 @@ details.
 │   ├── datasets/           # Deterministic and live evaluation datasets
 │   ├── metrics/            # Behavior and safety metrics
 │   ├── d2d_spec.py         # Frozen operational release-gate contract
-│   ├── d2d/                 # Non-approving operational dry-run harness
+│   ├── d2d/                 # Operational dry-run and prospective release-gate harness
 │   └── runner.py           # Isolated deterministic evaluation harness
 ├── frontend/               # React, TypeScript, Vite, and Tailwind console
 ├── tests/                  # Backend unit and integration tests
@@ -954,13 +955,10 @@ details.
 Completed in the current candidate: core platform, authentication and customer scope, durable
 checkpoints, RAG, memory, resilience, observability, Operator Console, deterministic evaluation,
 prompt semantic-contract hardening, privacy-safe attribution observability, prospective D2c, and
-the non-approving D2d harness dry-run.
+the prospective D2d operational release gate.
 
-The D2d operational release-gate contract is frozen and the harness dry-run is complete. Next
-steps are:
-
-- Prepare a source-bound D2d approval and environment freeze.
-- Execute the D2d operational release gate.
+The current release evidence is consolidated in [`docs/release-evidence.md`](docs/release-evidence.md).
+Feature freeze remains active for the current release candidate.
 
 ### Post-RC hardening
 
@@ -977,8 +975,9 @@ steps are:
 - Kubernetes, Helm, and cloud automation.
 - Multi-agent workflows.
 
-Feature freeze remains active for the current release candidate. D2d has not executed; its frozen
-scope is documented in [`docs/d2d-release-gate.md`](docs/d2d-release-gate.md).
+Feature freeze remains active for the current release candidate. The frozen D2d scope is documented
+in [`docs/d2d-release-gate.md`](docs/d2d-release-gate.md), and the completed evidence is indexed in
+[`docs/release-evidence.md`](docs/release-evidence.md).
 
 ## Engineering Decisions
 
