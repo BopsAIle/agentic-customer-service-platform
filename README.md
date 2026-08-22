@@ -16,9 +16,9 @@ non-authoritative.
 
 ### Current prospective evidence
 
-Latest live robustness validation: `d2c_m6_26_semantic_v3_20260821T235904Z`
+Latest live robustness validation: `d2c_m6_29_semantic_v3_20260822T011436Z`
 
-- 540 measured executions across 180 scenarios × 3 repetitions 
+- 540 measured executions across 180 scenarios × 3 repetitions
 - Deterministic evaluation: `110/110`
 - Safety evaluation: `40/40`
 - Resilience evaluation: `28/28`
@@ -38,12 +38,12 @@ Additional execution-safety results: **0 confirmation bypasses**, **0 unauthoriz
 from **15 to 3 to 0** between the comparable prospective runs. This is a deterministic containment
 result, not a claim that model errors or hallucinations became zero.
 
-The known Turkish `amb-refund-no-reason` containment defect is prospectively closed. The standard
-Turkish damaged-refund positive control failed in all three M6.26B repetitions with conclusively
-unsupported model-proposed reasons; deterministic software clarified safely. M6.27B aligns the
-prompt with the existing provenance contract through offline validation only. Targeted live
-validation is still required, and D2d remains blocked. This README does not claim production
-readiness.
+The known Turkish `amb-refund-no-reason` containment defect is prospectively closed. M6.27B aligned
+the prompt with the existing provenance contract, M6.28B passed the targeted validation, and
+M6.29B generalized the result across the full benchmark: the standard Turkish damaged-refund
+positive control reached supported Risk-2 confirmation in all three repetitions. D2c is closed for
+the current release candidate. D2d is contract-frozen but has not executed. This README does not
+claim production readiness.
 
 ## What makes this different?
 
@@ -462,8 +462,8 @@ M6.16 validated the exact prior survivor shapes offline through the real runtime
 added `containment_observability_v1`. M6.22B directly measured the model-unsafe → guard-intervention
 → executable-survivor → execution chain with a clean containment result. M6.24's
 `semantic_attribution_observability_v1` is offline-validated and changes neither runtime decision
-semantics nor frozen scorer semantics. D2d remains blocked pending review of the Turkish positive
-control and a new source-bound run if attribution is required.
+semantics nor frozen scorer semantics. M6.29B completed the current D2c evidence chain. D2d is
+defined in [`docs/d2d-release-gate.md`](docs/d2d-release-gate.md) and remains unexecuted.
 
 M6.20B latency was 1278.99 ms provider mean / 1736.25 ms p95 and 1290.28 ms end-to-end mean /
 1748.95 ms p95. Usage and cost metadata were unavailable.
@@ -971,10 +971,9 @@ details.
   safety or architecture metric.
 - Model semantic errors can still occur; deterministic guards, policy, confirmation, and business
   validation are separate containment boundaries rather than proof of model correctness.
-- The latest prospective run reduced unsafe executable survivors from 15 to 3 while preserving
-  zero unsafe executions. The remaining three survivors are Turkish `amb-refund-no-reason` cases
-  and require offline root-cause analysis and a deterministic containment fix before another
-  prospective validation and before D2d consideration.
+- M6.29B completed 540/540 attempts with zero unsafe executable survivors and zero unsafe executions.
+  The measured deterministic survivor progression is 15 → 3 → 0 → 0 → 0. This is not a claim that
+  model semantic errors or unseen failure modes are impossible.
 - Provider usage/cost metadata may be unavailable in live evaluation artifacts.
 - Synthetic evaluation coverage cannot prove the absence of unseen failure modes.
 
@@ -1005,8 +1004,10 @@ Future:
 - [x] Run source-bound prospective D2c containment validation
 - [x] Attribute the Turkish valid-refund positive control with a fresh M6.24-bound D2c run
 - [x] Complete offline semantic-reliability root-cause review and prompt hardening
-- [ ] Run targeted live semantic validation against the new prompt identity
-- [ ] Reconsider the D2d model matrix only after prospective containment passes
+- [x] Run targeted live semantic validation against the new prompt identity
+- [x] Complete full prompt-hardened prospective D2c validation
+- [x] Freeze the D2d operational release-gate contract
+- [ ] Implement and dry-run the D2d operational harness
 - [ ] Voice agent
 - [ ] Kubernetes deployment
 - [ ] JWT/OIDC and enterprise identity-provider adapters

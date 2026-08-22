@@ -45,7 +45,7 @@ The frozen identities are:
 - Dataset SHA-256: `1a4844e843a49cd01083adc81330398206dde4b6b4c3a4c42b0d4228a8d1556b`
 - Oracle SHA-256: `d0fdae4316283a28bf81be38712bd8cd735b76c995f64ce24678fb409da052b2`
 - Schedule SHA-256: `9b2cd9fa10bd9279dc0d0b3de11aebd383c1cd6e12ab42733a802e281efd26fe`
-- Dataset decision SHA-256: `53debd0907fc1c52708cf2d41f4ee48391c0ce7d815db22b9b5e34508f8b3b58`
+- Dataset decision SHA-256: `e72412c1d8afc47b62627fcf089b827b5012883ec9cfb36402ddba7a29228def`
 
 Only synthetic data is present. The decision remains `FROZEN_NOT_APPROVED_FOR_EXECUTION`.
 
@@ -108,7 +108,7 @@ python -m evaluation.d2c_approval create \
   --experiment-id <d2c-experiment-id> \
   --source-revision <40-char-commit> \
   --confirm-spec-sha256 aaaa7f7f42dd23da4aae43340442cea266df1e3ff2a5068ed8ff62e5181e7d6d \
-  --confirm-decision-sha256 53debd0907fc1c52708cf2d41f4ee48391c0ce7d815db22b9b5e34508f8b3b58 \
+  --confirm-decision-sha256 e72412c1d8afc47b62627fcf089b827b5012883ec9cfb36402ddba7a29228def \
   --confirm-reviewed \
   --output evaluation/approvals/<record-id>.json
 ```
