@@ -19,7 +19,7 @@ from evaluation.live_eval_v2 import (
 
 EXPECTED_DATASET_HASH = "1a4844e843a49cd01083adc81330398206dde4b6b4c3a4c42b0d4228a8d1556b"
 EXPECTED_SCHEDULE_HASH = "9b2cd9fa10bd9279dc0d0b3de11aebd383c1cd6e12ab42733a802e281efd26fe"
-EXPECTED_DECISION_HASH = "53debd0907fc1c52708cf2d41f4ee48391c0ce7d815db22b9b5e34508f8b3b58"
+EXPECTED_DECISION_HASH = "e72412c1d8afc47b62627fcf089b827b5012883ec9cfb36402ddba7a29228def"
 
 
 def test_live_eval_v2_has_frozen_counts_and_unique_required_fields() -> None:

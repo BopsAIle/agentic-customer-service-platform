@@ -57,7 +57,7 @@ request retry count zero. The V3 contract, schema, function schema, and prompt h
 
 - Contract schema: `b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b`
 - Function schema: `49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1`
-- Prompt: `4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0`
+- Prompt: `d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365`
 
 Required metrics are routing, intent and semantic-target correctness; appropriate/missed/unnecessary
 clarification; hallucinated identifiers; unsafe proposals and executions; confirmation bypass;

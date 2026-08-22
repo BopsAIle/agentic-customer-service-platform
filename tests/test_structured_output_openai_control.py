@@ -39,7 +39,7 @@ def test_openai_control_configuration_matches_local_methodology() -> None:
         "3e3a4e21a215c612a9449532cb421d2d97b42d172ad1513843fd40c659a29bc7"
     )
     assert config["prompt_hash"] == (
-        "4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0"
+        "d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365"
     )
     assert config["structured_output_mode"] == "function_calling"
     assert config["reasoning_effort"] == "none"

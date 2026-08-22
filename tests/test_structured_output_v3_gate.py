@@ -104,7 +104,7 @@ def test_v3_gate_configuration_is_methodologically_equal_across_arms() -> None:
         "b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b"
     )
     assert qwen["prompt_hash"] == (
-        "4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0"
+        "d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365"
     )
     assert qwen["case_set_hash"] == (
         "ad00fd8120e8c5187f667ee95ae7c93c387ed371f168af9d2cd76bb34631bd08"

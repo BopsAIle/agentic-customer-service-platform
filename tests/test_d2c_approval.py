@@ -66,7 +66,7 @@ def test_d2c_approval_binds_every_frozen_execution_identity() -> None:
     assert (
         approval.contract_identity_hash
         == contract_identity_hash()
-        == ("6e2f163bc168a52df011d1c7101df074e74c567ee9b4b118c89b1e1b178bcc5f")
+        == ("c660e7e28fb1592b1ef4170551e814a9fe58a8b3e8518246a48093544cf9285f")
     )
     assert approval.contract_schema_hash == CONTRACT_SCHEMA_HASH
     assert approval.function_schema_hash == FUNCTION_SCHEMA_HASH

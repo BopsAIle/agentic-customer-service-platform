@@ -1,6 +1,6 @@
 # semantic_decision_v3 improvement plan
 
-- Status: **DETERMINISTIC CONTAINMENT IMPLEMENTED — PROSPECTIVE VALIDATION REQUIRED**
+- Status: **PROMPT SEMANTIC-CONTRACT HARDENING IMPLEMENTED — TARGETED LIVE VALIDATION REQUIRED**
 - Milestone: M6.13
 - Source analysis: M6.12 offline semantic failure analysis
 - Source experiment: `d2c_m6_9_semantic_v3_20260813T233308Z`
@@ -11,11 +11,17 @@
   privacy-safe attempt projection omitted bounded semantic clarification and refund-reason state.
 - M6.24 status: `semantic_attribution_observability_v1` implemented and offline-validated;
   prospective validation is still required.
+- M6.27A attributed the repeated Turkish valid-refund failure to unsupported model-proposed
+  refund reasons after the compiler boundary, while confirming deterministic safety remained
+  clean.
+- M6.27B added prompt-only provenance instructions and offline fixture validation. The prompt
+  identity changed; the schema, function schema, compiler, runtime, scorer, dataset, oracle, and
+  schedule did not.
 
 The proposal below is retained as historical decision context. The narrow refund-reason
-containment item is now implemented in `app/agent/decision_compiler.py` with focused deterministic
-regression coverage. No model calls, D2c rerun, D2d execution, schema change, prompt change, or
-contract change is part of this implementation milestone.
+containment item is implemented in `app/agent/decision_compiler.py` with focused deterministic
+regression coverage. M6.27B is a separate prompt-only alignment change; it does not change runtime
+authority or evaluation semantics.
 
 M6.24 is an attribution-only follow-up. It adds bounded fields derived from the parsed semantic
 proposal and existing deterministic compiler result: model clarification intent, required refund

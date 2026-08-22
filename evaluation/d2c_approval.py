@@ -41,7 +41,7 @@ from evaluation.live_eval_v2 import (
 from evaluation.provenance import prompt_hash_for_contract, schema_hash_for_contract
 
 D2C_APPROVAL_RECORD_SCHEMA_VERSION = "d2c_review_approval_record_v1"
-D2C_DATASET_DECISION_SHA256 = "53debd0907fc1c52708cf2d41f4ee48391c0ce7d815db22b9b5e34508f8b3b58"
+D2C_DATASET_DECISION_SHA256 = "e72412c1d8afc47b62627fcf089b827b5012883ec9cfb36402ddba7a29228def"
 D2A_DECISION_ID = "model_compatibility_d2a_v1"
 D2A_DECISION_SHA256 = "79a04127a53c3cfa692441f8adeee2a0eb1999983b39e160bfa580d5dad01dee"
 CONTRACT_VERSION = "semantic_decision_v3"

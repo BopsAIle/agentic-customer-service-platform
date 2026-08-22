@@ -16,19 +16,19 @@ non-authoritative.
 
 ### Current prospective evidence
 
-Latest live robustness validation: `d2c_m6_22_semantic_v3_20260821T215809Z`
+Latest live robustness validation: `d2c_m6_26_semantic_v3_20260821T235904Z`
 
 - 540 measured executions across 180 scenarios × 3 repetitions 
 - Deterministic evaluation: `110/110`
 - Safety evaluation: `40/40`
 - Resilience evaluation: `28/28`
-- Consistency: `158/180` (`87.78%`)
+- Consistency: `156/180` (`86.67%`)
 
 Containment funnel:
 
 ```text
-31 unsafe semantic proposals
-  → 31 deterministic guard interventions
+30 unsafe semantic proposals
+  → 30 deterministic guard interventions
   → 0 unsafe executable survivors
   → 0 unsafe executions
 ```
@@ -38,11 +38,12 @@ Additional execution-safety results: **0 confirmation bypasses**, **0 unauthoriz
 from **15 to 3 to 0** between the comparable prospective runs. This is a deterministic containment
 result, not a claim that model errors or hallucinations became zero.
 
-The known Turkish `amb-refund-no-reason` containment defect is prospectively closed. A separate
-Turkish valid-refund positive control clarified in all three repetitions; M6.23A could not attribute
-that result from existing privacy-safe evidence. M6.24 adds bounded attribution observability only;
-D2d remains blocked pending review and any required source-bound prospective validation. This
-README does not claim production readiness.
+The known Turkish `amb-refund-no-reason` containment defect is prospectively closed. The standard
+Turkish damaged-refund positive control failed in all three M6.26B repetitions with conclusively
+unsupported model-proposed reasons; deterministic software clarified safely. M6.27B aligns the
+prompt with the existing provenance contract through offline validation only. Targeted live
+validation is still required, and D2d remains blocked. This README does not claim production
+readiness.
 
 ## What makes this different?
 
@@ -166,15 +167,16 @@ prompt tweak:
    executable survivors, and execution;
 5. bounded `semantic_attribution_observability_v1` was added after a positive-control artifact
    proved insufficient to distinguish model clarification from compiler reason rejection;
-6. the frozen prospective evaluation was rerun.
+6. the frozen prospective evaluation was rerun;
+7. the semantic prompt was hardened to require provenance-preserving executable arguments.
 
 The result was **15 → 3 → 0 unsafe executable survivors** while unsafe executions remained **0**.
-M6.21's Turkish `amb-refund-no-reason` containment defect is prospectively closed. M6.22B also
-exposed a separate Turkish valid-refund positive-control attribution gap: the privacy-safe attempt
-projection did not preserve enough bounded semantic state to identify whether clarification came
-from the model or compiler. M6.24 adds attribution fields without changing runtime decisions or
-scoring. Model semantic quality, pre-execution containment, execution safety, attribution fidelity,
-and D2d readiness remain separate claims.
+M6.21's Turkish `amb-refund-no-reason` containment defect is prospectively closed. M6.26B
+conclusively attributed the separate Turkish valid-refund positive-control failure to unsupported
+model-proposed reasons; the compiler correctly blocked them. M6.24 added attribution fields and
+M6.27B aligned the prompt without changing runtime decisions or scoring. Model semantic quality,
+pre-execution containment, execution safety, attribution fidelity, and D2d readiness remain
+separate claims.
 
 ## Production Hardening
 
@@ -482,8 +484,8 @@ fails closed when the proposed reason is absent, contains only refund/request bo
 unsupported qualifiers; bilingual explicit reasons remain on the normal Risk-2 path. Focused
 offline tests and the existing deterministic, safety, resilience, grounding, admissibility,
 policy, confirmation, and replay suites validate the local behavior. The historical M6.20B result
-is unchanged: a new source-bound prospective D2c run is still required to verify that the three
-Turkish survivors become zero before the P0 blocker is closed.
+is unchanged. The P0 safety containment objective is prospectively clean; targeted semantic
+validation is required after the M6.27B prompt identity change before D2d consideration.
 
 #### Model/runtime compatibility
 
@@ -1001,7 +1003,9 @@ Future:
 - [x] Perform offline root-cause analysis of the three Turkish `amb-refund-no-reason` survivors
 - [x] Implement and validate the required deterministic containment fix offline
 - [x] Run source-bound prospective D2c containment validation
-- [ ] Attribute the Turkish valid-refund positive control with a fresh M6.24-bound D2c run
+- [x] Attribute the Turkish valid-refund positive control with a fresh M6.24-bound D2c run
+- [x] Complete offline semantic-reliability root-cause review and prompt hardening
+- [ ] Run targeted live semantic validation against the new prompt identity
 - [ ] Reconsider the D2d model matrix only after prospective containment passes
 - [ ] Voice agent
 - [ ] Kubernetes deployment

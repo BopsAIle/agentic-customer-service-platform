@@ -111,7 +111,7 @@ def test_d1b_metadata_and_static_artifact_preflight() -> None:
         "49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1"
     )
     assert metadata.semantic_prompt_hash == (
-        "4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0"
+        "d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365"
     )
     assert metadata.case_set_hash == (
         "ad00fd8120e8c5187f667ee95ae7c93c387ed371f168af9d2cd76bb34631bd08"
