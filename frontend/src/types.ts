@@ -7,7 +7,19 @@ export type ToolEvent = {
 };
 
 export type PolicyEvent = {
+  event_id?: string;
+  request_id?: string;
+  conversation_id?: string;
   action_id: string | null;
+  timestamp?: string | null;
+  stage?: string;
+  confirmation_status?: string | null;
+  revalidation?: boolean;
+  execution_status?: string | null;
+  actor_id?: string;
+  actor_type?: string;
+  roles?: string[];
+  effective_customer_id?: number;
   tool_name: string;
   risk_level: number;
   outcome: string;

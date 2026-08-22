@@ -66,6 +66,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  runs: (limit = 25) => request<AgentRun[]>(`/ui/agent-runs?limit=${limit}`),
   chat: (conversationId: string, customerId: number, message: string) =>
     request<AgentResponse>("/agent/chat", {
       method: "POST",

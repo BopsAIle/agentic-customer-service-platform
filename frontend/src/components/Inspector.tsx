@@ -1,20 +1,50 @@
-import { Activity, BookOpen, Brain, GitBranch, ShieldCheck, Wrench } from "lucide-react";
-import type { AgentRun } from "../types";
-import { Badge, DataRow, EmptyState, MetricCard, Panel, SectionHeader, StatusIndicator, Tabs } from "./ui";
-import { ToolPanel } from "./ToolPanel";
+import { Activity, BookOpen, Brain, CheckCircle2, CircleAlert, GitBranch, LockKeyhole, ShieldCheck, Wrench, XCircle } from "lucide-react";
+import type { AgentRun, MemoryRecord } from "../types";
+import { Badge, DataRow, EmptyState, Panel, SectionHeader, StatusIndicator, Tabs } from "./ui";
+import { MemoryPanel } from "./MemoryPanel";
 import { PolicyPanel } from "./PolicyPanel";
 import { RagPanel } from "./RagPanel";
-import { MemoryPanel } from "./MemoryPanel";
+import { ToolPanel } from "./ToolPanel";
 import { TraceTimeline } from "./TraceTimeline";
 
-export function Inspector({ run, memoryRecords = [] }: { run: AgentRun | null; memoryRecords?: import("../types").MemoryRecord[] }) {
-  if (!run) return <Panel title="Agent inspector" eyebrow="Run analysis"><EmptyState title="No run selected" description="Run an agent request to inspect intent, tools, policy, evidence, and trace data." icon={Activity} /></Panel>;
-  const components = [run.memory.item_count > 0 && "Memory", run.rag_documents.length > 0 && "RAG", run.tools.length > 0 && "Tool", run.policy.length > 0 && "Policy"].filter(Boolean) as string[];
-  const risk = run.tools.reduce((max, tool) => Math.max(max, tool.risk_level ?? 0), 0);
-  const overview = <div className="space-y-5"><div className="grid grid-cols-2 gap-3 sm:grid-cols-4"><MetricCard label="Intent" value={run.intent} icon={Activity} /><MetricCard label="Request type" value={run.request_type.replace(/_/g, " ")} icon={GitBranch} /><MetricCard label="Risk" value={`Level ${risk}`} icon={ShieldCheck} /><MetricCard label="Latency" value={`${run.duration_ms.toFixed(1)} ms`} icon={Activity} /></div><div className="grid gap-5 lg:grid-cols-2"><div><SectionHeader title="Run metadata" description="Safe identifiers for correlation." /><div className="divide-y divide-border/70"><DataRow label="Status" value={<StatusIndicator label={run.status} tone={run.status === "completed" ? "success" : run.status === "waiting_confirmation" ? "warning" : "danger"} compact />} /><DataRow label="Conversation" value={run.conversation_id} mono /><DataRow label="Agent run" value={run.run_id} mono /><DataRow label="Action" value={run.action_id ?? "none"} mono /><DataRow label="Trace" value={run.trace_id ?? "not exported"} mono /></div></div><div><SectionHeader title="Components used" description="Observed execution boundaries in this run." /><div className="flex flex-wrap gap-2">{components.length ? components.map((component) => <Badge key={component} tone="success"><span className="inline-flex items-center gap-1.5"><ShieldCheck size={12} aria-hidden="true" />{component}</span></Badge>) : <span className="text-xs text-muted">No downstream components recorded.</span>}</div></div></div><div><SectionHeader title="Execution path" description="Structured graph nodes only; no hidden reasoning." /><div className="path-strip">{run.path.map((step, index) => <span className="path-step" key={`${step}-${index}`}>{step}{index < run.path.length - 1 && <span className="path-arrow" aria-hidden="true">›</span>}</span>)}</div></div></div>;
-  const tabs = [{ id: "overview", label: "Overview", icon: Activity, content: overview }, { id: "tools", label: "Tools", icon: Wrench, content: <ToolPanel tools={run.tools} embedded /> }, { id: "policy", label: "Policy", icon: ShieldCheck, content: <PolicyPanel events={run.policy} embedded /> }, { id: "rag", label: "RAG", icon: BookOpen, content: <RagPanel documents={run.rag_documents} embedded /> }, { id: "memory", label: "Memory", icon: Brain, content: <MemoryPanel usage={run.memory} records={memoryRecords} embedded /> }, { id: "trace", label: "Trace", icon: GitBranch, content: <TraceTimeline events={run.trace} embedded /> }];
-  return <Panel title="Agent inspector" eyebrow="Run analysis" description="Structured metadata across the agent execution path."><Tabs tabs={tabs} /></Panel>;
+function humanize(value: string | null | undefined): string {
+  return value ? value.replace(/_/g, " ") : "Not recorded";
 }
 
-export function Metric({ label, value }: { label: string; value: string }) { return <MetricCard label={label} value={value} />; }
+function stateFor(run: AgentRun, pattern: RegExp): "success" | "warning" | "neutral" {
+  return run.path.some((step) => pattern.test(step.toLowerCase())) ? "success" : "neutral";
+}
+
+function GroundingCheck({ label, tone, detail }: { label: string; tone: "success" | "warning" | "neutral"; detail: string }) {
+  const Icon = tone === "success" ? CheckCircle2 : CircleAlert;
+  return <div className="control-check"><Icon size={14} className={tone === "success" ? "text-success" : tone === "warning" ? "text-warning" : "text-muted"} aria-hidden="true" /><div><div className="text-xs font-medium text-main">{label}</div><div className="mt-0.5 text-[11px] text-muted">{detail}</div></div></div>;
+}
+
+function ActionInspector({ run }: { run: AgentRun }) {
+  const tool = run.tools[0];
+  const policy = run.policy[run.policy.length - 1];
+  const isPending = run.status === "waiting_confirmation" || policy?.confirmation_status === "pending";
+  const isExecuted = run.status === "completed" && tool?.status === "success";
+  const executionLabel = isExecuted ? "Executed" : isPending ? "Blocked pending confirmation" : run.status === "error" ? "Blocked" : "Not executed";
+  const executionTone = isExecuted ? "success" : isPending ? "warning" : run.status === "error" ? "danger" : "neutral";
+  const toolName = tool?.name ?? policy?.tool_name ?? "No tool proposal recorded";
+  return <section className="action-inspector rounded-xl border border-info/25 bg-void/35 p-4" aria-label="Action inspector">
+    <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="eyebrow text-info">Signature control</div><h2 className="mt-1 text-base font-semibold text-main">Proposed action</h2></div><Badge tone={isPending ? "warning" : isExecuted ? "success" : "neutral"}>{isPending ? "Awaiting confirmation" : isExecuted ? "Committed" : "Observation only"}</Badge></div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="proposal-field"><span className="field-label">Tool proposal</span><strong className="mt-1 block font-mono text-sm text-main">{toolName}</strong><span className="mt-1 block text-[11px] text-muted">LLM output · untrusted proposal</span></div><div className="proposal-field"><span className="field-label">Action binding</span><strong className="mt-1 block font-mono text-sm text-main">{run.action_id ?? "Not recorded"}</strong><span className="mt-1 block text-[11px] text-muted">Server-owned identifier</span></div></div>
+    <div className="mt-3 proposal-field"><span className="field-label">Arguments / result fields</span>{tool?.result_fields.length ? <div className="mt-2 flex flex-wrap gap-1.5">{tool.result_fields.map((field) => <Badge key={field} tone="neutral">{field}</Badge>)}</div> : <div className="mt-1 text-xs text-muted">Raw arguments are intentionally not exposed in the operator projection.</div>}</div>
+    <div className="control-flow mt-4" aria-label="Decision authority flow"><div className="flow-node flow-proposal">LLM proposal</div><span className="flow-arrow">↓</span><div className="flow-node">Deterministic validation</div><span className="flow-arrow">↓</span><div className="flow-node">Policy decision</div><span className="flow-arrow">↓</span><div className="flow-node flow-authority">Execution authority</div></div>
+    <div className="mt-4"><div className="field-label">Grounding and admissibility</div><div className="mt-2 grid gap-2 sm:grid-cols-2"><GroundingCheck label="Target admissibility" tone={stateFor(run, /order|target|resolve|select/)} detail="Observed through bounded execution path" /><GroundingCheck label="Evidence retrieval" tone={run.rag_documents.length ? "success" : "neutral"} detail={run.rag_documents.length ? `${run.rag_documents.length} citation(s) recorded` : "No retrieval evidence recorded"} /><GroundingCheck label="Policy audit" tone={policy ? "success" : "neutral"} detail={policy ? "Decision event recorded" : "No policy event recorded"} /><GroundingCheck label="Customer scope" tone={run.customer_id > 0 ? "success" : "neutral"} detail={run.customer_id > 0 ? `customer #${run.customer_id}` : "Not recorded"} /></div></div>
+    <div className="mt-4 grid gap-3 sm:grid-cols-2"><div className="decision-block"><div className="field-label">Policy decision</div><div className="mt-1 font-mono text-sm font-semibold text-warning">{humanize(policy?.outcome)}</div><div className="mt-2 text-xs leading-5 text-muted">{policy?.reason_codes.length ? policy.reason_codes.join(" · ") : "Policy reason codes not recorded."}</div></div><div className="decision-block"><div className="field-label">Execution status</div><div className="mt-1"><StatusIndicator label={executionLabel} tone={executionTone} /></div><div className="mt-2 text-xs leading-5 text-muted">{isPending ? "A deterministic confirmation boundary prevents direct mutation." : "No execution command is exposed by this read-only console."}</div></div></div>
+    <div className="mt-4"><div className="field-label">Operator actions</div><div className="mt-2 flex flex-wrap gap-2"><button type="button" className="operator-action" disabled><CheckCircle2 size={13} aria-hidden="true" />Approve</button><button type="button" className="operator-action" disabled><XCircle size={13} aria-hidden="true" />Deny</button><button type="button" className="operator-action" disabled><ShieldCheck size={13} aria-hidden="true" />Escalate</button></div><p className="mt-2 text-[11px] text-muted">Action commands are intentionally read-only in this operator projection.</p></div>
+  </section>;
+}
+
+export function Inspector({ run, memoryRecords = [] }: { run: AgentRun | null; memoryRecords?: MemoryRecord[] }) {
+  if (!run) return <Panel title="Action inspector" eyebrow="Execution authority"><EmptyState title="No run selected" description="Run an agent request to inspect the proposal, evidence, policy boundary, and trace." icon={Activity} /></Panel>;
+  const overview = <div className="space-y-5"><ActionInspector run={run} /><div className="grid gap-5 lg:grid-cols-2"><div><SectionHeader title="Run metadata" description="Bounded identifiers for correlation." /><div className="divide-y divide-border/70"><DataRow label="Status" value={<StatusIndicator label={humanize(run.status)} tone={run.status === "completed" ? "success" : run.status === "waiting_confirmation" ? "warning" : run.status === "error" ? "danger" : "neutral"} compact />} /><DataRow label="Intent" value={run.intent} mono /><DataRow label="Request type" value={humanize(run.request_type)} /><DataRow label="Conversation" value={run.conversation_id} mono /><DataRow label="Trace" value={run.trace_id ?? "not exported"} mono /></div></div><div><SectionHeader title="Observed path" description="Structured graph nodes only; no hidden reasoning." /><div className="path-strip">{run.path.length ? run.path.map((step, index) => <span className="path-step" key={`${step}-${index}`}>{step}{index < run.path.length - 1 && <span className="path-arrow" aria-hidden="true">›</span>}</span>) : <span className="text-xs text-muted">No execution path recorded.</span>}</div></div></div></div>;
+  const tabs = [{ id: "overview", label: "Decision", icon: LockKeyhole, content: overview }, { id: "tools", label: "Tools", icon: Wrench, content: <ToolPanel tools={run.tools} embedded /> }, { id: "policy", label: "Policy", icon: ShieldCheck, content: <PolicyPanel events={run.policy} embedded /> }, { id: "rag", label: "RAG", icon: BookOpen, content: <RagPanel documents={run.rag_documents} embedded /> }, { id: "memory", label: "Memory", icon: Brain, content: <MemoryPanel usage={run.memory} records={memoryRecords} embedded /> }, { id: "trace", label: "Trace", icon: GitBranch, content: <TraceTimeline events={run.trace} embedded /> }];
+  return <Panel title="Action inspector" eyebrow="Execution authority" description="The model proposes. Deterministic software decides what may execute."><Tabs tabs={tabs} /></Panel>;
+}
+
+export function Metric({ label, value }: { label: string; value: string }) { return <div className="flex items-center justify-between text-xs"><span className="text-muted">{label}</span><span className="font-mono text-main">{value}</span></div>; }
 export function Empty({ text }: { text: string }) { return <EmptyState title="Nothing to inspect" description={text} />; }
