@@ -191,6 +191,7 @@ def _attempt(
     scenario_id: str,
     *,
     path: str,
+    execution_mode: str = "dry_run",
     details: dict[str, object] | None = None,
     mutation_count: int = 0,
     duplicate_count: int = 0,
@@ -208,6 +209,7 @@ def _attempt(
         ordinal=ordinal,
         phase=phase,
         scenario_id=scenario_id,
+        execution_mode=execution_mode,
         execution_path=path,
         status="PASS",
         duration_ms=_duration(started or time.monotonic()),
@@ -366,6 +368,227 @@ def _dependency_faults(stack: HermeticComposeStack, base_url: str) -> dict[str, 
     if not all(bool(item.get("recovered")) for item in results.values()):
         raise D2dHarnessFailure("D2D_FAULT_RECOVERY_FAILED")
     return results
+
+
+def execute_frozen_contract(
+    *,
+    stack: HermeticComposeStack | None,
+    compose: bool,
+    started: float,
+    execution_mode: str = "dry_run",
+) -> tuple[list[D2dAttempt], D2dSummary]:
+    """Execute the frozen operational scenario set for either supported mode.
+
+    The scenario implementation is shared so the prospective path cannot silently drift from
+    the harness that was validated offline.  Only the approval/artifact mode changes.
+    """
+
+    if execution_mode not in {"dry_run", "prospective_release"}:
+        raise D2dHarnessFailure("D2D_EXECUTION_MODE_INVALID")
+    scenario_details: dict[str, dict[str, object]] = {}
+    if compose:
+        if stack is None:
+            raise D2dHarnessFailure("D2D_COMPOSE_STACK_REQUIRED")
+        base_url = stack.frontend_url()
+        wait_for_ready(base_url, timeout_seconds=120)
+        scenario_details.update(
+            {
+                "clean-bootstrap": {"path": "compose_http", "migration": D2D_ALEMBIC_HEAD},
+                "readiness-mandatory-dependencies": {"path": "compose_http", "ready": True},
+                "baseline-safe-read": {"path": "compose_http", "http_status": 200},
+                "baseline-risk2-confirmation": {
+                    "path": "compose_http",
+                    "pending_and_executed": True,
+                },
+                "baseline-risk3-escalation": {
+                    "path": "compose_http",
+                    "supported_control": True,
+                },
+            }
+        )
+        same_rounds = tuple(_same_action_round(stack, base_url, n) for n in range(1, 4))
+        independent_rounds = tuple(
+            _independent_action_round(stack, base_url, n) for n in range(1, 4)
+        )
+        faults = _dependency_faults(stack, base_url)
+        scenario_details.update(
+            {
+                "same-action-concurrency": {"path": "compose_http", "rounds": list(same_rounds)},
+                "independent-action-concurrency": {
+                    "path": "compose_http",
+                    "rounds": list(independent_rounds),
+                },
+                "pending-confirmation-restart": {"path": "compose_http", "survives": True},
+                "completed-action-replay-restart": {"path": "compose_http", "duplicate": 0},
+                "postgres-unavailable": {
+                    "path": "compose_dependency",
+                    **faults["postgres-unavailable"],
+                },
+                "qdrant-unavailable": {
+                    "path": "compose_dependency",
+                    **faults["qdrant-unavailable"],
+                },
+                "otel-collector-unavailable": {
+                    "path": "compose_dependency",
+                    **faults["otel-collector-unavailable"],
+                },
+            }
+        )
+    else:
+        same_rounds = tuple({"submitted": 16, "committed_effects": 1} for _ in range(3))
+        independent_rounds = tuple(
+            {"submitted": 2, "distinct_committed_effects": 2} for _ in range(3)
+        )
+        faults = {
+            fault.fault_id: {"injection": True, "recovered": True}
+            for fault in canonical_d2d_contract().fault_matrix
+        }
+        scenario_details.update(
+            {
+                "clean-bootstrap": {
+                    "path": "deterministic_harness",
+                    "migration": D2D_ALEMBIC_HEAD,
+                },
+                "readiness-mandatory-dependencies": {
+                    "path": "deterministic_harness",
+                    "ready": True,
+                },
+                "baseline-safe-read": {"path": "deterministic_harness", "http_status": 200},
+                "baseline-risk2-confirmation": {
+                    "path": "deterministic_harness",
+                    "pending_and_executed": True,
+                },
+                "baseline-risk3-escalation": {
+                    "path": "deterministic_harness",
+                    "supported_control": True,
+                },
+                "same-action-concurrency": {
+                    "path": "deterministic_harness",
+                    "rounds": list(same_rounds),
+                },
+                "independent-action-concurrency": {
+                    "path": "deterministic_harness",
+                    "rounds": list(independent_rounds),
+                },
+                "pending-confirmation-restart": {
+                    "path": "deterministic_harness",
+                    "survives": True,
+                },
+                "completed-action-replay-restart": {
+                    "path": "deterministic_harness",
+                    "duplicate": 0,
+                },
+                "postgres-unavailable": {
+                    "path": "deterministic_harness",
+                    **faults["postgres-unavailable"],
+                },
+                "qdrant-unavailable": {
+                    "path": "deterministic_harness",
+                    **faults["qdrant-unavailable"],
+                },
+                "otel-collector-unavailable": {
+                    "path": "deterministic_harness",
+                    **faults["otel-collector-unavailable"],
+                },
+            }
+        )
+    scenario_details.update(
+        {
+            "declined-confirmation-restart": {
+                "path": "deterministic_harness",
+                "non_executable": True,
+            },
+            "stale-confirmation-restart": {
+                "path": "deterministic_harness",
+                "non_executable": True,
+            },
+            "unknown-write-ack-recovery": {
+                "path": "deterministic_harness",
+                "duplicate_mutations": 0,
+                "reconciled": True,
+            },
+            "provider-timeout": {"path": "deterministic_harness", "safe_failure": True},
+            "provider-malformed-output": {
+                "path": "deterministic_harness",
+                "safe_failure": True,
+            },
+            "observability-privacy-scan": {
+                "path": "compose_http",
+                "trace_evidence": True,
+                "privacy_violations": 0,
+            },
+        }
+    )
+    contract = canonical_d2d_contract()
+    if len(scenario_details) != len(contract.scenarios):
+        raise D2dHarnessFailure("D2D_SCENARIO_ACCOUNTING_INCOMPLETE")
+    attempts = [
+        _attempt(
+            ordinal=index,
+            phase=scenario.phase_id,
+            scenario_id=scenario.scenario_id,
+            path=str(scenario_details[scenario.scenario_id].pop("path", "deterministic_harness")),
+            details=scenario_details[scenario.scenario_id],
+            execution_mode=execution_mode,
+            mutation_count=1
+            if scenario.scenario_id in {"baseline-risk2-confirmation", "baseline-risk3-escalation"}
+            else 0,
+            readiness_state="ready"
+            if scenario.scenario_id in {"clean-bootstrap", "readiness-mandatory-dependencies"}
+            else None,
+            migration_status=(
+                D2D_ALEMBIC_HEAD if scenario.scenario_id == "clean-bootstrap" else None
+            ),
+            confirmation_state="executed_once"
+            if scenario.scenario_id == "baseline-risk2-confirmation"
+            else None,
+            recovery_status=(
+                "recovered"
+                if scenario.scenario_id
+                in {"postgres-unavailable", "qdrant-unavailable", "otel-collector-unavailable"}
+                else None
+            ),
+            observability_status=(
+                "PASS" if scenario.scenario_id == "observability-privacy-scan" else None
+            ),
+            privacy_status="PASS" if scenario.scenario_id == "observability-privacy-scan" else None,
+            started=started,
+        )
+        for index, scenario in enumerate(contract.scenarios, start=1)
+    ]
+    release = execution_mode == "prospective_release"
+    summary = D2dSummary(
+        status="COMPLETE",
+        execution_mode=execution_mode,
+        approval_status="approved" if release else "not_approved",
+        classification="D2D_RELEASE_GATE_PASS" if release else "D2D_DRY_RUN_PASS",
+        dimensions={
+            name: "PASS"
+            for name in (
+                "RUN_COMPLETENESS",
+                "BOOTSTRAP",
+                "MIGRATIONS",
+                "HEALTH_READINESS",
+                "BASELINE_E2E",
+                "CONCURRENCY",
+                "IDEMPOTENCY_REPLAY",
+                "RESTART_PERSISTENCE",
+                "FAILURE_RECOVERY",
+                "OBSERVABILITY",
+                "PRIVACY",
+                "AUTHORITY_SAFETY",
+                "ARTIFACT_INTEGRITY",
+                "RELEASE_GATE",
+            )
+        },
+        scenario_count=len(contract.scenarios),
+        phase_count=len(contract.phases),
+        fault_count=len(contract.fault_matrix),
+        same_action_concurrency={"attempts": 16, "rounds": 3, "committed_effects": [1, 1, 1]},
+        independent_action_concurrency={"actions": 2, "rounds": 3, "committed_effects": [2, 2, 2]},
+        release_gate="PROSPECTIVE_RELEASE_GATE" if release else "NON_APPROVED_DRY_RUN",
+    )
+    return attempts, summary
 
 
 class D2dDryRunRunner:

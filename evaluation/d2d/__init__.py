@@ -1,6 +1,6 @@
-"""Executable, non-approving D2d harness components."""
+"""D2d dry-run and prospective release-gate components."""
 
-__all__ = ["D2dDryRunRunner"]
+__all__ = ["D2dDryRunRunner", "D2dReleaseRunner"]
 
 
 def __getattr__(name: str) -> object:
@@ -8,4 +8,8 @@ def __getattr__(name: str) -> object:
         from evaluation.d2d.runner import D2dDryRunRunner
 
         return D2dDryRunRunner
+    if name == "D2dReleaseRunner":
+        from evaluation.d2d.release_runner import D2dReleaseRunner
+
+        return D2dReleaseRunner
     raise AttributeError(name)

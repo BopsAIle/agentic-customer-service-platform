@@ -1,4 +1,4 @@
-"""Create and validate immutable, non-executing D2d approval records."""
+"""Create, validate, and consume immutable D2d approval records."""
 
 from __future__ import annotations
 
@@ -38,6 +38,13 @@ D2D_DRY_RUN_SUMMARY_SHA256 = "80f6f03a9a3a840ec9c7c4a3ad3370115b39f3c77af1e69c5e
 D2D_DRY_RUN_ATTEMPTS_SHA256 = "8e387d478e7ccf368b0b9648e48b059451c9846ed404a23aba05a6dd09211bd8"
 D2D_DRY_RUN_CLASSIFICATION = "D2D_DRY_RUN_PASS"
 D2D_DRY_RUN_EVIDENCE_TYPE = "NON_GATING_DEVELOPMENT_EVIDENCE"
+D2D_LIFECYCLE_SCHEMA_VERSION = "d2d_release_gate_approval_lifecycle_v1"
+
+D2dApprovalState = Literal["CREATED", "APPROVED", "CONSUMED", "RUNNING", "PASSED", "FAILED"]
+_LIFECYCLE_TRANSITIONS: dict[str, frozenset[str]] = {
+    "CONSUMED": frozenset({"RUNNING"}),
+    "RUNNING": frozenset({"PASSED", "FAILED"}),
+}
 
 
 class D2dEnvironmentFreeze(BaseModel):
@@ -154,6 +161,47 @@ class D2dProspectiveApproval(BaseModel):
         return self
 
 
+class D2dApprovalLifecycle(BaseModel):
+    """Append-only execution state for one approval consumption.
+
+    The original approval remains immutable.  Each lifecycle state is published as a separate
+    immutable record, and the consumed marker is claimed with an atomic filesystem operation.
+    """
+
+    model_config = ConfigDict(extra="forbid", frozen=True)
+
+    lifecycle_schema_version: str = D2D_LIFECYCLE_SCHEMA_VERSION
+    state: D2dApprovalState
+    approval_record_id: str
+    approval_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+    approval_valid: Literal[True] = True
+    execution_started: bool
+    consumed: bool
+    execution_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9._-]+$")
+    consumed_at: AwareDatetime
+    source_sha: str = Field(pattern=r"^[0-9a-f]{40}$")
+    contract_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
+    environment_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
+    updated_at: AwareDatetime
+
+    @field_validator("consumed_at", "updated_at")
+    @classmethod
+    def require_utc(cls, value: datetime) -> datetime:
+        if value.utcoffset() != timedelta(0):
+            raise ValueError("lifecycle timestamp must use UTC")
+        return value
+
+    @model_validator(mode="after")
+    def validate_state_flags(self) -> D2dApprovalLifecycle:
+        if self.state in {"CREATED", "APPROVED"} and (self.execution_started or self.consumed):
+            raise ValueError("D2D_APPROVAL_UNCONSUMED_STATE_INVALID")
+        if self.state in {"CONSUMED", "RUNNING", "PASSED", "FAILED"} and not (
+            self.execution_started and self.consumed
+        ):
+            raise ValueError("D2D_APPROVAL_CONSUMED_STATE_INVALID")
+        return self
+
+
 def _canonical_model_bytes(model: BaseModel) -> bytes:
     return canonical_json(model.model_dump(mode="json"))
 
@@ -192,6 +240,35 @@ def write_environment_freeze(freeze: D2dEnvironmentFreeze, destination: Path) ->
 
 def write_approval(approval: D2dProspectiveApproval, destination: Path) -> str:
     return _write_immutable(approval, destination, f"{approval.approval_record_id}.json")
+
+
+def write_lifecycle_state(state: D2dApprovalLifecycle, destination: Path) -> str:
+    """Publish one immutable lifecycle state without overwriting an earlier state."""
+
+    expected_name = f"{state.approval_record_id}.{state.execution_id}.{state.state.lower()}.json"
+    return _write_immutable(state, destination, expected_name)
+
+
+def load_lifecycle_state(path: Path, *, expected_sha256: str) -> D2dApprovalLifecycle:
+    content = path.read_bytes()
+    if not hmac.compare_digest(hashlib.sha256(content).hexdigest(), expected_sha256):
+        raise ValueError("D2D_LIFECYCLE_SHA256_MISMATCH")
+    state = D2dApprovalLifecycle.model_validate_json(content)
+    if content != _canonical_model_bytes(state):
+        raise ValueError("D2D_LIFECYCLE_NONCANONICAL")
+    return state
+
+
+def transition_lifecycle(
+    current: D2dApprovalLifecycle,
+    next_state: Literal["RUNNING", "PASSED", "FAILED"],
+    *,
+    updated_at: datetime,
+) -> D2dApprovalLifecycle:
+    allowed = _LIFECYCLE_TRANSITIONS.get(current.state, frozenset())
+    if next_state not in allowed:
+        raise ValueError(f"D2D_LIFECYCLE_TRANSITION_INVALID:{current.state}->{next_state}")
+    return current.model_copy(update={"state": next_state, "updated_at": updated_at})
 
 
 def load_environment_freeze(path: Path, *, expected_sha256: str) -> D2dEnvironmentFreeze:
@@ -260,6 +337,46 @@ def validate_approval(
         raise ValueError("D2D_RETRY_POLICY_INVALID")
     if approval.provider != "NOT_APPLICABLE" or approval.model != "NOT_APPLICABLE":
         raise ValueError("D2D_PROVIDER_BINDING_INVALID")
+
+
+def consume_approval(
+    approval: D2dProspectiveApproval,
+    freeze: D2dEnvironmentFreeze,
+    *,
+    approval_sha256: str,
+    expected_source: str,
+    execution_id: str,
+    consumed_at: datetime,
+    lifecycle_root: Path,
+) -> tuple[D2dApprovalLifecycle, str]:
+    """Atomically claim an approved record after all pre-execution checks pass.
+
+    The claim file is deliberately named by approval record ID.  A second execution cannot
+    create the same marker, even if it uses a different execution ID.
+    """
+
+    validate_approval(approval, freeze, expected_source=expected_source)
+    canonical_approval_sha = hashlib.sha256(_canonical_model_bytes(approval)).hexdigest()
+    if not hmac.compare_digest(approval_sha256, canonical_approval_sha):
+        raise ValueError("D2D_APPROVAL_SHA256_MISMATCH")
+    if consumed_at.utcoffset() != timedelta(0):
+        raise ValueError("D2D_CONSUMPTION_TIMESTAMP_NOT_UTC")
+    environment_sha = model_sha256(freeze)
+    lifecycle = D2dApprovalLifecycle(
+        state="CONSUMED",
+        approval_record_id=approval.approval_record_id,
+        approval_sha256=approval_sha256,
+        execution_started=True,
+        consumed=True,
+        execution_id=execution_id,
+        consumed_at=consumed_at,
+        source_sha=approval.source_revision,
+        contract_sha=approval.contract_sha256,
+        environment_sha=environment_sha,
+        updated_at=consumed_at,
+    )
+    claim_path = lifecycle_root / f"{approval.approval_record_id}.consumed.json"
+    return lifecycle, _write_immutable(lifecycle, claim_path, claim_path.name)
 
 
 def safe_configuration_sha256(configuration: Mapping[str, object]) -> str:
