@@ -554,6 +554,7 @@ def test_startup_failure_publishes_privacy_safe_diagnostics_and_cannot_reuse_app
         failed_path, expected_sha256=hashlib.sha256(failed_path.read_bytes()).hexdigest()
     )
     assert failed.state == "FAILED"
+    assert failed.status == "FAILED"
     assert failed.phase == "D2D-1_CLEAN_BOOTSTRAP"
     assert failed.error_type == "RuntimeError"
     assert failed.error_message == "password=[REDACTED] token=[REDACTED]"

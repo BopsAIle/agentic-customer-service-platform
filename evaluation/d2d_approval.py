@@ -184,6 +184,7 @@ class D2dApprovalLifecycle(BaseModel):
     contract_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
     environment_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
     updated_at: AwareDatetime
+    status: D2dApprovalState | None = None
     phase: str | None = Field(default=None, min_length=1, max_length=200)
     error_type: str | None = Field(default=None, min_length=1, max_length=200)
     error_message: str | None = Field(default=None, min_length=1, max_length=4000)
@@ -204,6 +205,10 @@ class D2dApprovalLifecycle(BaseModel):
             self.execution_started and self.consumed
         ):
             raise ValueError("D2D_APPROVAL_CONSUMED_STATE_INVALID")
+        if self.state == "FAILED" and self.status not in {None, "FAILED"}:
+            raise ValueError("D2D_FAILURE_STATUS_INVALID")
+        if self.state != "FAILED" and self.status is not None:
+            raise ValueError("D2D_FAILURE_STATUS_INVALID")
         if self.state != "FAILED" and any(
             value is not None
             for value in (self.phase, self.error_type, self.error_message, self.command)
@@ -290,6 +295,7 @@ def transition_lifecycle(
         update={
             "state": next_state,
             "updated_at": updated_at,
+            "status": next_state if next_state == "FAILED" else None,
             "phase": phase,
             "error_type": error_type,
             "error_message": error_message,
