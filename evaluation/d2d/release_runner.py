@@ -95,8 +95,24 @@ class FrozenImageComposeStack(HermeticComposeStack):
             str(self.image_compose_path),
         ]
 
+    @staticmethod
+    def seed_arguments() -> tuple[str, ...]:
+        """Run the one-shot seed service without relying on unsupported ``run`` flags."""
+
+        return (
+            "up",
+            "--no-build",
+            "--pull",
+            "never",
+            "--no-deps",
+            "--abort-on-container-exit",
+            "--exit-code-from",
+            "demo-setup",
+            "demo-setup",
+        )
+
     def reset_seed(self) -> None:
-        self.run(("run", "--no-build", "--pull", "never", "--rm", "demo-setup"), timeout=300)
+        self.run(self.seed_arguments(), timeout=300)
 
 
 class ComposeStackLike(Protocol):
@@ -240,6 +256,12 @@ class D2dReleaseRunner:
             result = self.command_runner(command)
             if result.returncode != 0:
                 raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_NOT_READY:{' '.join(command)}")
+        compose_help = self.command_runner(("docker", "compose", "up", "--help"))
+        required_flags = ("--no-build", "--pull", "--no-deps", "--exit-code-from")
+        if compose_help.returncode != 0 or any(
+            flag not in f"{compose_help.stdout}\n{compose_help.stderr}" for flag in required_flags
+        ):
+            raise D2dEnvironmentNotReady("D2D_ENVIRONMENT_COMPOSE_CLI_INCOMPATIBLE")
         for compose_file in freeze.compose_files:
             if not (ROOT / compose_file).is_file():
                 raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_NOT_READY:missing:{compose_file}")

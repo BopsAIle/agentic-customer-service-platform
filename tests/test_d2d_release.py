@@ -302,6 +302,13 @@ def test_release_runner_does_not_consume_when_environment_is_unavailable(tmp_pat
 
 
 def _available_image_inspection(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+    if command == ("docker", "compose", "up", "--help"):
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "--no-build --pull --no-deps --exit-code-from",
+            "",
+        )
     if command[:3] == ("docker", "image", "inspect"):
         reference = command[-1]
         digest = reference.rsplit("@sha256:", 1)[-1]
@@ -333,6 +340,46 @@ def test_frozen_image_identity_match_passes_environment_check() -> None:
         command_runner=_available_image_inspection,
     )
     runner.check_environment(_freeze())
+
+
+def test_frozen_seed_command_uses_compose_compatible_no_build_no_pull_path() -> None:
+    command = FrozenImageComposeStack.seed_arguments()
+
+    assert command[0] == "up"
+    assert "run" not in command
+    assert "--no-build" in command
+    assert command[command.index("--pull") + 1] == "never"
+    assert "--no-deps" in command
+    assert command[-1] == "demo-setup"
+
+
+def test_incompatible_compose_cli_is_rejected_before_approval_consumption(
+    tmp_path: Path,
+) -> None:
+    source = subprocess.check_output(("git", "rev-parse", "HEAD"), text=True).strip()
+    freeze = _freeze(source)
+    approval = _approval(freeze, source)
+    approval_path = tmp_path / "d2d-release-test.json"
+    freeze_path = tmp_path / "d2d-release-test.environment-freeze.json"
+    approval_sha = write_approval(approval, approval_path)
+    freeze_sha = write_environment_freeze(freeze, freeze_path)
+
+    def incompatible(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        if command == ("docker", "compose", "up", "--help"):
+            return subprocess.CompletedProcess(command, 0, "--build --pull", "")
+        return _available_image_inspection(command)
+
+    with pytest.raises(D2dEnvironmentNotReady, match="COMPOSE_CLI_INCOMPATIBLE"):
+        D2dReleaseRunner(
+            approval_path=approval_path,
+            approval_sha256=approval_sha,
+            environment_path=freeze_path,
+            environment_sha256=freeze_sha,
+            artifact_root=tmp_path / "release",
+            lifecycle_root=tmp_path / "lifecycle",
+            command_runner=incompatible,
+        ).run()
+    assert not (tmp_path / "lifecycle").exists()
 
 
 @pytest.mark.parametrize("service", ["backend", "frontend"])
@@ -617,7 +664,7 @@ def test_frozen_stack_bootstrap_never_builds_or_pulls() -> None:
     stack = RecordingStack()
     stack.reset_seed()
 
-    assert stack.calls == [("run", "--no-build", "--pull", "never", "--rm", "demo-setup")]
+    assert stack.calls == [FrozenImageComposeStack.seed_arguments()]
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker is unavailable")
