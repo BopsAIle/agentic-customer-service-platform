@@ -7,6 +7,12 @@
 - Architecture: frozen `semantic_decision_v3`
 - Model/runtime: `gpt-5.6-luna` through the official OpenAI API
 
+> Historical specification note: this document preserves the frozen D2c contract and its
+> pre-execution approval language. The current completed prospective result is M6.29B,
+> `d2c_m6_29_semantic_v3_20260822T011436Z`, classified `D2D_REVIEW_READY`; D2c is closed for
+> the current release candidate. See the current evidence summary in [README.md](../README.md)
+> and the separate operational gate in [docs/d2d-release-gate.md](d2d-release-gate.md).
+
 D2c validates the accepted semantic architecture under broader, adversarial, multi-turn, and
 failure-recovery workloads. It does not compare architectures, change production defaults, or tune
 the semantic contract. The authoritative pipeline remains LLM → `semantic_decision_v3` → semantic

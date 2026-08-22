@@ -22,7 +22,9 @@ Latest live robustness validation: `d2c_m6_29_semantic_v3_20260822T011436Z`
 - Deterministic evaluation: `110/110`
 - Safety evaluation: `40/40`
 - Resilience evaluation: `28/28`
-- Consistency: `156/180` (`86.67%`)
+- Provider success: `528/540`
+- Structured output / schema validity: `522/540`
+- Critical Turkish valid refund: `3/3` supported → Risk-2 confirmation
 
 Containment funnel:
 
@@ -35,8 +37,8 @@ Containment funnel:
 
 Additional execution-safety results: **0 confirmation bypasses**, **0 unauthorized mutations**,
 **0 duplicate mutations**, and **0 hallucinated identifiers**. Unsafe executable survivors improved
-from **15 to 3 to 0** between the comparable prospective runs. This is a deterministic containment
-result, not a claim that model errors or hallucinations became zero.
+from **15 → 3 → 0 → 0 → 0** across the prospective containment sequence. This is a deterministic
+containment result, not a claim that model errors or hallucinations became zero.
 
 The known Turkish `amb-refund-no-reason` containment defect is prospectively closed. M6.27B aligned
 the prompt with the existing provenance contract, M6.28B passed the targeted validation, and
@@ -63,8 +65,8 @@ wrong:
   immutable hashes, explicit budgets, and prospective safety gates make failures reproducible and
   distinguish model quality from runtime containment and execution safety.
 
-**The memorable architecture boundary is simple: the LLM proposes; deterministic software
-executes.**
+**The memorable architecture boundary is simple: the LLM proposes; deterministic software decides
+what may execute.**
 
 Core stack: Python, FastAPI, LangGraph, PostgreSQL, Qdrant, OpenTelemetry, React, and TypeScript.
 
@@ -156,9 +158,9 @@ confirmation state. Executable actions are constructed and authorized by the ser
 
 ## Failure-driven hardening
 
-A prospective live evaluation exposed 15 semantic failures that reached executable,
-confirmation-required action state. The engineering response was not to hide the result behind a
-prompt tweak:
+A prospective live evaluation exposed semantic failures that reached executable,
+confirmation-required action state. The engineering response was to make the authority boundary
+measurable and fail closed:
 
 1. failures were attributed by runtime stage;
 2. containment gaps were reproduced through the real execution path;
@@ -168,15 +170,17 @@ prompt tweak:
 5. bounded `semantic_attribution_observability_v1` was added after a positive-control artifact
    proved insufficient to distinguish model clarification from compiler reason rejection;
 6. the frozen prospective evaluation was rerun;
-7. the semantic prompt was hardened to require provenance-preserving executable arguments.
+7. the semantic prompt was hardened to require provenance-preserving executable arguments;
+8. targeted and full prospective validation confirmed the prompt intervention without weakening
+   deterministic containment.
 
-The result was **15 → 3 → 0 unsafe executable survivors** while unsafe executions remained **0**.
-M6.21's Turkish `amb-refund-no-reason` containment defect is prospectively closed. M6.26B
-conclusively attributed the separate Turkish valid-refund positive-control failure to unsupported
-model-proposed reasons; the compiler correctly blocked them. M6.24 added attribution fields and
-M6.27B aligned the prompt without changing runtime decisions or scoring. Model semantic quality,
-pre-execution containment, execution safety, attribution fidelity, and D2d readiness remain
-separate claims.
+The executable-survivor sequence is **15 → 3 → 0 → 0 → 0** while unsafe executions remained
+**0**. M6.21's Turkish `amb-refund-no-reason` containment defect is prospectively closed.
+M6.26B conclusively attributed the separate Turkish valid-refund positive-control failure to
+unsupported model-proposed reasons; the compiler correctly blocked them. M6.24 added attribution
+fields and M6.27B aligned the prompt without changing runtime decisions or scoring. Model semantic
+quality, pre-execution containment, execution safety, attribution fidelity, and operational D2d
+readiness remain separate claims.
 
 ## Production Hardening
 
@@ -356,7 +360,7 @@ The repository separates four questions that are often conflated in agent evalua
 1. model semantic quality;
 2. deterministic runtime containment;
 3. execution safety; and
-4. production readiness.
+4. operational release readiness.
 
 The evaluation system includes deterministic regression, safety and resilience suites, structured
 contract compatibility gates, architecture comparisons, and approval-gated live robustness runs.
@@ -365,127 +369,89 @@ they are not a certification of unrestricted deployment.
 
 The deterministic offline harness executes versioned scenarios through the real control-plane
 paths with isolated state, fake structured-decision inputs, and scoped fault injection. It stores
-no chain-of-thought.
-
-Current verified offline results:
-
-| Suite | Scenarios | Result |
-| --- | ---: | ---: |
-| Full evaluation | 110 | 110/110 passed |
-| Safety slice | 40 | 40/40 passed |
-| Resilience slice | 28 | 28/28 passed |
-
-| Metric | Result |
-| --- | ---: |
-| Intent accuracy | 100% |
-| Tool selection accuracy | 100% |
-| Confirmation compliance | 100% |
-| Citation integrity | 100% |
-| Memory retrieval accuracy | 100% |
-| Memory write-policy compliance | 100% |
-| Failure recovery accuracy | 100% |
-| Unauthorized action rate | 0% |
-| Duplicate write rate | 0% |
-
-These are deterministic regression results, not claims about live-model behavior or production
-traffic. Runtime RAG evaluation hooks separately report retrieval success, citation availability,
+no chain-of-thought. These are runtime regression results, not claims about live-model behavior or
+production traffic. Runtime RAG hooks separately report retrieval success, citation availability,
 reranker use, fallback behavior, and latency; they do not turn retrieval scores into claims about
 live-model answer accuracy.
 
-#### Current validation status
+### Deterministic offline gates
 
-The latest prospective live robustness run is M6.22B,
-`d2c_m6_22_semantic_v3_20260821T215809Z`. It used `semantic_decision_v3`,
-`gpt-5.6-luna` through the official OpenAI API, frozen `live_eval_v2`, 180 scenarios × 3
-repetitions (540 measured executions), one warmup outside the denominator, retry count zero, and
-`containment_observability_v1`.
+The deterministic suites exercise the real control-plane paths with isolated state, fake
+structured-decision inputs, and scoped fault injection. They store no chain-of-thought and are the
+repeatable CI gates for runtime behavior.
 
-| Layer / metric | Latest evidence |
+| Suite | Result |
 | --- | ---: |
-| Deterministic evaluation | 110/110 |
-| Safety evaluation | 40/40 |
-| Resilience evaluation | 28/28 |
-| Latest prospective D2c | 540/540 measured |
+| Deterministic evaluation | `110/110` |
+| Safety evaluation | `40/40` |
+| Resilience evaluation | `28/28` |
+
+### Latest prospective D2c evidence
+
+M6.29B (`d2c_m6_29_semantic_v3_20260822T011436Z`) used the current prompt-hardened
+`semantic_decision_v3` contract with the official OpenAI API and frozen `live_eval_v2`. It
+completed 540/540 measured attempts across 180 scenarios × 3 repetitions.
+
+| Metric | M6.29B |
+| --- | ---: |
+| Measured attempts | 540/540 |
 | Provider success | 528/540 |
 | Structured output | 522/540 |
 | Schema validity | 522/540 |
-| Intent correctness | 486/522 |
-| Semantic target correctness | 519/522 |
-| Clarification correctness | 493/522 |
-| Request-type correctness | 401/522 |
-| Compiler correctness | 491/522 |
-| Resolver metric | 226/372 |
-| Consistency | 158/180 |
-| Unsafe semantic proposals | 31 |
-| Deterministic guard interventions | 31 |
-| Unsafe executable proposals after guards | 0 |
+| Raw routing (diagnostic) | 210/540 |
+| Intent | 484/522 |
+| Semantic target | 518/522 |
+| Clarification | 501/522 |
+| Request type | 448/522 |
+| Compiler | 495/522 |
+| Resolver | 225/372 |
+| Consistency | 162/180 |
+| Unsafe semantic proposals | 30 |
+| Deterministic guard interventions | 30 |
+| Unsafe executable survivors | 0 |
 | Unsafe executions | 0 |
-| Confirmation bypasses | 0 |
-| Unauthorized mutations | 0 |
-| Duplicate mutations | 0 |
-| Hallucinated identifiers | 0 |
 
-The containment funnel is explicit: 31 unsafe semantic proposals → 31 deterministic guard
-interventions → 31/31 pre-execution contained → 0 executable survivors → 0 unsafe executions.
-The observed containment rate was `31/31 = 100%`.
+Raw routing is retained as diagnostic evidence; it is not a standalone safety, architecture, or
+release-readiness metric. The containment funnel was **30 unsafe semantic proposals → 30
+deterministic guard interventions → 0 unsafe executable survivors → 0 unsafe executions**. The
+run also recorded zero confirmation bypasses, unauthorized mutations, duplicate mutations, stale
+or declined resurrection, and hallucinated identifier safety violations.
 
-Compared with M6.15B, unsafe executable survivors improved from 15 to 3, an 80% reduction in
-surviving executable proposals. Unsafe semantic proposals increased from 15 to 29 between the
-independent hosted runs; the model and prompt were unchanged, and temperature zero does not make
-separate hosted runs identical. This is not evidence of improved model semantic quality.
+The critical semantic provenance case progressed as follows:
 
-| Metric | M6.15B | M6.20B | Delta |
-| --- | ---: | ---: | ---: |
-| Provider success | 528/540 | 528/540 | 0 |
-| Structured output | 522/540 | 522/540 | 0 |
-| Schema validity | 522/540 | 522/540 | 0 |
-| Raw routing | 209/540 | 217/540 | +8 |
-| Intent | 484/522 | 482/522 | -2 |
-| Semantic target | 516/522 | 516/522 | 0 |
-| Clarification | 487/522 | 496/522 | +9 |
-| Compiler | 479/522 | 487/522 | +8 |
-| Resolver | 231/372 | 225/372 | -6 |
-| Consistency | 171/180 | 172/180 | +1 |
-| Unsafe semantic proposals | 15 | 29 | +14 |
-| Unsafe executable survivors | 15 | 3 | -12 |
-| Unsafe executions | 0 | 0 | 0 |
+```text
+M6.20B: 3/3
+M6.22B: 0/3
+M6.26B: 0/3 — unsupported model-proposed reasons
+M6.28B: 3/3 — supported, targeted validation
+M6.29B: 3/3 — supported, full benchmark
+```
 
-The previously observed contradictory-cancellation cluster had 6 executable survivors in M6.15B
-and 0 in M6.20B. M6.22B contained all three historical Turkish `amb-refund-no-reason` survivors
-prospectively; no new refund-reason executable survivor class was observed. A standard Turkish
-damaged-refund positive control clarified in all three repetitions, but M6.23A could not attribute
-that outcome from the persisted privacy-safe fields. M6.24 adds bounded semantic clarification,
-reason presence/support, and compiler-cause evidence; a future source-bound D2c is still required
-to attribute that case if it recurs.
+The deterministic compiler was not weakened. It correctly failed closed when the model proposed
+unsupported refund-reason provenance; M6.27B clarified the prompt contract, and M6.28B/M6.29B
+then supplied targeted and full prospective evidence consistent with the intervention improving
+that case. This is evidence for the current contract and release candidate, not a universal claim
+about future hosted-model behavior.
 
-M6.16 validated the exact prior survivor shapes offline through the real runtime path, and M6.19
-added `containment_observability_v1`. M6.22B directly measured the model-unsafe → guard-intervention
-→ executable-survivor → execution chain with a clean containment result. M6.24's
-`semantic_attribution_observability_v1` is offline-validated and changes neither runtime decision
-semantics nor frozen scorer semantics. M6.29B completed the current D2c evidence chain. D2d is
-defined in [`docs/d2d-release-gate.md`](docs/d2d-release-gate.md) and remains unexecuted.
+### Release Status
 
-M6.20B latency was 1278.99 ms provider mean / 1736.25 ms p95 and 1290.28 ms end-to-end mean /
-1748.95 ms p95. Usage and cost metadata were unavailable.
+| Gate | Status |
+| --- | --- |
+| Deterministic regression | PASS |
+| Safety regression | PASS |
+| Resilience regression | PASS |
+| Prospective D2c | CLOSED for current release candidate |
+| D2d contract | FROZEN |
+| D2d harness | NOT YET IMPLEMENTED |
+| D2d execution | NOT STARTED |
 
-Raw routing from M6.20B was `217/540`. It is retained for reproducibility, but it is not a
-standalone architecture, safety, or readiness metric: offline attribution identified substantial
-oracle/path representation effects, including valid semantic equivalents and oracle mismatches.
-
-The covered positive controls showed no broad over-blocking regression: clear cancellation retained
-its normal Risk-2 confirmation flow, grounded refunds retained their normal confirmation flow,
-first-time Risk-2 confirmation remained available, refund eligibility and cancellation explanation
-remained knowledge-and-action paths, declined/stale confirmation was not resurrected, and safe
-reads were not broadly suppressed. These observations do not prove all possible valid flows are
-regression-free.
-
-The release-hardening source now contains a narrow deterministic refund-reason provenance fix. It
-fails closed when the proposed reason is absent, contains only refund/request boilerplate, or adds
-unsupported qualifiers; bilingual explicit reasons remain on the normal Risk-2 path. Focused
-offline tests and the existing deterministic, safety, resilience, grounding, admissibility,
-policy, confirmation, and replay suites validate the local behavior. The historical M6.20B result
-is unchanged. The P0 safety containment objective is prospectively clean; targeted semantic
-validation is required after the M6.27B prompt identity change before D2d consideration.
+D2c is the model semantic and deterministic-safety evidence gate. D2d is a separate operational
+release-candidate gate, not another model benchmark. Its authoritative contract is
+[`docs/d2d-release-gate.md`](docs/d2d-release-gate.md), with the machine-readable source in
+[`evaluation/d2d_spec.py`](evaluation/d2d_spec.py). The frozen contract is
+`d2d_release_candidate_operational_v1` with identity
+`ebe77e28973a6314a3892ce896994c8e3897cd87ccf60e27ab5d1f1f8b8e0aa0`. The next milestone is
+**M6.32 — D2d Harness Implementation and Offline Dry-Run**. No D2d execution has started.
 
 #### Model/runtime compatibility
 
@@ -947,8 +913,9 @@ details.
 │   ├── tools/              # Typed agent-facing business tools
 │   └── ui/                 # Safe operator projections
 ├── evaluation/
-│   ├── datasets/           # 110 versioned scenarios
+│   ├── datasets/           # Deterministic and live evaluation datasets
 │   ├── metrics/            # Behavior and safety metrics
+│   ├── d2d_spec.py         # Frozen operational release-gate contract
 │   └── runner.py           # Isolated deterministic harness
 ├── frontend/               # React, TypeScript, Vite, and Tailwind console
 ├── tests/                  # Backend unit and integration tests
@@ -979,39 +946,35 @@ details.
 
 ## Roadmap
 
-Completed:
+### Current release candidate
 
-- [x] Agent core
-- [x] RAG
-- [x] Evaluation framework
-- [x] OpenTelemetry observability
-- [x] Persistent memory
-- [x] Resilience layer
-- [x] Operator Console
-- [x] Authentication, route authorization, and RBAC
-- [x] Execution context propagation and customer isolation
-- [x] Durable PostgreSQL agent checkpoints
-- [x] Write idempotency and timeout enforcement
-- [x] Production Qdrant RAG runtime separation
-- [x] CI/CD quality and security gates
-- [x] Hardened backend and frontend containers
-- [x] Privacy-safe semantic attribution observability (M6.24)
+Completed in the current candidate: core platform, authentication and customer scope, durable
+checkpoints, RAG, memory, resilience, observability, Operator Console, deterministic evaluation,
+prompt semantic-contract hardening, privacy-safe attribution observability, and prospective D2c.
 
-Future:
+The D2d operational release-gate contract is frozen. Next steps are:
 
-- [x] Perform offline root-cause analysis of the three Turkish `amb-refund-no-reason` survivors
-- [x] Implement and validate the required deterministic containment fix offline
-- [x] Run source-bound prospective D2c containment validation
-- [x] Attribute the Turkish valid-refund positive control with a fresh M6.24-bound D2c run
-- [x] Complete offline semantic-reliability root-cause review and prompt hardening
-- [x] Run targeted live semantic validation against the new prompt identity
-- [x] Complete full prompt-hardened prospective D2c validation
-- [x] Freeze the D2d operational release-gate contract
-- [ ] Implement and dry-run the D2d operational harness
-- [ ] Voice agent
-- [ ] Kubernetes deployment
-- [ ] JWT/OIDC and enterprise identity-provider adapters
-- [ ] Multi-agent workflows
+- Implement and offline dry-run the D2d harness.
+- Prepare a source-bound D2d approval.
+- Execute the D2d operational release gate.
+
+### Post-RC hardening
+
+- Full application load and capacity characterization.
+- Longer soak and stronger chaos exercises.
+- Provider usage and cost telemetry.
+- Operational alerting and explicit migration downgrade policy.
+- Managed deployment examples.
+
+### V2 / future scope
+
+- Voice agent.
+- Enterprise OIDC and identity-provider adapters.
+- Kubernetes, Helm, and cloud automation.
+- Multi-agent workflows.
+
+Feature freeze remains active for the current release candidate. D2d has not executed; its frozen
+scope is documented in [`docs/d2d-release-gate.md`](docs/d2d-release-gate.md).
 
 ## Engineering Decisions
 
