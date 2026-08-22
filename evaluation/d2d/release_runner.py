@@ -9,8 +9,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import json
 import subprocess
 import sys
+import tempfile
 import time
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
@@ -22,6 +24,7 @@ from evaluation.d2d.artifacts import (
     D2dReleaseArtifactPublisher,
     validate_published_bundle,
 )
+from evaluation.d2d.images import D2dImageIdentity, image_reference, structured_image_identity
 from evaluation.d2d.runner import (
     D2dHarnessFailure,
     HermeticComposeStack,
@@ -61,6 +64,28 @@ class D2dReleaseExecutionFailure(RuntimeError):
 CommandRunner = Callable[[tuple[str, ...]], subprocess.CompletedProcess[str]]
 
 
+class FrozenImageComposeStack(HermeticComposeStack):
+    """Hermetic Compose stack that can only use the approved immutable images."""
+
+    def __init__(self, project: str, image_override_path: Path) -> None:
+        super().__init__(project)
+        self.image_override_path = image_override_path
+
+    @property
+    def command(self) -> list[str]:
+        command = super().command
+        env_file_index = command.index("--env-file")
+        return [
+            *command[:env_file_index],
+            "--file",
+            str(self.image_override_path),
+            *command[env_file_index:],
+        ]
+
+    def reset_seed(self) -> None:
+        self.run(("run", "--no-build", "--rm", "demo-setup"), timeout=300)
+
+
 class ComposeStackLike(Protocol):
     def clean(self) -> None: ...
 
@@ -96,6 +121,43 @@ def _write_state(
         f"{lifecycle.approval_record_id}.{lifecycle.execution_id}.{lifecycle.state.lower()}.json"
     )
     return write_lifecycle_state(lifecycle, destination)
+
+
+def _image_inspection_matches(
+    result: subprocess.CompletedProcess[str], identity: D2dImageIdentity
+) -> bool:
+    if result.returncode != 0:
+        return False
+    try:
+        payload = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return False
+    if not isinstance(payload, list) or not payload or not isinstance(payload[0], dict):
+        return False
+    inspected = payload[0]
+    digest = f"sha256:{identity.image_digest}"
+    if inspected.get("Id") == digest:
+        return True
+    repo_digests = inspected.get("RepoDigests")
+    return isinstance(repo_digests, list) and any(
+        isinstance(value, str) and value.rsplit("@", 1)[-1] == digest for value in repo_digests
+    )
+
+
+def _write_image_override(freeze: D2dEnvironmentFreeze, directory: Path) -> Path:
+    """Create a temporary Compose overlay that disables all build definitions."""
+
+    services: dict[str, dict[str, object]] = {}
+    for service in freeze.required_services:
+        value = freeze.image_identities.get(service)
+        if value is None:
+            raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_IMAGE_MISMATCH:missing:{service}")
+        services[service] = {"image": image_reference(value), "build": None}
+    path = directory / "frozen-images.json"
+    path.write_bytes(
+        json.dumps({"services": services}, sort_keys=True, separators=(",", ":")).encode() + b"\n"
+    )
+    return path
 
 
 class D2dReleaseRunner:
@@ -145,10 +207,19 @@ class D2dReleaseRunner:
         for compose_file in freeze.compose_files:
             if not (ROOT / compose_file).is_file():
                 raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_NOT_READY:missing:{compose_file}")
-        for image in freeze.image_identities.values():
-            result = self.command_runner(("docker", "image", "inspect", image))
-            if result.returncode != 0:
-                raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_NOT_READY:image:{image}")
+        for service in freeze.required_services:
+            value = freeze.image_identities.get(service)
+            try:
+                identity = structured_image_identity(value) if value is not None else None
+            except ValueError as error:
+                raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_IMAGE_MISMATCH:{service}") from error
+            if identity is None:
+                raise D2dEnvironmentNotReady(f"D2D_ENVIRONMENT_IMAGE_MISMATCH:{service}")
+            result = self.command_runner(("docker", "image", "inspect", identity.reference))
+            if not _image_inspection_matches(result, identity):
+                raise D2dEnvironmentNotReady(
+                    f"D2D_ENVIRONMENT_IMAGE_MISMATCH:{service}:{identity.reference}"
+                )
 
     def _approved_environment(
         self,
@@ -175,6 +246,16 @@ class D2dReleaseRunner:
     def run(self) -> tuple[str, Path, dict[str, str]]:
         approval, freeze = self.load_and_validate()
         self.check_environment(freeze)
+        with tempfile.TemporaryDirectory(prefix="d2d-frozen-images-") as temporary_directory:
+            image_override_path = _write_image_override(freeze, Path(temporary_directory))
+            return self._run_with_frozen_environment(approval, freeze, image_override_path)
+
+    def _run_with_frozen_environment(
+        self,
+        approval: D2dProspectiveApproval,
+        freeze: D2dEnvironmentFreeze,
+        image_override_path: Path,
+    ) -> tuple[str, Path, dict[str, str]]:
         execution_id = approval.experiment_id
         consumed_at = self.now()
         lifecycle, _ = consume_approval(
@@ -190,9 +271,15 @@ class D2dReleaseRunner:
         _write_state(running_lifecycle, self.lifecycle_root)
         stack: ComposeStackLike | None = None
         try:
-            stack = self.stack_factory(freeze.compose_project)
+            if self.stack_factory is HermeticComposeStack:
+                stack = FrozenImageComposeStack(freeze.compose_project, image_override_path)
+            else:
+                stack = self.stack_factory(freeze.compose_project)
             stack.clean()
-            stack.run(("up", "--detach", "--wait", "--wait-timeout", "240"), timeout=600)
+            stack.run(
+                ("up", "--no-build", "--detach", "--wait", "--wait-timeout", "240"),
+                timeout=600,
+            )
             wait_for_ready(stack.frontend_url(), timeout_seconds=120)
             actual_alembic_head = stack.database_scalar("select version_num from alembic_version;")
             if actual_alembic_head != D2D_ALEMBIC_HEAD:

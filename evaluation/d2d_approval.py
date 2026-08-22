@@ -14,6 +14,7 @@ from typing import Literal
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from evaluation.d2d.artifacts import canonical_json
+from evaluation.d2d.images import FrozenImageValue
 from evaluation.d2d_spec import (
     D2D_ALEMBIC_HEAD,
     D2D_ARTIFACT_SCHEMA_VERSION,
@@ -70,7 +71,7 @@ class D2dEnvironmentFreeze(BaseModel):
     compose_files: tuple[str, ...]
     compose_project: str = Field(pattern=r"^[a-z0-9][a-z0-9_-]+$")
     required_services: tuple[str, ...]
-    image_identities: dict[str, str]
+    image_identities: dict[str, FrozenImageValue]
     toolchain: dict[str, str]
     alembic_head: str = D2D_ALEMBIC_HEAD
     provider_identity: Literal["NOT_APPLICABLE"] = "NOT_APPLICABLE"
@@ -116,7 +117,7 @@ class D2dProspectiveApproval(BaseModel):
     configuration_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     compose_config_sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
     compose_project: str
-    image_identities: dict[str, str]
+    image_identities: dict[str, FrozenImageValue]
     required_services: tuple[str, ...]
     same_action_concurrency: Literal[16] = 16
     same_action_rounds: Literal[3] = 3

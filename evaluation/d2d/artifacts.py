@@ -11,6 +11,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from evaluation.d2d.images import FrozenImageValue
 from evaluation.d2d_spec import (
     D2D_ARTIFACT_SCHEMA_VERSION,
     D2D_CONTRACT_SHA256,
@@ -63,7 +64,7 @@ class D2dEnvironment(BaseModel):
     safe_configuration_hash: str
     compose_project: str
     required_services: tuple[str, ...]
-    image_identities: dict[str, str] = Field(default_factory=dict)
+    image_identities: dict[str, FrozenImageValue] = Field(default_factory=dict)
     alembic_head_expected: str
     alembic_head_actual: str
     provider_identity: str = "deterministic_integration"

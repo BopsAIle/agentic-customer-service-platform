@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import json
 import subprocess
 from datetime import UTC, datetime
 from pathlib import Path
@@ -14,7 +15,13 @@ from evaluation.d2d.artifacts import (
     D2dSummary,
     validate_published_bundle,
 )
-from evaluation.d2d.release_runner import D2dEnvironmentNotReady, D2dReleaseRunner
+from evaluation.d2d.images import D2dImageIdentity
+from evaluation.d2d.release_runner import (
+    D2dEnvironmentNotReady,
+    D2dReleaseRunner,
+    FrozenImageComposeStack,
+    _write_image_override,
+)
 from evaluation.d2d_approval import (
     D2D_D2C_SUMMARY_SHA256,
     D2D_DRY_RUN_ATTEMPTS_SHA256,
@@ -45,6 +52,22 @@ EXPERIMENT = "d2d_m6_34_release_gate_20260822T120000Z"
 
 
 def _freeze(source: str = SOURCE) -> D2dEnvironmentFreeze:
+    image_identities = {
+        service: D2dImageIdentity(
+            reference=f"d2d-test-{service}:latest@sha256:{digest}",
+            image_digest=digest,
+            source="test",
+            resolution_method="local_immutable_digest",
+        )
+        for service, digest in {
+            "db": "1" * 64,
+            "qdrant": "2" * 64,
+            "demo-setup": "3" * 64,
+            "backend": "4" * 64,
+            "frontend": "5" * 64,
+            "jaeger": "6" * 64,
+        }.items()
+    }
     return D2dEnvironmentFreeze(
         freeze_record_id="d2d-release-test",
         frozen_at=datetime(2026, 8, 22, 12, tzinfo=UTC),
@@ -61,7 +84,7 @@ def _freeze(source: str = SOURCE) -> D2dEnvironmentFreeze:
         compose_files=("docker-compose.yml", "docker-compose.integration.yml"),
         compose_project="d2d-release-test",
         required_services=("db", "qdrant", "demo-setup", "backend", "frontend", "jaeger"),
-        image_identities={"backend": "backend@sha256:" + "c" * 64},
+        image_identities=image_identities,
         toolchain={"docker": "29.7.2"},
         alembic_head=D2D_ALEMBIC_HEAD,
     )
@@ -273,6 +296,96 @@ def test_release_runner_does_not_consume_when_environment_is_unavailable(tmp_pat
     assert hashlib.sha256(approval_path.read_bytes()).hexdigest() == approval_sha
 
 
+def _available_image_inspection(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+    if command[:3] == ("docker", "image", "inspect"):
+        reference = command[-1]
+        digest = reference.rsplit("@sha256:", 1)[-1]
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            json.dumps([{"Id": f"sha256:{digest}", "RepoDigests": [reference]}]),
+            "",
+        )
+    return subprocess.CompletedProcess(command, 0, "", "")
+
+
+def test_frozen_image_identity_match_passes_environment_check() -> None:
+    runner = D2dReleaseRunner(
+        approval_path=Path("unused"),
+        approval_sha256="a" * 64,
+        environment_path=Path("unused"),
+        environment_sha256="b" * 64,
+        command_runner=_available_image_inspection,
+    )
+    runner.check_environment(_freeze())
+
+
+@pytest.mark.parametrize("service", ["backend", "frontend"])
+def test_frozen_image_mismatch_blocks_environment_check(service: str) -> None:
+    freeze = _freeze()
+
+    def mismatch(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        if command[:3] == ("docker", "image", "inspect") and command[-1].startswith(
+            f"d2d-test-{service}"
+        ):
+            return subprocess.CompletedProcess(
+                command, 0, json.dumps([{"Id": "sha256:" + "f" * 64}]), ""
+            )
+        return _available_image_inspection(command)
+
+    runner = D2dReleaseRunner(
+        approval_path=Path("unused"),
+        approval_sha256="a" * 64,
+        environment_path=Path("unused"),
+        environment_sha256="b" * 64,
+        command_runner=mismatch,
+    )
+    with pytest.raises(D2dEnvironmentNotReady, match="D2D_ENVIRONMENT_IMAGE_MISMATCH"):
+        runner.check_environment(freeze)
+
+
+def test_legacy_mutable_image_binding_is_rejected_before_consumption() -> None:
+    freeze = _freeze().model_copy(update={"image_identities": {"backend": "backend:latest"}})
+    runner = D2dReleaseRunner(
+        approval_path=Path("unused"),
+        approval_sha256="a" * 64,
+        environment_path=Path("unused"),
+        environment_sha256="b" * 64,
+        command_runner=_available_image_inspection,
+    )
+    with pytest.raises(D2dEnvironmentNotReady, match="D2D_ENVIRONMENT_IMAGE_MISMATCH"):
+        runner.check_environment(freeze)
+
+
+def test_image_mismatch_does_not_consume_approval(tmp_path: Path) -> None:
+    source = subprocess.check_output(("git", "rev-parse", "HEAD"), text=True).strip()
+    freeze = _freeze(source)
+    approval = _approval(freeze, source)
+    approval_path = tmp_path / "d2d-release-test.json"
+    freeze_path = tmp_path / "d2d-release-test.environment-freeze.json"
+    approval_sha = write_approval(approval, approval_path)
+    freeze_sha = write_environment_freeze(freeze, freeze_path)
+
+    def mismatch(command: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
+        if command[:3] == ("docker", "image", "inspect"):
+            return subprocess.CompletedProcess(
+                command, 0, json.dumps([{"Id": "sha256:" + "f" * 64}]), ""
+            )
+        return _available_image_inspection(command)
+
+    with pytest.raises(D2dEnvironmentNotReady, match="D2D_ENVIRONMENT_IMAGE_MISMATCH"):
+        D2dReleaseRunner(
+            approval_path=approval_path,
+            approval_sha256=approval_sha,
+            environment_path=freeze_path,
+            environment_sha256=freeze_sha,
+            artifact_root=tmp_path / "release",
+            lifecycle_root=tmp_path / "lifecycle",
+            command_runner=mismatch,
+        ).run()
+    assert not (tmp_path / "lifecycle").exists()
+
+
 def test_release_runner_requires_an_approval(tmp_path: Path) -> None:
     runner = D2dReleaseRunner(
         approval_path=tmp_path / "missing-approval.json",
@@ -298,10 +411,16 @@ def test_release_runner_consumes_once_and_publishes_release_bundle(
     freeze_sha = write_environment_freeze(freeze, freeze_path)
 
     class FakeStack:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
         def clean(self) -> None:
             pass
 
-        def run(self, _: tuple[str, ...], *, timeout: int) -> subprocess.CompletedProcess[str]:
+        def run(
+            self, arguments: tuple[str, ...], *, timeout: int
+        ) -> subprocess.CompletedProcess[str]:
+            self.calls.append(arguments)
             return subprocess.CompletedProcess([], 0, "", "")
 
         def frontend_url(self) -> str:
@@ -310,9 +429,6 @@ def test_release_runner_consumes_once_and_publishes_release_bundle(
         def database_scalar(self, _: str) -> str:
             return D2D_ALEMBIC_HEAD
 
-    def available(_: tuple[str, ...]) -> subprocess.CompletedProcess[str]:
-        return subprocess.CompletedProcess([], 0, "", "")
-
     monkeypatch.setattr(
         "evaluation.d2d.release_runner.wait_for_ready", lambda *_args, **_kwargs: None
     )
@@ -320,6 +436,7 @@ def test_release_runner_consumes_once_and_publishes_release_bundle(
         "evaluation.d2d.release_runner.execute_frozen_contract",
         lambda **_kwargs: (_release_bundle()[1], _release_bundle()[2]),
     )
+    stack = FakeStack()
     runner = D2dReleaseRunner(
         approval_path=approval_path,
         approval_sha256=approval_sha,
@@ -327,11 +444,28 @@ def test_release_runner_consumes_once_and_publishes_release_bundle(
         environment_sha256=freeze_sha,
         artifact_root=tmp_path / "release",
         lifecycle_root=tmp_path / "lifecycle",
-        command_runner=available,
-        stack_factory=lambda _: FakeStack(),
+        command_runner=_available_image_inspection,
+        stack_factory=lambda _: stack,
     )
     run_id, artifact_path, _ = runner.run()
     assert run_id == EXPERIMENT
     assert (artifact_path / "summary.json").read_text().find('"prospective_release"') >= 0
     assert (artifact_path / "manifest.json").read_text().find('"approval_consumed":true') >= 0
+    assert stack.calls[0] == ("up", "--no-build", "--detach", "--wait", "--wait-timeout", "240")
     assert len(list((tmp_path / "lifecycle").glob("*.json"))) == 3
+
+
+def test_frozen_compose_override_pins_images_and_disables_build(tmp_path: Path) -> None:
+    freeze = _freeze()
+    override = _write_image_override(freeze, tmp_path)
+    payload = json.loads(override.read_text())
+    assert all(service in payload["services"] for service in freeze.required_services)
+    for service, service_config in payload["services"].items():
+        identity = freeze.image_identities[service]
+        assert isinstance(identity, D2dImageIdentity)
+        assert service_config["image"].endswith(f"@sha256:{identity.image_digest}")
+        assert service_config["build"] is None
+    stack = FrozenImageComposeStack(freeze.compose_project, override)
+    command = stack.command
+    assert "--build" not in command
+    assert str(override) in command
