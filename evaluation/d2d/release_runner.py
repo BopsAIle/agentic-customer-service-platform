@@ -10,6 +10,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import re
 import subprocess
 import sys
 import tempfile
@@ -26,6 +27,7 @@ from evaluation.d2d.artifacts import (
 )
 from evaluation.d2d.images import D2dImageIdentity, image_reference, structured_image_identity
 from evaluation.d2d.runner import (
+    TOKEN,
     D2dHarnessFailure,
     HermeticComposeStack,
     _git_source,
@@ -46,7 +48,7 @@ from evaluation.d2d_spec import (
     canonical_d2d_contract,
     validate_contract_identity,
 )
-from scripts.e2e_authenticated_smoke import wait_for_ready
+from scripts.e2e_authenticated_smoke import MEMORY_PRIVATE_CONTENT, wait_for_ready
 
 ROOT = Path(__file__).parents[2]
 DEFAULT_RELEASE_ROOT = ROOT / "artifacts" / "d2d" / "release-gates"
@@ -62,6 +64,17 @@ class D2dReleaseExecutionFailure(RuntimeError):
 
 
 CommandRunner = Callable[[tuple[str, ...]], subprocess.CompletedProcess[str]]
+_FAILURE_SECRET_PATTERN = re.compile(
+    r"(?i)(authorization|api[_-]?key|password|secret|token)\s*[:=]\s*([^\s,;]+)"
+)
+
+
+def _privacy_safe_failure_text(value: object, *, limit: int) -> str:
+    """Bound and redact failure text before it enters immutable release evidence."""
+
+    text = str(value).replace(TOKEN, "[REDACTED]").replace(MEMORY_PRIVATE_CONTENT, "[REDACTED]")
+    text = _FAILURE_SECRET_PATTERN.sub(r"\1=[REDACTED]", text)
+    return text[-limit:]
 
 
 class FrozenImageComposeStack(HermeticComposeStack):
@@ -306,12 +319,15 @@ class D2dReleaseRunner:
         running_lifecycle = transition_lifecycle(lifecycle, "RUNNING", updated_at=self.now())
         _write_state(running_lifecycle, self.lifecycle_root)
         stack: ComposeStackLike | None = None
+        phase = "D2D-1_CLEAN_BOOTSTRAP"
+        command = "compose down --volumes --remove-orphans --timeout 20"
         try:
             if self.stack_factory is HermeticComposeStack:
                 stack = FrozenImageComposeStack(freeze.compose_project, image_override_path)
             else:
                 stack = self.stack_factory(freeze.compose_project)
             stack.clean()
+            command = "compose up --no-build --pull never --detach --wait --wait-timeout 240"
             stack.run(
                 (
                     "up",
@@ -325,10 +341,15 @@ class D2dReleaseRunner:
                 ),
                 timeout=600,
             )
+            phase = "D2D-1_HEALTH_READINESS"
+            command = "frontend readiness probe"
             wait_for_ready(stack.frontend_url(), timeout_seconds=120)
+            command = "query alembic_version"
             actual_alembic_head = stack.database_scalar("select version_num from alembic_version;")
             if actual_alembic_head != D2D_ALEMBIC_HEAD:
                 raise D2dReleaseExecutionFailure("D2D_ALEMBIC_HEAD_MISMATCH")
+            phase = "D2D-2_BASELINE_FUNCTIONAL_E2E"
+            command = "execute_frozen_contract"
             started = time.monotonic()
             attempts, summary = execute_frozen_contract(
                 stack=cast(HermeticComposeStack, stack),
@@ -359,8 +380,19 @@ class D2dReleaseRunner:
             return execution_id, path, hashes
         except Exception as error:
             try:
+                safe_error_type = _privacy_safe_failure_text(type(error).__name__, limit=200)
+                safe_error_message = _privacy_safe_failure_text(error, limit=4000)
+                safe_command = _privacy_safe_failure_text(command, limit=1000)
                 _write_state(
-                    transition_lifecycle(running_lifecycle, "FAILED", updated_at=self.now()),
+                    transition_lifecycle(
+                        running_lifecycle,
+                        "FAILED",
+                        updated_at=self.now(),
+                        phase=phase,
+                        error_type=safe_error_type,
+                        error_message=safe_error_message,
+                        command=safe_command,
+                    ),
                     self.lifecycle_root,
                 )
             except Exception as lifecycle_error:

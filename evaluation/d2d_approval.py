@@ -184,6 +184,10 @@ class D2dApprovalLifecycle(BaseModel):
     contract_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
     environment_sha: str = Field(pattern=r"^[0-9a-f]{64}$")
     updated_at: AwareDatetime
+    phase: str | None = Field(default=None, min_length=1, max_length=200)
+    error_type: str | None = Field(default=None, min_length=1, max_length=200)
+    error_message: str | None = Field(default=None, min_length=1, max_length=4000)
+    command: str | None = Field(default=None, min_length=1, max_length=1000)
 
     @field_validator("consumed_at", "updated_at")
     @classmethod
@@ -200,11 +204,20 @@ class D2dApprovalLifecycle(BaseModel):
             self.execution_started and self.consumed
         ):
             raise ValueError("D2D_APPROVAL_CONSUMED_STATE_INVALID")
+        if self.state != "FAILED" and any(
+            value is not None
+            for value in (self.phase, self.error_type, self.error_message, self.command)
+        ):
+            raise ValueError("D2D_FAILURE_DIAGNOSTICS_STATE_INVALID")
         return self
 
 
 def _canonical_model_bytes(model: BaseModel) -> bytes:
-    return canonical_json(model.model_dump(mode="json"))
+    # Failure diagnostics were added compatibly: historical lifecycle records omit the
+    # optional fields, while new FAILED records include them.  Other immutable records keep
+    # their original canonical representation unchanged.
+    exclude_none = isinstance(model, D2dApprovalLifecycle)
+    return canonical_json(model.model_dump(mode="json", exclude_none=exclude_none))
 
 
 def model_sha256(model: BaseModel) -> str:
@@ -265,11 +278,24 @@ def transition_lifecycle(
     next_state: Literal["RUNNING", "PASSED", "FAILED"],
     *,
     updated_at: datetime,
+    phase: str | None = None,
+    error_type: str | None = None,
+    error_message: str | None = None,
+    command: str | None = None,
 ) -> D2dApprovalLifecycle:
     allowed = _LIFECYCLE_TRANSITIONS.get(current.state, frozenset())
     if next_state not in allowed:
         raise ValueError(f"D2D_LIFECYCLE_TRANSITION_INVALID:{current.state}->{next_state}")
-    return current.model_copy(update={"state": next_state, "updated_at": updated_at})
+    return current.model_copy(
+        update={
+            "state": next_state,
+            "updated_at": updated_at,
+            "phase": phase,
+            "error_type": error_type,
+            "error_message": error_message,
+            "command": command,
+        }
+    )
 
 
 def load_environment_freeze(path: Path, *, expected_sha256: str) -> D2dEnvironmentFreeze:

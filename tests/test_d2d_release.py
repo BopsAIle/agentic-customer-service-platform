@@ -20,6 +20,7 @@ from evaluation.d2d.artifacts import (
 from evaluation.d2d.images import D2dImageIdentity
 from evaluation.d2d.release_runner import (
     D2dEnvironmentNotReady,
+    D2dReleaseExecutionFailure,
     D2dReleaseRunner,
     FrozenImageComposeStack,
     _write_image_only_compose,
@@ -32,10 +33,12 @@ from evaluation.d2d_approval import (
     D2dEnvironmentFreeze,
     D2dProspectiveApproval,
     consume_approval,
+    load_lifecycle_state,
     model_sha256,
     safe_configuration_sha256,
     write_approval,
     write_environment_freeze,
+    write_lifecycle_state,
 )
 from evaluation.d2d_spec import (
     D2D_ALEMBIC_HEAD,
@@ -500,6 +503,82 @@ def test_release_runner_consumes_once_and_publishes_release_bundle(
         "240",
     )
     assert len(list((tmp_path / "lifecycle").glob("*.json"))) == 3
+
+
+def test_startup_failure_publishes_privacy_safe_diagnostics_and_cannot_reuse_approval(
+    tmp_path: Path,
+) -> None:
+    source = subprocess.check_output(("git", "rev-parse", "HEAD"), text=True).strip()
+    freeze = _freeze(source)
+    approval = _approval(freeze, source)
+    approval_path = tmp_path / "d2d-release-test.json"
+    freeze_path = tmp_path / "d2d-release-test.environment-freeze.json"
+    approval_sha = write_approval(approval, approval_path)
+    freeze_sha = write_environment_freeze(freeze, freeze_path)
+
+    class FailingStack:
+        def clean(self) -> None:
+            pass
+
+        def run(
+            self, arguments: tuple[str, ...], *, timeout: int
+        ) -> subprocess.CompletedProcess[str]:
+            del arguments, timeout
+            raise RuntimeError("password=top-secret token=d2d-dry-run-integration-token")
+
+        def frontend_url(self) -> str:
+            return "http://127.0.0.1:1"
+
+        def database_scalar(self, _: str) -> str:
+            return D2D_ALEMBIC_HEAD
+
+    with pytest.raises(D2dReleaseExecutionFailure, match="D2D_RELEASE_EXECUTION_FAILED"):
+        D2dReleaseRunner(
+            approval_path=approval_path,
+            approval_sha256=approval_sha,
+            environment_path=freeze_path,
+            environment_sha256=freeze_sha,
+            artifact_root=tmp_path / "release",
+            lifecycle_root=tmp_path / "lifecycle",
+            command_runner=_available_image_inspection,
+            compose_config_runner=lambda _: subprocess.CompletedProcess(
+                [], 0, json.dumps(_rendered_compose_config()), ""
+            ),
+            stack_factory=lambda _: FailingStack(),
+        ).run()
+
+    failed_paths = list((tmp_path / "lifecycle").glob("*.failed.json"))
+    assert len(failed_paths) == 1
+    failed_path = failed_paths[0]
+    failed = load_lifecycle_state(
+        failed_path, expected_sha256=hashlib.sha256(failed_path.read_bytes()).hexdigest()
+    )
+    assert failed.state == "FAILED"
+    assert failed.phase == "D2D-1_CLEAN_BOOTSTRAP"
+    assert failed.error_type == "RuntimeError"
+    assert failed.error_message == "password=[REDACTED] token=[REDACTED]"
+    assert failed.command == "compose up --no-build --pull never --detach --wait --wait-timeout 240"
+    assert failed.source_sha == source
+    assert failed.approval_sha256 == approval_sha
+    assert failed.environment_sha == model_sha256(freeze)
+    assert "top-secret" not in failed_path.read_text()
+    with pytest.raises(FileExistsError):
+        write_lifecycle_state(failed, failed_path)
+
+    with pytest.raises(FileExistsError):
+        D2dReleaseRunner(
+            approval_path=approval_path,
+            approval_sha256=approval_sha,
+            environment_path=freeze_path,
+            environment_sha256=freeze_sha,
+            artifact_root=tmp_path / "release",
+            lifecycle_root=tmp_path / "lifecycle",
+            command_runner=_available_image_inspection,
+            compose_config_runner=lambda _: subprocess.CompletedProcess(
+                [], 0, json.dumps(_rendered_compose_config()), ""
+            ),
+            stack_factory=lambda _: FailingStack(),
+        ).run()
 
 
 def test_frozen_compose_file_pins_images_and_disables_build(tmp_path: Path) -> None:
