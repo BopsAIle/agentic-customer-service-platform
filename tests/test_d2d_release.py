@@ -4,6 +4,7 @@ import hashlib
 import json
 import shutil
 import subprocess
+from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -488,7 +489,16 @@ def test_release_runner_consumes_once_and_publishes_release_bundle(
     assert run_id == EXPERIMENT
     assert (artifact_path / "summary.json").read_text().find('"prospective_release"') >= 0
     assert (artifact_path / "manifest.json").read_text().find('"approval_consumed":true') >= 0
-    assert stack.calls[0] == ("up", "--no-build", "--detach", "--wait", "--wait-timeout", "240")
+    assert stack.calls[0] == (
+        "up",
+        "--no-build",
+        "--pull",
+        "never",
+        "--detach",
+        "--wait",
+        "--wait-timeout",
+        "240",
+    )
     assert len(list((tmp_path / "lifecycle").glob("*.json"))) == 3
 
 
@@ -506,6 +516,28 @@ def test_frozen_compose_file_pins_images_and_disables_build(tmp_path: Path) -> N
     command = stack.command
     assert "--build" not in command
     assert str(compose_path) in command
+
+
+def test_frozen_stack_bootstrap_never_builds_or_pulls() -> None:
+    class RecordingStack(FrozenImageComposeStack):
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        def run(
+            self,
+            arguments: Sequence[str],
+            *,
+            timeout: int = 300,
+            check: bool = True,
+        ) -> subprocess.CompletedProcess[str]:
+            del timeout, check
+            self.calls.append(tuple(arguments))
+            return subprocess.CompletedProcess([], 0, "", "")
+
+    stack = RecordingStack()
+    stack.reset_seed()
+
+    assert stack.calls == [("run", "--no-build", "--pull", "never", "--rm", "demo-setup")]
 
 
 @pytest.mark.skipif(shutil.which("docker") is None, reason="Docker is unavailable")

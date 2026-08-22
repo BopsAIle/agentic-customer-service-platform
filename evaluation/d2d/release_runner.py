@@ -83,7 +83,7 @@ class FrozenImageComposeStack(HermeticComposeStack):
         ]
 
     def reset_seed(self) -> None:
-        self.run(("run", "--no-build", "--rm", "demo-setup"), timeout=300)
+        self.run(("run", "--no-build", "--pull", "never", "--rm", "demo-setup"), timeout=300)
 
 
 class ComposeStackLike(Protocol):
@@ -313,7 +313,16 @@ class D2dReleaseRunner:
                 stack = self.stack_factory(freeze.compose_project)
             stack.clean()
             stack.run(
-                ("up", "--no-build", "--detach", "--wait", "--wait-timeout", "240"),
+                (
+                    "up",
+                    "--no-build",
+                    "--pull",
+                    "never",
+                    "--detach",
+                    "--wait",
+                    "--wait-timeout",
+                    "240",
+                ),
                 timeout=600,
             )
             wait_for_ready(stack.frontend_url(), timeout_seconds=120)
