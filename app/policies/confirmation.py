@@ -18,7 +18,7 @@ def parse_confirmation(message: str) -> str:
     # Python's locale-independent casefold maps ASCII I to i. Normalize the two
     # Turkish uppercase forms first so exact, bounded phrase matching remains
     # stable without introducing substring or fuzzy approval behavior.
-    normalized = " ".join(message.translate(str.maketrans({"I": "ı", "İ": "i"})).casefold().split())
+    normalized = " ".join(message.translate(str.maketrans("Iİ", "ıi")).casefold().split())
     if normalized in {
         "yes",
         "confirm",
