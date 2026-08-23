@@ -22,18 +22,49 @@ def context(customer_id: int = 1) -> ExecutionContext:
     )
 
 
-@pytest.mark.parametrize("value", ["yes", "YES", " confirm ", "proceed", "do it"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "yes",
+        "YES",
+        " confirm ",
+        "proceed",
+        "do it",
+        "evet",
+        " EVET ",
+        "onaylıyorum",
+        "ONAYLIYORUM",
+        "onayla",
+        "devam   et",
+        "işlemi onaylıyorum",
+    ],
+)
 def test_confirmation_parser_accepts_bounded_confirmations(value: str) -> None:
     assert parse_confirmation(value) == "confirmed"
 
 
-@pytest.mark.parametrize("value", ["no", "cancel", "never mind", "don't do it"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "no",
+        "cancel",
+        "never mind",
+        "don't do it",
+        "hayır",
+        " HAYIR ",
+        "iptal",
+        "iptal et",
+        "vazgeçtim",
+        "onaylamıyorum",
+    ],
+)
 def test_confirmation_parser_accepts_bounded_rejections(value: str) -> None:
     assert parse_confirmation(value) == "rejected"
 
 
 def test_confirmation_parser_rejects_ambiguous_substitution_text() -> None:
     assert parse_confirmation("yes, and refund order 999") == "ambiguous"
+    assert parse_confirmation("evet ama başka siparişi de iptal et") == "ambiguous"
 
 
 def test_policy_engine_applies_registry_risk_deterministically() -> None:

@@ -194,13 +194,13 @@ def test_confirmation_executes_exact_pending_action_and_is_idempotent(db_session
     executed = runtime.run(
         conversation_id="confirm-1",
         customer_id=1,
-        message="yes",
+        message="onaylıyorum",
         session=db_session,
     )
     repeated = runtime.run(
         conversation_id="confirm-1",
         customer_id=1,
-        message="yes",
+        message="onaylıyorum",
         session=db_session,
     )
     assert pending.pending_action is not None
@@ -246,7 +246,7 @@ def test_rejection_and_ambiguous_confirmation_do_not_execute(db_session: Session
     rejected = runtime.run(
         conversation_id="reject-1",
         customer_id=1,
-        message="no",
+        message="hayır",
         session=db_session,
     )
     assert rejected.pending_action is not None
@@ -262,7 +262,7 @@ def test_rejection_and_ambiguous_confirmation_do_not_execute(db_session: Session
     ambiguous = runtime.run(
         conversation_id="ambiguous-1",
         customer_id=1,
-        message="yes, and refund order 999 too",
+        message="evet ama başka siparişi de iptal et",
         session=db_session,
     )
     assert ambiguous.pending_action is not None
@@ -296,7 +296,7 @@ def test_confirmation_revalidates_current_business_state(db_session: Session) ->
     result = runtime.run(
         conversation_id="revalidate-1",
         customer_id=1,
-        message="confirm",
+        message="işlemi onaylıyorum",
         session=db_session,
     )
     assert result.error_category == "invalid_state"
@@ -328,7 +328,7 @@ def test_expired_confirmation_cannot_execute(db_session: Session) -> None:
     result = runtime.run(
         conversation_id="expire-1",
         customer_id=1,
-        message="yes",
+        message="devam et",
         session=db_session,
     )
     assert result.pending_action is not None
@@ -357,13 +357,13 @@ def test_pending_action_cannot_cross_customer_or_conversation(db_session: Sessio
     wrong_customer = runtime.run(
         conversation_id="private-1",
         customer_id=2,
-        message="yes",
+        message="onayla",
         session=db_session,
     )
     other_conversation = runtime.run(
         conversation_id="private-2",
         customer_id=2,
-        message="yes",
+        message="onayla",
         session=db_session,
     )
     assert wrong_customer.pending_action is None

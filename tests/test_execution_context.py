@@ -225,7 +225,7 @@ def test_pending_confirmation_isolated_from_different_actor(db_session: Session)
     )
     attempted = runtime.run(
         context=other_actor_context,
-        message="yes",
+        message="evet",
         session=db_session,
     )
 
@@ -271,7 +271,7 @@ def test_pending_confirmation_rejects_different_customer_scope(db_session: Sessi
     )
     attempted = runtime.run(
         context=operator_customer_two,
-        message="yes",
+        message="evet",
         session=db_session,
     )
 

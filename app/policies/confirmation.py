@@ -15,10 +15,36 @@ class SystemClock:
 
 
 def parse_confirmation(message: str) -> str:
-    normalized = " ".join(message.casefold().strip().split())
-    if normalized in {"yes", "confirm", "confirmed", "proceed", "do it", "yes, proceed"}:
+    # Python's locale-independent casefold maps ASCII I to i. Normalize the two
+    # Turkish uppercase forms first so exact, bounded phrase matching remains
+    # stable without introducing substring or fuzzy approval behavior.
+    normalized = " ".join(message.translate(str.maketrans({"I": "ı", "İ": "i"})).casefold().split())
+    if normalized in {
+        "yes",
+        "confirm",
+        "confirmed",
+        "proceed",
+        "do it",
+        "yes, proceed",
+        "evet",
+        "onaylıyorum",
+        "onayla",
+        "devam et",
+        "işlemi onaylıyorum",
+    }:
         return "confirmed"
-    if normalized in {"no", "cancel", "never mind", "don't do it", "do not do it"}:
+    if normalized in {
+        "no",
+        "cancel",
+        "never mind",
+        "don't do it",
+        "do not do it",
+        "hayır",
+        "iptal",
+        "iptal et",
+        "vazgeçtim",
+        "onaylamıyorum",
+    }:
         return "rejected"
     return "ambiguous"
 
