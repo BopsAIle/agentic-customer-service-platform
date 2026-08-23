@@ -1,8 +1,10 @@
 # Agentic Customer Service Platform
 
-> Building AI agents that can fail safely.
+> Production-oriented agent control plane for safe AI execution.
 
-Production-oriented reference implementation of an agentic customer service platform with semantic guardrails, provenance checks, deterministic execution controls, and operational release validation.
+This project shows how a customer-service agent can use model proposals while
+keeping decisions, policy, confirmation, and runtime effects under deterministic
+system control.
 
 The central design rule is simple:
 
@@ -10,11 +12,16 @@ The central design rule is simple:
 
 The model can misunderstand a request or produce an unsupported argument. That output remains a proposal until server-owned grounding, target validation, compilation, policy, confirmation, and idempotency checks allow an action to proceed.
 
-## Why this project exists
+## Problem
 
-Customer-service agents do more than generate text. They read customer-scoped state, retrieve knowledge, choose among tools, handle confirmation, survive dependency failures, and leave an audit trail that an operator can inspect.
+LLMs are probabilistic. A production agent also needs deterministic authority:
+it must know which customer and target are in scope, which evidence supports a
+request, whether policy allows it, and whether a sensitive change has been
+confirmed.
 
-This project treats those concerns as separate boundaries. The result is a platform that can be demonstrated as a real agent workflow and evaluated as a controlled system, not only as a chat response.
+The platform keeps those questions separate from response generation. The
+model suggests meaning and actions; server-owned controls decide what may
+proceed.
 
 ## What to see first
 
@@ -27,7 +34,7 @@ The React Operator Console is designed as a compact AI platform control plane:
 
 No screen exposes chain-of-thought, raw provider responses, secrets, or direct production mutation controls.
 
-## Architecture overview
+## Architecture
 
 ```mermaid
 flowchart TB
@@ -61,11 +68,32 @@ User request
   -> Execution authority
 ```
 
-The LLM does not establish customer scope, trusted identifiers, policy outcomes, or confirmation state. RAG, memory, and observability provide context or evidence. They do not authorize a business mutation.
+The LLM does not establish customer scope, trusted identifiers, policy outcomes,
+or confirmation state. RAG, memory, and observability provide context or
+evidence. They do not authorize a business mutation.
+
+```text
+Customer request
+        |
+Context layer
+        |
+LLM proposal
+        |
+Decision compiler
+        |
+Policy / confirmation gate
+        |
+Controlled runtime execution
+```
+
+Model intelligence is not system authority.
 
 See the detailed [architecture document](docs/architecture.md) for the full system diagram and trust-boundary notes.
+The [demonstration scenarios](docs/demo-scenarios.md) summarize the evidence-first walkthrough.
+The [production demo showcase](docs/demo-showcase.md) documents the reproducible live/replay scenario suite and screenshot package.
+The Playground also offers four read-only [production-style evidence fixtures](docs/demo-showcase.md#production-style-demo-scenarios) for inspecting memory, RAG grounding, deterministic decisions, and authority boundaries without creating a runtime run.
 
-## Safety model
+## Core guarantees
 
 The runtime fails closed when the proposal is unsupported or cannot be grounded.
 
@@ -78,6 +106,22 @@ The runtime fails closed when the proposal is unsupported or cannot be grounded.
 - Unknown write outcomes are not blindly replayed.
 
 The platform's safety claim is about authority placement and measured containment. It is not a claim that the model never makes a mistake.
+
+## Demonstrated scenarios
+
+The public showcase uses four deterministic evidence snapshots:
+
+- **Refund with memory and RAG:** Evidence grounds a proposal, then a
+  confirmation boundary holds the mutation.
+- **Prompt injection defense:** Untrusted scope expansion reaches policy
+  evaluation, is prevented, and receives no authority.
+- **Duplicate operation protection:** Existing operation state stops a second
+  business effect.
+- **Missing information clarification:** An incomplete target leads to
+  clarification. Execution is not attempted.
+
+The [production demo showcase](docs/demo-showcase.md) describes each scenario
+and links to the final screenshot package.
 
 ## Validation evidence
 
@@ -111,6 +155,55 @@ M6.34 validated the source-bound operational reference deployment:
 - zero duplicate mutations, unauthorized mutations, confirmation bypasses, stale resurrection, declined resurrection, and privacy violations.
 
 Read the [release evidence index](docs/release-evidence.md) for experiment identities, artifact paths, and hashes. Read the [evaluation overview](docs/evaluation-overview.md) for the D2c/D2d gate split and the [D2d contract](docs/d2d-release-gate.md) for operational acceptance criteria.
+
+## Why this architecture exists
+
+Traditional chatbot architectures optimize for response generation. Production
+agent systems also need bounded authority, deterministic decisions, evidence
+traceability, and controlled side effects.
+
+This platform separates model intelligence from system authority:
+
+- Context provides evidence.
+- Models provide proposals.
+- The control plane makes deterministic decisions.
+- Policy and confirmation gate authority.
+- Runtime paths apply only approved effects.
+
+The console exposes those observable boundaries and omits hidden reasoning and
+model token streams.
+
+## Investigation and observability
+
+Runs & traces is a read-only operator workflow for inspecting a projected run:
+
+```text
+Request → Evidence → Proposal → Decision → Authority
+```
+
+The registry and investigation view show bounded evidence, deterministic
+decisions, authority state, and outcome. They do not present live telemetry or
+direct execution controls.
+
+## Final showcase package
+
+The final screenshot package is under
+[`screenshots/demo-final-release-v3/`](screenshots/demo-final-release-v3/). It
+is organized as a short engineering story:
+
+1. [Control-plane overview](screenshots/demo-final-release-v3/01-control-plane-overview.png)
+2. [Refund confirmation boundary](screenshots/demo-final-release-v3/02-refund-confirmation-boundary.png)
+3. [Prompt-injection policy prevention](screenshots/demo-final-release-v3/03-prompt-injection-policy-deny.png)
+4. [Idempotency protection](screenshots/demo-final-release-v3/04-idempotency-protection.png)
+5. [Missing-information clarification](screenshots/demo-final-release-v3/05-missing-information-clarification.png)
+6. [Operational run registry](screenshots/demo-final-release-v3/06-operational-run-registry.png)
+7. [Authority flow](screenshots/demo-final-release-v3/07-authority-flow.png)
+8. [Investigation report](screenshots/demo-final-release-v3/08-investigation-report.png)
+9. [Mobile investigation](screenshots/demo-final-release-v3/09-mobile-view.png)
+
+These screenshots are generated from local deterministic projections. They show
+evidence and decisions, not hidden reasoning, raw provider output, or
+production telemetry.
 
 ## Console walkthrough
 
@@ -212,6 +305,29 @@ docker compose up --build --detach
 Open <http://localhost:5173>. The local stack starts PostgreSQL, Qdrant, Jaeger, the backend, and the Operator Console. Setup migrates the database, loads deterministic demo records, and ingests the bundled knowledge base.
 
 A real `/agent/chat` result requires a reachable OpenAI-compatible provider. The local configuration may use Ollama or another explicitly configured provider. Provider calls are not part of the offline evaluation gates.
+
+The Playground offers two explicit modes: **Recorded evidence replay** uses the configured bounded
+local path, while **Live proposal run** is enabled only when the server is configured for the
+OpenAI API. In live mode the model returns a structured semantic proposal only; deterministic
+grounding, compilation, policy, confirmation, and execution-authority checks remain in control.
+
+To generate the bounded public showcase run index and scenario run IDs against the local stack:
+
+```bash
+bash scripts/run_demo_suite.sh
+```
+
+The suite writes safe metadata and screenshots under `screenshots/demo-final/`; it does not send
+confirmation commands or expose raw provider responses.
+Without an OpenAI key, the UI falls back to bounded evidence replay and states that fallback
+explicitly. See [demo-scenarios.md](docs/demo-scenarios.md#live-proposal-mode) for the scope and
+limitations of this optional path.
+
+The live evidence flow is:
+
+```text
+Request → Context → LLM proposal → Decision Compiler → Policy → Authority → Evidence
+```
 
 For a hermetic integration proof without a live model, run:
 
