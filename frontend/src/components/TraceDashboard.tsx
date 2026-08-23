@@ -53,7 +53,7 @@ function statusPresentation(run: AgentRun): { label: string; tone: "success" | "
   if (policy === "deny") return { label: "Prevented", tone: "danger", description: "Policy or scope controls prevented execution" };
   if (run.status === "waiting_confirmation") return { label: "Awaiting confirmation", tone: "warning", description: "Human approval required before mutation" };
   if (executionOutcome(run) === "Prevented") return { label: "Prevented", tone: "danger", description: "Execution was prevented by a control boundary" };
-  if (run.status === "completed") return { label: "Completed", tone: "success", description: "Recorded run completed" };
+  if (run.status === "completed") return { label: "Completed", tone: "success", description: "Evidence snapshot completed" };
   return { label: humanize(run.status), tone: statusTone(run.status), description: "Status recorded in the bounded projection" };
 }
 

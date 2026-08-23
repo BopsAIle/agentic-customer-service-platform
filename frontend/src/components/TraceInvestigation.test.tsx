@@ -53,7 +53,7 @@ describe("trace investigation surface", () => {
     expect(html).toContain("Authority boundary");
     expect(html).toContain("Memory evidence");
     expect(html).toContain("Decision compiler");
-    expect(html).toContain("Deterministic recorded fixture metadata");
+    expect(html).toContain("Evidence snapshot metadata");
   });
 
   it("renders a bounded report modal without hidden reasoning", () => {

@@ -1,6 +1,6 @@
 # Agentic Customer Service Platform
 
-> Production-oriented agent control plane for safe AI execution.
+> Production-oriented agent control plane and evidence-driven agent reliability platform for safe AI execution.
 
 This project shows how a customer-service agent can use model proposals while
 keeping decisions, policy, confirmation, and runtime effects under deterministic
@@ -170,20 +170,37 @@ Read the [release evidence index](docs/release-evidence.md) for experiment ident
 
 ## Why this architecture exists
 
-Traditional chatbot architectures optimize for response generation. Production
-agent systems also need bounded authority, deterministic decisions, evidence
-traceability, and controlled side effects.
+Modern LLM agents are useful proposal generators, but probabilistic output
+cannot own operational authority. Production-oriented agent systems need a
+clear boundary between model intelligence and system authority.
 
-This platform separates model intelligence from system authority:
+| Problem | Architecture response |
+| --- | --- |
+| Hallucination risk | Evidence-backed decisions, RAG grounding, and provenance checks keep unsupported proposals from becoming trusted facts. |
+| Unsafe agent execution | The decision compiler, policy engine, and confirmation boundaries determine whether a covered action is admissible. |
+| Operational failures | Persistence-backed idempotency, duplicate protection, and controlled runtime execution bound business effects. |
 
-- Context provides evidence.
-- Models provide proposals.
-- The control plane makes deterministic decisions.
-- Policy and confirmation gate authority.
-- Runtime paths apply only approved effects.
-
-The console exposes those observable boundaries and omits hidden reasoning and
+The console exposes these observable boundaries and omits hidden reasoning and
 model token streams.
+
+## Production Evidence
+
+The public evidence package is organized around four deterministic scenarios:
+
+1. **Refund request with memory + RAG** — Evidence grounds a refund proposal;
+   the confirmation boundary remains active and no mutation is performed
+   without approval.
+2. **Prompt injection defense** — Untrusted scope-expanding input is rejected
+   by policy and receives no execution authority.
+3. **Duplicate operation protection** — Existing operation state and idempotency
+   controls prevent a second business effect.
+4. **Missing information clarification** — An incomplete target produces a
+   clarification requirement; execution is not attempted.
+
+Each scenario is an evidence snapshot rather than a claim of universal model
+reliability. The [showcase guide](docs/demo-showcase.md) explains the operator
+workflow and the [release evidence](docs/release-evidence.md) records the
+validated D2c and D2d results.
 
 ## Investigation and observability
 
@@ -204,13 +221,13 @@ The final screenshot package is under
 is organized as a short engineering story:
 
 1. [Control-plane overview](screenshots/demo-final-release-v3/01-control-plane-overview.png)
-2. [Refund confirmation boundary](screenshots/demo-final-release-v3/02-refund-confirmation-boundary.png)
-3. [Prompt-injection policy prevention](screenshots/demo-final-release-v3/03-prompt-injection-policy-deny.png)
-4. [Idempotency protection](screenshots/demo-final-release-v3/04-idempotency-protection.png)
-5. [Missing-information clarification](screenshots/demo-final-release-v3/05-missing-information-clarification.png)
-6. [Operational run registry](screenshots/demo-final-release-v3/06-operational-run-registry.png)
-7. [Authority flow](screenshots/demo-final-release-v3/07-authority-flow.png)
-8. [Investigation report](screenshots/demo-final-release-v3/08-investigation-report.png)
+2. [Authority flow](screenshots/demo-final-release-v3/07-authority-flow.png)
+3. [Investigation report](screenshots/demo-final-release-v3/08-investigation-report.png)
+4. [Operational run registry](screenshots/demo-final-release-v3/06-operational-run-registry.png)
+5. [Refund confirmation boundary](screenshots/demo-final-release-v3/02-refund-confirmation-boundary.png)
+6. [Prompt-injection policy prevention](screenshots/demo-final-release-v3/03-prompt-injection-policy-deny.png)
+7. [Idempotency protection](screenshots/demo-final-release-v3/04-idempotency-protection.png)
+8. [Missing-information clarification](screenshots/demo-final-release-v3/05-missing-information-clarification.png)
 9. [Mobile investigation](screenshots/demo-final-release-v3/09-mobile-view.png)
 
 These screenshots are generated from local deterministic projections. They show

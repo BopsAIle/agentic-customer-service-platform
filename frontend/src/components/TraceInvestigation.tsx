@@ -33,8 +33,22 @@ function executionState(run: AgentRun): string {
 function authorityState(run: AgentRun): string {
   if (clarificationRequired(run)) return "Not authorized · clarification required";
   if (run.evidence.write_outcome.status === "executed") return "Granted through controlled path";
-  if (run.status === "waiting_confirmation" || run.evidence.confirmation.required) return "Not authorized · confirmation required";
+  if (run.status === "waiting_confirmation" || run.evidence.confirmation.required) return "Pending approval boundary";
   return "Not authorized";
+}
+
+function stageStatusLabel(run: AgentRun, stage: TraceStage): string {
+  if (stage.id === "execution") {
+    if (clarificationRequired(run)) return "Not attempted";
+    if (run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation") return "Awaiting confirmation";
+    if (run.evidence.write_outcome.status === "blocked") return "Prevented";
+  }
+  if (stage.id === "confirmation" && (run.status === "waiting_confirmation" || run.evidence.confirmation.required)) return "Confirmation required";
+  if (stage.status === "completed") return "Completed";
+  if (stage.status === "failed") return "Failed";
+  if (stage.status === "blocked") return "Prevented";
+  if (stage.status === "waiting") return "Evidence pending";
+  return "Not recorded";
 }
 
 function stageTimestamp(stage: TraceStage): string {
@@ -158,15 +172,15 @@ function stagesFor(run: AgentRun): InvestigationStage[] {
   return buildTraceStages(run).map((stage) => ({ id: stage.id, label: labels[stage.id]?.label ?? stage.label, boundary: labels[stage.id]?.boundary ?? "Not recorded", stage }));
 }
 
-function StageDetails({ item }: { item: InvestigationStage }) {
+function StageDetails({ item, run }: { item: InvestigationStage; run: AgentRun }) {
   const { stage } = item;
-  return <details className={`trace-investigation-stage trace-investigation-stage-${stage.status}`} open={stage.status === "waiting" || stage.status === "blocked" || stage.id === "request"}><summary><span className="trace-investigation-marker"><StatusIndicator label="" tone={stageTone(stage.status)} compact /></span><span className="min-w-0 flex-1"><strong>{item.label}</strong><small>{stage.explanation}</small></span><span className="trace-investigation-stage-status"><StatusIndicator label={stage.status.replace(/_/g, " ")} tone={stageTone(stage.status)} compact /><span><Clock3 size={10} aria-hidden="true" />{stageTimestamp(stage)}</span></span></summary><div className="trace-investigation-stage-detail"><div className="trace-investigation-detail-grid"><div><span className="field-label">Timestamp</span><strong>{stageTimestamp(stage)}</strong></div><div><span className="field-label">Duration</span><strong>{formatTraceDuration(stage.metadata)}</strong></div><div><span className="field-label">Evidence</span><strong>{stage.metadata.source === "not_recorded" ? "Not recorded" : `${stage.metadata.evidenceCount} item${stage.metadata.evidenceCount === 1 ? "" : "s"}`}</strong></div><div><span className="field-label">Owner</span><strong>{stage.metadata.owner}</strong></div><div><span className="field-label">Boundary</span><strong>{item.boundary}</strong></div></div>{stage.evidence && <div className="trace-investigation-evidence"><FileText size={14} aria-hidden="true" /><span>{stage.evidence}</span></div>}<div className="trace-investigation-stage-note"><span className="field-label">Metadata</span><span>{stage.metadata.source === "recorded_fixture" ? "Deterministic recorded fixture metadata" : stage.metadata.source === "observed" ? "Observed event metadata" : "Unavailable from current projection"}</span></div></div></details>;
+  return <details className={`trace-investigation-stage trace-investigation-stage-${stage.status}`} open={stage.status === "waiting" || stage.status === "blocked" || stage.id === "request"}><summary><span className="trace-investigation-marker"><StatusIndicator label="" tone={stageTone(stage.status)} compact /></span><span className="min-w-0 flex-1"><strong>{item.label}</strong><small>{stage.explanation}</small></span><span className="trace-investigation-stage-status"><StatusIndicator label={stageStatusLabel(run, stage)} tone={stageTone(stage.status)} compact /><span><Clock3 size={10} aria-hidden="true" />{stageTimestamp(stage)}</span></span></summary><div className="trace-investigation-stage-detail"><div className="trace-investigation-detail-grid"><div><span className="field-label">Timestamp</span><strong>{stageTimestamp(stage)}</strong></div><div><span className="field-label">Duration</span><strong>{formatTraceDuration(stage.metadata)}</strong></div><div><span className="field-label">Evidence</span><strong>{stage.metadata.source === "not_recorded" ? "Not recorded" : `${stage.metadata.evidenceCount} item${stage.metadata.evidenceCount === 1 ? "" : "s"}`}</strong></div><div><span className="field-label">Owner</span><strong>{stage.metadata.owner}</strong></div><div><span className="field-label">Boundary</span><strong>{item.boundary}</strong></div></div>{stage.evidence && <div className="trace-investigation-evidence"><FileText size={14} aria-hidden="true" /><span>{stage.evidence}</span></div>}<div className="trace-investigation-stage-note"><span className="field-label">Metadata</span><span>{stage.metadata.source === "recorded_fixture" ? "Evidence snapshot metadata" : stage.metadata.source === "observed" ? "Operator projection metadata" : "Unavailable from current projection"}</span></div></div></details>;
 }
 
 export function OperationalTraceTimeline({ run }: { run: AgentRun }) {
   const stages = stagesFor(run);
   const events = operationalEvents(run, stages);
-  return <Card as="section" className="p-5" aria-label="Operational trace timeline"><SectionHeader eyebrow="Operational timeline" title="What happened in this run" description="Observable events, owners, evidence, and authority state only. Hidden reasoning and token streams are excluded." /><div className="operational-event-list" aria-label="Operational event timeline">{events.map((event) => <article className={`operational-event-row operational-event-${event.status}`} key={event.id}><div className="operational-event-time"><Clock3 size={12} aria-hidden="true" /><span>{event.timestamp}</span></div><div className="operational-event-main"><div className="flex flex-wrap items-center gap-2"><strong>{event.label}</strong><StatusIndicator label={event.status.replace(/_/g, " ")} tone={stageTone(event.status)} compact /></div><div className="operational-event-fields"><div><span className="field-label">Actor / layer</span><strong>{event.actor}</strong></div><div><span className="field-label">Evidence</span><strong>{event.evidence}</strong></div><div><span className="field-label">Outcome</span><strong>{event.outcome}</strong></div></div></div></article>)}</div><div className="trace-investigation-timeline">{stages.map((item, index) => <div className="trace-investigation-step" key={item.id}><StageDetails item={item} />{index < stages.length - 1 && <ArrowDown className="trace-investigation-arrow" size={15} aria-hidden="true" />}</div>)}</div></Card>;
+  return <Card as="section" className="p-5" aria-label="Operational trace timeline"><SectionHeader eyebrow="Operational timeline" title="What happened in this run" description="Observable events, owners, evidence, and authority state only. Hidden reasoning and token streams are excluded." /><div className="operational-event-list" aria-label="Operational event timeline">{events.map((event) => <article className={`operational-event-row operational-event-${event.status}`} key={event.id}><div className="operational-event-time"><Clock3 size={12} aria-hidden="true" /><span>{event.timestamp}</span></div><div className="operational-event-main"><div className="flex flex-wrap items-center gap-2"><strong>{event.label}</strong><StatusIndicator label={event.stage ? stageStatusLabel(run, event.stage) : "Not recorded"} tone={stageTone(event.status)} compact /></div><div className="operational-event-fields"><div><span className="field-label">Actor / layer</span><strong>{event.actor}</strong></div><div><span className="field-label">Evidence</span><strong>{event.evidence}</strong></div><div><span className="field-label">Outcome</span><strong>{event.outcome}</strong></div></div></div></article>)}</div><div className="trace-investigation-timeline">{stages.map((item, index) => <div className="trace-investigation-step" key={item.id}><StageDetails item={item} run={run} />{index < stages.length - 1 && <ArrowDown className="trace-investigation-arrow" size={15} aria-hidden="true" />}</div>)}</div></Card>;
 }
 
 function checkLabel(reasonCode: string): string {
@@ -190,7 +204,7 @@ export function DecisionExplanationCard({ run }: { run: AgentRun }) {
   const blocking = policy?.outcome === "deny"
     ? (policy.reason_codes.length > 0 ? policy.reason_codes.map(checkLabel) : ["Policy rejected request"])
     : run.evidence.confirmation.required || run.status === "waiting_confirmation"
-    ? ["Sensitive mutation requires confirmation"]
+    ? ["Confirmation required before mutation"]
     : clarificationRequired(run)
     ? ["Required target information is missing"]
     : run.evidence.write_outcome.status === "blocked"

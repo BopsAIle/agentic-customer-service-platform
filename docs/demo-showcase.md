@@ -15,11 +15,15 @@ The central boundary is:
 LLMs are probabilistic proposal generators, so they do not directly own
 operational authority. The platform keeps the boundary explicit:
 
-- Context provides evidence.
-- Models provide proposals.
-- The control plane makes deterministic decisions.
-- Policy gates authority.
-- Runtime executes only approved effects.
+| Problem | Architecture response |
+| --- | --- |
+| Hallucination risk | Evidence-backed decisions, RAG grounding, and provenance checks. |
+| Unsafe agent execution | Decision compiler, policy engine, and confirmation boundaries. |
+| Operational failures | Persistence-backed idempotency, duplicate protection, and controlled runtime execution. |
+
+Context provides evidence, models provide proposals, the control plane makes
+deterministic decisions, policy gates authority, and runtime executes only
+approved effects.
 
 The showcase exposes these observable boundaries without exposing hidden
 reasoning, model tokens, or raw provider output. It is an evidence snapshot,
@@ -228,13 +232,13 @@ to be read as an engineering narrative rather than a generic dashboard:
 | Screenshot | Purpose | Engineering capability demonstrated |
 | --- | --- | --- |
 | `01-overview-control-plane.png` | First impression | System guarantees and the proposal/decision/authority model |
+| `07-evidence-relationship-graph.png` | Architecture proof | Context, proposal, decision, policy, and authority ownership are distinct |
+| `08-investigation-report-modal.png` | Evidence report | Bounded checks and decisions are reviewable without hidden reasoning |
+| `06-runs-registry.png` | Operational observability | Multiple deterministic scenarios are inspectable from one registry |
 | `02-refund-investigation.png` | Primary investigation | Memory, RAG, proposal, policy, confirmation, and authority evidence |
 | `03-prompt-injection-defense.png` | Safety boundary | Untrusted scope expansion is denied before execution |
 | `04-idempotency-protection.png` | Reliability boundary | Existing operation state blocks a duplicate business effect |
 | `05-clarification-flow.png` | Controlled uncertainty | Missing target information leads to clarification, not guessing |
-| `06-runs-registry.png` | Operational observability | Multiple deterministic scenarios are inspectable from one registry |
-| `07-evidence-relationship-graph.png` | Architecture proof | Context, proposal, decision, policy, and authority ownership are distinct |
-| `08-investigation-report-modal.png` | Evidence export preview | Bounded checks and decisions are reviewable without hidden reasoning |
 | `09-mobile-investigation.png` | Responsive operator view | The same investigation remains usable on a narrow viewport |
 
 Capture with:
