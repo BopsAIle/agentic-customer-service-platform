@@ -37,6 +37,7 @@ from app.agent.schemas import (
     LatestOrderTargetV3,
     SemanticDecision,
     SemanticDecisionV3,
+    SemanticTarget,
     normalize_semantic_decision,
 )
 from app.agent.semantic_grounding import GroundingStatus, validate_semantic_grounding
@@ -261,10 +262,12 @@ class _TimedResolver(BusinessTargetResolver):
         self.last_latency_ms: float | None = None
         self.last_result: int | None = None
 
-    def resolve_order_id(self, target: Any, customer_id: int) -> int | None:
+    def resolve_order_id(
+        self, target: SemanticTarget, customer_id: int, tenant_id: str = "default"
+    ) -> int | None:
         started = time.perf_counter()
         try:
-            self.last_result = super().resolve_order_id(target, customer_id)
+            self.last_result = super().resolve_order_id(target, customer_id, tenant_id)
             return self.last_result
         finally:
             self.calls += 1

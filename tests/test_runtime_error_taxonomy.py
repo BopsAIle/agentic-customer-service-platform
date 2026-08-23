@@ -23,7 +23,7 @@ from app.agent.schemas import (
 from app.agent.tool_catalog import TOOL_DEFINITIONS, AgentToolDefinition
 from app.models import SupportTicket
 from app.policies.models import PolicyAuditEvent
-from app.policies.repository import InMemoryPolicyAuditLog
+from app.policies.repository import DEFAULT_AUDIT_QUERY_LIMIT, InMemoryPolicyAuditLog
 from app.resilience.errors import FailureCategory, UnknownWriteOutcomeError
 from app.services.idempotency import IdempotencyScope
 from app.tools.base import ToolError
@@ -260,19 +260,33 @@ def test_audit_failure_is_dependency_classified_and_fail_closed(db_session: Sess
             raise RuntimeError(SENTINEL)
 
         def list_for_agent_run(
-            self, agent_run_id: str, *, limit: int = 50
+            self,
+            agent_run_id: str,
+            *,
+            tenant_id: str = "default",
+            limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
         ) -> list[PolicyAuditEvent]:
-            del agent_run_id, limit
+            del agent_run_id, tenant_id, limit
             return []
 
         def list_for_conversation(
-            self, conversation_id: str, *, limit: int = 50
+            self,
+            conversation_id: str,
+            *,
+            tenant_id: str = "default",
+            limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
         ) -> list[PolicyAuditEvent]:
-            del conversation_id, limit
+            del conversation_id, tenant_id, limit
             return []
 
-        def list_for_customer(self, customer_id: int, *, limit: int = 50) -> list[PolicyAuditEvent]:
-            del customer_id, limit
+        def list_for_customer(
+            self,
+            customer_id: int,
+            *,
+            tenant_id: str = "default",
+            limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
+        ) -> list[PolicyAuditEvent]:
+            del customer_id, tenant_id, limit
             return []
 
     with pytest.raises(Exception) as raised:

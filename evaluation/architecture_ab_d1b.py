@@ -32,6 +32,7 @@ from app.agent.schemas import (
     Intent,
     LatestOrderTargetV3,
     SemanticDecisionV3,
+    SemanticTarget,
     StructuredDecision,
     normalize_semantic_decision,
 )
@@ -170,10 +171,12 @@ class TimedResolver(BusinessTargetResolver):
         self.last_latency_ms: float | None = None
         self.calls = 0
 
-    def resolve_order_id(self, target: Any, customer_id: int) -> int | None:
+    def resolve_order_id(
+        self, target: SemanticTarget, customer_id: int, tenant_id: str = "default"
+    ) -> int | None:
         started = time.perf_counter()
         try:
-            return super().resolve_order_id(target, customer_id)
+            return super().resolve_order_id(target, customer_id, tenant_id)
         finally:
             self.calls += 1
             self.last_latency_ms = (time.perf_counter() - started) * 1000

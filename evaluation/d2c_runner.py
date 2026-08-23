@@ -21,7 +21,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.agent.decision_compiler import BusinessTargetResolver, CompileStatus, DecisionCompiler
 from app.agent.llm.diagnostics import StructuredDecisionValidationDiagnostic, ValidationStage
 from app.agent.llm.provider import OpenAICompatibleProvider
-from app.agent.schemas import Intent, SemanticDecisionV3, normalize_semantic_decision
+from app.agent.schemas import (
+    Intent,
+    SemanticDecisionV3,
+    SemanticTarget,
+    normalize_semantic_decision,
+)
 from app.agent.semantic_attribution import (
     CompilerClarificationCause,
     RefundReasonSupportStatus,
@@ -246,9 +251,11 @@ class _TimedResolver(BusinessTargetResolver):
         self.calls = 0
         self.last_result: int | None = None
 
-    def resolve_order_id(self, target: Any, customer_id: int) -> int | None:
+    def resolve_order_id(
+        self, target: SemanticTarget, customer_id: int, tenant_id: str = "default"
+    ) -> int | None:
         self.calls += 1
-        self.last_result = super().resolve_order_id(target, customer_id)
+        self.last_result = super().resolve_order_id(target, customer_id, tenant_id)
         return self.last_result
 
 
