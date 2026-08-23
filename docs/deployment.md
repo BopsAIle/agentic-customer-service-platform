@@ -125,11 +125,11 @@ and sends it through nginx, which explicitly preserves `Authorization` for `/age
 Frontend authentication has three deployment modes: `local_demo`, `integration`, and
 `external_session`. Production selects `external_session`; it does not silently use a demo or
 static backend token. Without a trusted external identity/session layer, the console displays
-“Production authentication is not configured” and does not call protected APIs. A future OIDC,
-OAuth2 Authorization Code + PKCE, BFF, auth gateway, or reverse-proxy identity integration can
-provide the `window.__OPERATOR_AUTH__` adapter. The adapter may establish an HTTP-only cookie
-session or provide an externally acquired access credential. The repository does not implement
-enterprise login or persist browser credentials.
+“Production authentication is not configured” and does not call protected APIs. A trusted OIDC
+client, OAuth2 Authorization Code + PKCE flow, BFF, auth gateway, or reverse-proxy identity
+integration can provide the `window.__OPERATOR_AUTH__` adapter. The adapter may establish an
+HTTP-only cookie session or provide an externally acquired access credential. The backend validates
+OIDC JWTs; the repository does not implement browser login or persist browser credentials.
 
 A real `/agent/chat` result additionally requires a reachable OpenAI-compatible LLM. The Compose
 default uses `http://host.docker.internal:11434/v1`; change `COMPOSE_LLM_BASE_URL`, `LLM_MODEL`, and
@@ -160,7 +160,8 @@ credentials externally; do not put them in a committed `.env` file.
 ```bash
 export POSTGRES_PASSWORD='set-outside-source-control'
 export DATABASE_URL='postgresql+psycopg://app:encoded-password@db:5432/customer_service'
-export PRODUCTION_AUTH_TOKENS_JSON='{"replace-with-secret":{"actor_id":"operator","actor_type":"support_operator","roles":["support_operator"]}}'
+export OIDC_ISSUER='https://identity.example.com'
+export OIDC_AUDIENCE='agent-control-plane'
 docker compose -f docker-compose.yml -f docker-compose.prod.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up --build --detach
 ```
@@ -169,17 +170,18 @@ CPU and memory defaults can be overridden with `BACKEND_CPU_LIMIT`, `BACKEND_MEM
 `FRONTEND_CPU_LIMIT`, `FRONTEND_MEMORY_LIMIT`, `POSTGRES_CPU_LIMIT`, `POSTGRES_MEMORY_LIMIT`,
 `QDRANT_CPU_LIMIT`, `QDRANT_MEMORY_LIMIT`, `JAEGER_CPU_LIMIT`, and `JAEGER_MEMORY_LIMIT`.
 
-The production overlay sets `APP_ENV=production`, forces `AUTH_MODE=static`, requires a non-empty
-externally supplied principal map, removes the demo token from backend/setup containers, and builds
-the frontend with `FRONTEND_AUTH_MODE=external_session` and no bundled browser credential. It also
-forces `LANGGRAPH_STRICT_MSGPACK=true`.
+The production overlay sets `APP_ENV=production`, forces `AUTH_MODE=oidc`, requires an HTTPS issuer
+and explicit audience, removes the demo token from backend/setup containers, and builds the frontend
+with `FRONTEND_AUTH_MODE=external_session` and no bundled browser credential. The backend discovers
+JWKS from the issuer and validates signature, rotation, issuer, audience, subject, and expiration.
+The overlay also forces `LANGGRAPH_STRICT_MSGPACK=true`.
 
 The production Operator Console service is present by default but is intentionally fail-closed
 until a trusted external identity/session layer supplies the `window.__OPERATOR_AUTH__` adapter.
 Without that integration, it displays “Production authentication is not configured” and does not
-call protected APIs. Static bearer authentication remains a backend/service adapter, not browser
-IAM. The repository does not implement OIDC, OAuth2 Authorization Code + PKCE, a BFF, an auth
-gateway, or enterprise login.
+call protected APIs. Static bearer authentication remains a non-production compatibility/test
+adapter. The repository implements backend OIDC token validation but not Authorization Code + PKCE,
+a BFF, identity-provider provisioning, or enterprise login UX.
 It forces `POLICY_AUDIT_BACKEND=postgres`; production policy audit is a durable, bounded operational
 evidence trail. Audit rows contain structured policy lifecycle metadata only and are never used as
 an authorization or business-state source. Configure database retention/pruning operationally;
@@ -259,6 +261,82 @@ environment-specific identity integration.
 For a real deployment, replace the local PostgreSQL and Qdrant services with managed or separately
 operated dependencies as appropriate, supply identity and observability configuration through the
 deployment environment, and terminate TLS at a trusted ingress or load balancer.
+
+## Production deployment topology
+
+The Compose overlay is a reference service topology. In a managed deployment, public traffic
+should terminate at an external ingress or load balancer and reach multiple stateless API
+replicas:
+
+```text
+Frontend / trusted operator session
+              |
+              v
+Ingress / load balancer
+              |
+              v
+      API replicas (stateless)
+          |       |       \
+          v       v        v
+     PostgreSQL  Qdrant  Evidence store
+          |
+          v
+   Checkpoints, audit, idempotency, projections
+
+Supporting plane: metrics, logs, traces, secrets, backups
+```
+
+PostgreSQL is the shared authority for business state, idempotency receipts, policy audit
+records, checkpoints, and durable operator projections. Qdrant is a replaceable knowledge
+snapshot service; it is not an execution authority. Evidence payloads belong in an immutable,
+access-controlled object store, while manifests and hashes remain independently verifiable.
+The ingress, TLS termination, identity/session gateway, secret manager, databases, and object
+storage are intentionally outside this repository's Compose stack.
+
+The API process is designed to be horizontally replicated when all replicas use the same
+PostgreSQL/checkpoint store and tenant-aware configuration. Local in-memory checkpoint, audit,
+projection, or rate-limit modes are development/test modes and are not a multi-instance
+deployment strategy. The application does not coordinate leader election, database failover,
+object-store replication, or ingress cutover.
+
+## Production hardening checks
+
+The production overlay applies read-only filesystems where supported, temporary writable paths,
+dropped capabilities, `no-new-privileges`, restart policies, resource limits, health checks, and
+graceful shutdown windows. Application images run as non-root users. PostgreSQL's vendor
+entrypoint starts with the privileges required to initialize its volume and drops to its database
+user for the server process. The pinned upstream Qdrant image currently declares a root runtime;
+production must use a managed Qdrant service or an approved hardened derivative that runs as a
+non-root UID before treating the topology as fully hardened. The Compose overlay does not silently
+claim this vendor image is non-root.
+
+Run the static topology policy check before deployment:
+
+```bash
+make production-topology-validate
+```
+
+The check renders the production Compose model with validation-only placeholders, verifies
+service hardening and resource policies, confirms OIDC/external-session configuration, and checks
+database, Qdrant, and Jaeger healthcheck definitions. With an already-running environment, add
+`--check-health` to validate `/health` and `/ready` without printing dependency details. For the
+development filesystem evidence adapter, add `--evidence-root artifacts/evidence-payloads` to
+check that the configured root is readable and writable. An S3-compatible deployment should use
+its provider's authenticated, non-mutating bucket/prefix check instead.
+
+## Database, evidence, and secrets operations
+
+Run migrations as a release step before routing traffic. Use connection pooling and bounded
+connection/statement timeouts; keep business writes and idempotency receipts in the existing
+transaction boundaries. PostgreSQL backups, restore verification, Qdrant snapshot recovery, and
+evidence hash validation are described in [disaster recovery](disaster-recovery.md).
+
+Production secrets must come from an external manager such as AWS Secrets Manager, Vault, or a
+Kubernetes Secret projected into the workload. Do not bake credentials into images, pass them as
+committed Compose literals, or persist them in logs. OpenTelemetry exports bounded metrics and
+traces to an external collector; Prometheus/Grafana/Jaeger are deployment choices, not required
+business-state stores. Prompts, tokens, customer data, and raw provider payloads remain excluded
+from telemetry and evidence projections.
 
 ## Optional live-model behavioral evaluation
 

@@ -1,6 +1,22 @@
 services:
   db:
+    init: true
     restart: unless-stopped
+    stop_grace_period: 60s
+    read_only: true
+    tmpfs:
+      - /run/postgresql:size=16m,mode=1777
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    security_opt:
+      - no-new-privileges:true
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-customer_service}
       POSTGRES_USER: ${POSTGRES_USER:-app}
@@ -18,8 +34,9 @@ services:
       LLM_PROVIDER: openai_compatible
       AGENT_DECISION_CONTRACT_VERSION: semantic_decision_v3
       LLM_STRUCTURED_OUTPUT_MODE: ${LLM_STRUCTURED_OUTPUT_MODE:-schema}
-      AUTH_MODE: static
-      AUTH_TOKENS_JSON: ${PRODUCTION_AUTH_TOKENS_JSON:?PRODUCTION_AUTH_TOKENS_JSON must be set}
+      AUTH_MODE: oidc
+      OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER must be set}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:?OIDC_AUDIENCE must be set}
       LOCAL_DEMO_AUTH_TOKEN: ""
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
       POLICY_AUDIT_BACKEND: postgres
@@ -41,13 +58,21 @@ services:
       LLM_PROVIDER: openai_compatible
       AGENT_DECISION_CONTRACT_VERSION: semantic_decision_v3
       LLM_STRUCTURED_OUTPUT_MODE: ${LLM_STRUCTURED_OUTPUT_MODE:-schema}
-      AUTH_MODE: static
-      AUTH_TOKENS_JSON: ${PRODUCTION_AUTH_TOKENS_JSON:?PRODUCTION_AUTH_TOKENS_JSON must be set}
+      AUTH_MODE: oidc
+      OIDC_ISSUER: ${OIDC_ISSUER:?OIDC_ISSUER must be set}
+      OIDC_AUDIENCE: ${OIDC_AUDIENCE:?OIDC_AUDIENCE must be set}
       LOCAL_DEMO_AUTH_TOKEN: ""
       DEBUG: "false"
+      SERVICE_VERSION: ${SERVICE_VERSION:-0.1.0}
+      DEPLOYMENT_ID: ${DEPLOYMENT_ID:?DEPLOYMENT_ID must be set}
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL must be set}
       POLICY_AUDIT_BACKEND: postgres
       AGENT_RUN_PROJECTION_BACKEND: postgres
+      EVIDENCE_STORE_BACKEND: ${EVIDENCE_STORE_BACKEND:?EVIDENCE_STORE_BACKEND must be set}
+      EVIDENCE_STORE_BUCKET: ${EVIDENCE_STORE_BUCKET:?EVIDENCE_STORE_BUCKET must be set}
+    depends_on:
+      jaeger:
+        condition: service_healthy
     deploy:
       resources:
         limits:
@@ -74,7 +99,16 @@ services:
           memory: ${FRONTEND_MEMORY_LIMIT:-256M}
 
   qdrant:
+    init: true
     restart: unless-stopped
+    stop_grace_period: 45s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
     deploy:
       resources:
         limits:
@@ -82,7 +116,21 @@ services:
           memory: ${QDRANT_MEMORY_LIMIT:-1G}
 
   jaeger:
+    init: true
     restart: unless-stopped
+    stop_grace_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:14269/"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
     deploy:
       resources:
         limits:

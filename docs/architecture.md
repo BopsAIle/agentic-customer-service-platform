@@ -63,3 +63,30 @@ The default runnable path uses `semantic_decision_v3`: the model emits a bounded
 and the server-owned grounding, admissibility, compiler, typed validation, policy, confirmation,
 and execution layers retain authority. `direct_tool_v1` remains available only as an explicitly
 selected compatibility contract for historical evaluation or legacy integrations.
+
+## Deployment topology
+
+The executable reference stack separates the operator-facing frontend from the API and its shared
+state services. A production deployment places an ingress or load balancer in front of multiple
+API replicas:
+
+```mermaid
+flowchart LR
+    OP[Operator browser] --> INGRESS[Ingress / load balancer]
+    INGRESS --> API1[API replica]
+    INGRESS --> API2[API replica]
+    API1 --> PG[(PostgreSQL + checkpoints)]
+    API2 --> PG
+    API1 --> Q[(Qdrant snapshot)]
+    API2 --> Q
+    API1 --> OBJ[(Immutable evidence store)]
+    API2 --> OBJ
+    API1 -. bounded telemetry .-> OBS[OTel collector / metrics / logs / traces]
+    API2 -. bounded telemetry .-> OBS
+```
+
+PostgreSQL remains the shared source for business state, idempotency, tenant-scoped audit, and
+durable projections. Memory, RAG, and evidence storage inform or document decisions; they never
+grant execution authority. The repository provides a production-oriented reference topology,
+not a managed production service: ingress, TLS, identity/session integration, failover, backups,
+object-store retention, and multi-region orchestration remain deployment responsibilities.
