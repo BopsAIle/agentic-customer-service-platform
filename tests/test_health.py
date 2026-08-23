@@ -84,6 +84,51 @@ def test_liveness_does_not_depend_on_database(client: TestClient) -> None:
     assert readiness.json() == {"status": "not_ready"}
 
 
+def test_health_details_returns_bounded_operational_projection(client: TestClient) -> None:
+    response = client.get("/health/details")
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] in {"healthy", "degraded", "unavailable", "dependency_failure"}
+    assert isinstance(payload["version"], str)
+    assert isinstance(payload["deployment_id"], str)
+    assert {item["name"] for item in payload["dependencies"]} >= {
+        "database",
+        "retriever",
+        "evidence_store",
+        "authentication_provider",
+        "llm",
+        "opentelemetry",
+    }
+    assert {
+        "request_count",
+        "error_rate",
+        "average_duration_ms",
+        "retry_count",
+        "retry_exhausted_count",
+        "circuit_open_count",
+    } <= set(payload["metrics"])
+    assert "authorization" not in response.text.casefold()
+    assert "customer_id" not in response.text.casefold()
+
+
+def test_health_details_reports_database_failure_without_exposing_error(client: TestClient) -> None:
+    original = app.dependency_overrides[get_db]
+
+    def failing_database() -> Generator[FailingSession, None, None]:
+        yield FailingSession()
+
+    app.dependency_overrides[get_db] = failing_database
+    try:
+        response = client.get("/health/details")
+    finally:
+        app.dependency_overrides[get_db] = original
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "dependency_failure"
+    assert "database unavailable" not in response.text.casefold()
+
+
 def test_readiness_hides_checkpoint_failure_details(client: TestClient) -> None:
     original = app.state.checkpoint_provider
     app.state.checkpoint_provider = UnreadyCheckpointProvider()

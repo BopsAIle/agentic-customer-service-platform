@@ -99,6 +99,33 @@ Controlled runtime execution
 
 Model intelligence is not system authority.
 
+### Enterprise identity boundary
+
+Production authentication validates OIDC access tokens through issuer discovery and rotation-aware
+JWKS verification, including signature, audience, issuer, subject, and expiration checks. Validated
+claims map to a bounded application principal; the server-owned `resolve_customer_scope()` resolver
+still decides the effective customer scope before an `ExecutionContext` is created.
+
+Authentication establishes identity. Authorization constrains accessible customer state. The
+Decision Compiler, policy and confirmation gates, and controlled runtime remain the only path to a
+business effect. Tokens, authorization headers, raw claims, and identity PII are excluded from auth
+metrics and logs. See [security.md](docs/security.md) for configuration and trust boundaries.
+
+### Grounded answer generation
+
+Knowledge-only responses use bounded citation-constrained generation. Hybrid
+retrieval and reranking select evidence; the answer generator may synthesize
+only from those selected chunks. A deterministic grounding validator then
+checks citation coverage, excerpt identity, unsupported claims, and source
+agreement before the answer is accepted.
+
+When evidence is empty, irrelevant, or conflicting, the response surfaces
+uncertainty instead of silently inventing a policy or choosing between sources.
+The operator projection exposes source count, citation count, grounding status,
+confidence, and unsupported-claim count without exposing hidden reasoning.
+This reduces the supported hallucination surface; it is not a claim of perfect
+hallucination prevention.
+
 See the detailed [architecture document](docs/architecture.md) for the full system diagram and trust-boundary notes.
 The [demonstration scenarios](docs/demo-scenarios.md) summarize the evidence-first walkthrough.
 The [production demo showcase](docs/demo-showcase.md) documents the reproducible live/replay scenario suite and screenshot package.
@@ -167,6 +194,25 @@ M6.34 validated the source-bound operational reference deployment:
 
 Read the [release evidence index](docs/release-evidence.md) for experiment identities, artifact paths, and hashes. Read the [evaluation overview](docs/evaluation-overview.md) for the D2c/D2d gate split and the [D2d contract](docs/d2d-release-gate.md) for operational acceptance criteria.
 Future evaluation outputs follow the [evaluation artifact retention policy](docs/evaluation-artifact-policy.md), which keeps compact integrity metadata in Git while allowing large raw attempt dumps to use immutable external storage.
+
+Capacity and cost planning are documented separately in the [capacity report](docs/capacity-report.md)
+and [estimated cost model](docs/cost-model.md). These are provider-free measurement and planning
+documents, not production SLOs or billing measurements.
+
+## Production Operations
+
+The reference topology exposes process liveness at `/health`, required
+dependency readiness at `/ready`, and bounded operator diagnostics at
+`/health/details`. Diagnostics include service version, deployment identity,
+dependency state, latency summaries, and aggregate retry/circuit/request
+signals without prompts, tokens, credentials, or customer data.
+
+Operational ownership and response procedures are documented in the
+[alerting strategy](docs/alerting.md), [deployment lifecycle](docs/deployment-lifecycle.md),
+[disaster recovery guide](docs/disaster-recovery.md), and [incident runbooks](docs/runbooks/).
+Provider outages are treated as degraded dependency conditions; deterministic
+validation, confirmation, idempotency, tenant isolation, and controlled
+execution remain unchanged.
 
 ## Why this architecture exists
 
@@ -333,6 +379,29 @@ make e2e-smoke
 
 The smoke uses an isolated Compose project and fresh volumes, then removes those resources. It validates authenticated request handling, a Risk 2 proposal, persistence across backend restart, one idempotent mutation, replay safety, and bounded Operator Console projections. It does not measure real-model semantic quality.
 
+### Operator Journey Evidence
+
+Browser-level Playwright journeys validate the architecture from the operator's
+point of view, not only through backend assertions. The suite covers a grounded
+refund proposal held at confirmation, policy containment of prompt injection,
+idempotent confirmation replay, clarification for a missing target, a
+citation-constrained knowledge answer, and the run-investigation workflow.
+
+The journeys run against an isolated Compose deployment. A local deterministic
+proposal fixture supplies structured semantic proposals only; the real compiler,
+policy, confirmation, persistence, retrieval, projection, and execution layers
+remain in control. No external model endpoint or credential is required.
+
+```bash
+npm --prefix frontend ci
+npx --prefix frontend playwright install chromium
+bash scripts/run_operator_e2e.sh
+```
+
+Successful captures are written to `screenshots/operator-e2e/`. The suite does
+not expose prompts, raw provider responses, secrets, hidden reasoning, or model
+tokens.
+
 Useful local endpoints:
 
 | Service | URL |
@@ -348,7 +417,9 @@ Stop the stack with:
 docker compose down
 ```
 
-See [deployment.md](docs/deployment.md) for health, readiness, container, and production-oriented Compose details.
+See [deployment.md](docs/deployment.md) for health, readiness, container, and production-oriented
+Compose details. See [disaster recovery](docs/disaster-recovery.md) for backup, restore, and
+evidence-recovery assumptions.
 
 ## Testing and CI
 
@@ -377,7 +448,7 @@ make eval-safety
 make eval-resilience
 ```
 
-CI also validates dependencies, secrets, Docker/Compose configuration, image policy, and the authenticated lifecycle smoke. See [ci.md](docs/ci.md) for the gate graph.
+CI also validates dependencies, secrets, Docker/Compose configuration, image policy, six Chromium operator journeys, and the authenticated lifecycle smoke. See [ci.md](docs/ci.md) for the gate graph.
 
 ## Project structure
 
@@ -401,11 +472,14 @@ Makefile             Development and verification commands
 - The Operator Console displays bounded projections and intentionally omits raw prompts, provider responses, secrets, memory bodies, and hidden reasoning.
 - The release gate covers the documented single-environment reference deployment. It does not certify public-internet TLS, enterprise IAM, Kubernetes, multi-region operation, disaster recovery, or autoscaling capacity.
 - Full application load and capacity characterization, provider cost telemetry, longer soak tests, and stronger chaos exercises remain outside the validated release scope.
-- Enterprise identity integration is not included. Production deployment requires an environment-specific identity/session boundary and external secret management.
+- Backend OIDC/JWT validation is included. Browser login, IdP provisioning, session lifecycle, and external secret management remain deployment-owned integration responsibilities.
 
 ## Further reading
 
 - [Architecture](docs/architecture.md)
+- [Identity and security boundaries](docs/security.md)
+- [Distributed reliability boundaries](docs/reliability.md)
+- [Memory privacy boundary](docs/memory-privacy.md)
 - [Evaluation overview](docs/evaluation-overview.md)
 - [Evaluation artifact retention policy](docs/evaluation-artifact-policy.md)
 - [Release evidence](docs/release-evidence.md)

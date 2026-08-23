@@ -6,8 +6,14 @@ from sqlalchemy.orm import Session
 from app.core.config import get_settings
 from app.core.database import get_db
 from app.health import RuntimeHealthService
+from app.observability.metrics import get_operational_summary
 from app.persistence.checkpoint import CheckpointProvider
-from app.schemas.health import HealthResponse, ReadinessResponse
+from app.schemas.health import (
+    HealthDetailsResponse,
+    HealthResponse,
+    OperationalMetricsResponse,
+    ReadinessResponse,
+)
 
 router = APIRouter(tags=["health"])
 logger = logging.getLogger(__name__)
@@ -18,6 +24,51 @@ def health() -> HealthResponse:
     """Process liveness only; dependency failures must not trigger restarts."""
 
     return HealthResponse()
+
+
+@router.get("/health/details", response_model=HealthDetailsResponse)
+def health_details(
+    request: Request,
+    session: Session = Depends(get_db),
+) -> HealthDetailsResponse:
+    """Return bounded operator diagnostics without secrets or request data."""
+
+    settings = get_settings()
+    snapshot = RuntimeHealthService(settings).operational_snapshot(
+        session=session,
+        checkpoint_provider=request.app.state.checkpoint_provider,
+        runtime=request.app.state.agent_runtime,
+        accepting_requests=getattr(request.app.state, "accepting_requests", False),
+    )
+    latencies = [item.latency_ms or 0.0 for item in snapshot.dependencies]
+    summary = get_operational_summary()
+    return HealthDetailsResponse(
+        status=snapshot.status,
+        version=snapshot.version,
+        deployment_id=snapshot.deployment_id,
+        dependencies=[
+            {
+                "name": item.name,
+                "status": item.status.value,
+                "latency_ms": round(item.latency_ms, 3) if item.latency_ms is not None else None,
+                "detail": item.detail,
+            }
+            for item in snapshot.dependencies
+        ],
+        latency_summary={
+            "total_ms": round(snapshot.total_latency_ms, 3),
+            "max_dependency_ms": round(max(latencies, default=0.0), 3),
+            "dependency_count": float(len(snapshot.dependencies)),
+        },
+        metrics=OperationalMetricsResponse(
+            request_count=summary.request_count,
+            error_rate=round(summary.error_rate, 6),
+            average_duration_ms=round(summary.average_duration_ms, 3),
+            retry_count=summary.retry_count,
+            retry_exhausted_count=summary.retry_exhausted_count,
+            circuit_open_count=summary.circuit_open_count,
+        ),
+    )
 
 
 @router.get("/ready", response_model=ReadinessResponse)

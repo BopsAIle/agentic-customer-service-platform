@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+import time
+from collections.abc import Callable
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from typing import Any, Protocol
 
@@ -22,11 +24,19 @@ class ComponentHealthStatus(StrEnum):
     NOT_PROBED = "not_probed"
 
 
+class OperationalHealthState(StrEnum):
+    HEALTHY = "healthy"
+    DEGRADED = "degraded"
+    UNAVAILABLE = "unavailable"
+    DEPENDENCY_FAILURE = "dependency_failure"
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeHealthComponent:
     name: str
     status: ComponentHealthStatus
     detail: str
+    latency_ms: float | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,6 +46,15 @@ class RuntimeHealthSnapshot:
 
     def component(self, name: str) -> RuntimeHealthComponent:
         return next(item for item in self.components if item.name == name)
+
+
+@dataclass(frozen=True, slots=True)
+class OperationalHealthSnapshot:
+    status: OperationalHealthState
+    dependencies: tuple[RuntimeHealthComponent, ...]
+    total_latency_ms: float
+    version: str
+    deployment_id: str
 
 
 class RuntimeHealthRuntime(Protocol):
@@ -80,17 +99,91 @@ class RuntimeHealthService:
                 else "Backend is not accepting requests"
             ),
         )
-        database = self._database(session)
-        checkpoint = self._checkpoint(checkpoint_provider)
-        retrieval = self._retrieval(runtime)
-        llm = self._llm()
-        memory = self._memory()
-        components = (lifecycle, database, checkpoint, retrieval, llm, memory)
+        database = self._timed(lambda: self._database(session))
+        checkpoint = self._timed(lambda: self._checkpoint(checkpoint_provider))
+        retrieval = self._timed(lambda: self._retrieval(runtime))
+        llm = self._timed(self._llm)
+        memory = self._timed(self._memory)
+        evidence = self._timed(self._evidence_store)
+        authentication = self._timed(self._authentication)
+        telemetry = self._timed(self._telemetry)
+        components = (
+            lifecycle,
+            database,
+            checkpoint,
+            retrieval,
+            llm,
+            memory,
+            evidence,
+            authentication,
+            telemetry,
+        )
         required = (lifecycle, database, checkpoint, retrieval)
         return RuntimeHealthSnapshot(
             overall_ready=all(item.status == ComponentHealthStatus.HEALTHY for item in required),
             components=components,
         )
+
+    def operational_snapshot(
+        self,
+        *,
+        session: Session,
+        checkpoint_provider: RuntimeHealthCheckpoint,
+        runtime: RuntimeHealthRuntime,
+        accepting_requests: bool,
+    ) -> OperationalHealthSnapshot:
+        started = time.perf_counter()
+        runtime_snapshot = self.snapshot(
+            session=session,
+            checkpoint_provider=checkpoint_provider,
+            runtime=runtime,
+            accepting_requests=accepting_requests,
+        )
+        components = {item.name: item for item in runtime_snapshot.components}
+        dependencies = tuple(
+            components[name]
+            for name in (
+                "database",
+                "retriever",
+                "evidence_store",
+                "authentication_provider",
+                "llm",
+                "opentelemetry",
+            )
+        )
+        lifecycle_failed = components["lifecycle"].status != ComponentHealthStatus.HEALTHY
+        required_dependency_failed = any(
+            components[name].status != ComponentHealthStatus.HEALTHY
+            for name in ("database", "checkpoint", "retriever")
+        )
+        optional_failed = any(
+            item.status not in {ComponentHealthStatus.HEALTHY, ComponentHealthStatus.CONFIGURED}
+            for item in dependencies[2:]
+        )
+        if lifecycle_failed:
+            health_status = OperationalHealthState.UNAVAILABLE
+        elif required_dependency_failed or any(
+            item.status in {ComponentHealthStatus.UNAVAILABLE, ComponentHealthStatus.INCOMPATIBLE}
+            for item in dependencies
+        ):
+            health_status = OperationalHealthState.DEPENDENCY_FAILURE
+        elif optional_failed:
+            health_status = OperationalHealthState.DEGRADED
+        else:
+            health_status = OperationalHealthState.HEALTHY
+        return OperationalHealthSnapshot(
+            status=health_status,
+            dependencies=dependencies,
+            total_latency_ms=(time.perf_counter() - started) * 1000,
+            version=self.settings.service_version,
+            deployment_id=self.settings.deployment_id,
+        )
+
+    @staticmethod
+    def _timed(probe: Callable[[], RuntimeHealthComponent]) -> RuntimeHealthComponent:
+        started = time.perf_counter()
+        component = probe()
+        return replace(component, latency_ms=(time.perf_counter() - started) * 1000)
 
     def _database(self, session: Session) -> RuntimeHealthComponent:
         try:
@@ -215,4 +308,70 @@ class RuntimeHealthService:
             name="memory",
             status=ComponentHealthStatus.CONFIGURED,
             detail="Persistent memory configured; operation not independently probed",
+        )
+
+    def _evidence_store(self) -> RuntimeHealthComponent:
+        backend = self.settings.evidence_store_backend.casefold()
+        if backend == "local":
+            from pathlib import Path
+
+            root = Path(self.settings.evidence_store_root)
+            return RuntimeHealthComponent(
+                name="evidence_store",
+                status=(
+                    ComponentHealthStatus.HEALTHY
+                    if root.exists() and root.is_dir()
+                    else ComponentHealthStatus.NOT_CONFIGURED
+                ),
+                detail=(
+                    "Local evidence store configured"
+                    if root.exists() and root.is_dir()
+                    else "Local evidence store path is not available"
+                ),
+            )
+        if backend == "s3" and self.settings.evidence_store_bucket:
+            return RuntimeHealthComponent(
+                name="evidence_store",
+                status=ComponentHealthStatus.CONFIGURED,
+                detail="S3-compatible evidence store configured; availability not actively probed",
+            )
+        return RuntimeHealthComponent(
+            name="evidence_store",
+            status=ComponentHealthStatus.NOT_CONFIGURED,
+            detail="Evidence store is not configured",
+        )
+
+    def _authentication(self) -> RuntimeHealthComponent:
+        configured = (
+            self.settings.auth_mode.value == "oidc"
+            and bool(self.settings.oidc_issuer and self.settings.oidc_audience)
+        ) or self.settings.auth_mode.value in {"local_demo", "static", "disabled"}
+        return RuntimeHealthComponent(
+            name="authentication_provider",
+            status=(
+                ComponentHealthStatus.CONFIGURED
+                if configured
+                else ComponentHealthStatus.NOT_CONFIGURED
+            ),
+            detail=(
+                "Authentication boundary configured; provider availability not actively probed"
+                if configured
+                else "Authentication provider configuration is incomplete"
+            ),
+        )
+
+    def _telemetry(self) -> RuntimeHealthComponent:
+        configured = bool(self.settings.otel_enabled and self.settings.otel_exporter_otlp_endpoint)
+        return RuntimeHealthComponent(
+            name="opentelemetry",
+            status=(
+                ComponentHealthStatus.CONFIGURED
+                if configured
+                else ComponentHealthStatus.NOT_CONFIGURED
+            ),
+            detail=(
+                "OpenTelemetry pipeline configured; export availability not actively probed"
+                if configured
+                else "OpenTelemetry export is disabled"
+            ),
         )
