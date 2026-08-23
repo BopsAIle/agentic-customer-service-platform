@@ -4,6 +4,9 @@ This policy applies to evaluation evidence produced after its adoption. Historic
 already committed to the repository remain immutable; this milestone does not move, rewrite, or
 delete them.
 
+The executable manifest and storage adapters are documented in
+[`docs/evidence-storage.md`](evidence-storage.md).
+
 ## Evidence retained in Git
 
 Each published evaluation should keep a compact, reviewable evidence envelope in Git:
