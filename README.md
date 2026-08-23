@@ -241,25 +241,25 @@ the decision boundary that connects evidence to authority.
 
 #### Refund confirmation
 
-![Refund confirmation boundary](screenshots/demo-final-release-v3/02-refund-confirmation-boundary.png)
+![Refund confirmation boundary](screenshots/demo-final-release-v3/02-refund-confirmation-boundary-v2.png)
 
 *Grounded refund evidence produces a proposal, while the confirmation boundary keeps execution awaiting approval.*
 
 #### Prompt injection defense
 
-![Prompt injection defense](screenshots/demo-final-release-v3/03-prompt-injection-policy-deny.png)
+![Prompt injection defense](screenshots/demo-final-release-v3/03-prompt-injection-policy-deny-v2.png)
 
 *Untrusted scope expansion is denied by policy and receives no execution authority.*
 
 #### Duplicate operation protection
 
-![Duplicate operation protection](screenshots/demo-final-release-v3/04-idempotency-protection.png)
+![Duplicate operation protection](screenshots/demo-final-release-v3/04-idempotency-protection-v2.png)
 
 *An existing refund operation is detected before a second business effect can be created.*
 
 #### Missing information clarification
 
-![Missing information clarification](screenshots/demo-final-release-v3/05-missing-information-clarification.png)
+![Missing information clarification](screenshots/demo-final-release-v3/05-missing-information-clarification-v2.png)
 
 *An incomplete target leads to clarification, with execution explicitly not attempted.*
 
