@@ -32,6 +32,11 @@ export type RagDocument = {
   section: string;
   source: string;
   score: number;
+  document_version?: string | null;
+  chunk_id?: string | null;
+  grounding_status?: string | null;
+  retrieved_at?: string | null;
+  citation_preview?: string | null;
 };
 
 export type RetrievalMetadata = {
@@ -47,8 +52,81 @@ export type RetrievalMetadata = {
   sparse_candidate_count: number;
 };
 
-export type MemoryUsage = { item_count: number; keys: string[]; types: string[] };
-export type TraceEvent = { name: string; status: string; duration_ms: number; timestamp: string };
+export type MemoryUsage = {
+  item_count: number;
+  keys: string[];
+  types: string[];
+  retrieved?: boolean;
+  retrieved_count?: number;
+  items_used?: number;
+  context_usage?: "context_enrichment" | "not_used";
+  purpose?: "context_enrichment" | "not_used";
+  decision_influence?: "context_only" | "decision_support" | "not_used";
+  authority_influence?: "none" | "blocked" | "not_applicable";
+};
+export type TraceStage =
+  | "user_request"
+  | "intent_detection"
+  | "context_retrieval"
+  | "grounding"
+  | "target_validation"
+  | "policy_evaluation"
+  | "confirmation"
+  | "execution_authority"
+  | "memory_context"
+  | "routing"
+  | "response"
+  | "internal";
+export type TraceEvent = {
+  name: string;
+  event_key?: string | null;
+  stage: TraceStage;
+  status: string;
+  duration_ms: number;
+  timestamp: string;
+  metadata?: Record<string, string | number | boolean>;
+};
+
+export type AgentExecutionMode = "recorded_replay" | "live_proposal";
+export type AgentProposal = {
+  intent: string;
+  suggested_action: string | null;
+  extracted_fields: Record<string, string | number | boolean>;
+  evidence_references: string[];
+  validation: "pending" | "passed" | "rejected" | "not_recorded";
+};
+
+export type DemoConversationMessage = {
+  role: "customer" | "agent";
+  content: string;
+  timestamp?: string | null;
+  state?: string | null;
+  evidence_tags: string[];
+};
+
+export type DemoMemoryEvidence = {
+  category: string;
+  summary: string;
+  source: string;
+  authority: "context_only";
+  purpose: "context_enrichment";
+};
+export type ProviderMetadata = {
+  provider: string;
+  model: string | null;
+  latency_ms: number | null;
+  input_tokens: number | null;
+  output_tokens: number | null;
+  cost_usd: number | null;
+};
+
+export type DecisionEvidence = {
+  grounding: { status: string; reference_type: string | null; trusted_source: string | null };
+  compiler: { status: string; selected_tool: string | null; requires_retrieval: boolean; reason: string | null };
+  target_validation: { status: string };
+  confirmation: { status: string; required: boolean; action_id: string | null; risk_level: number | null };
+  write_outcome: { status: string };
+};
 
 export type AgentRun = {
   run_id: string;
@@ -72,6 +150,25 @@ export type AgentRun = {
   rag_documents: RagDocument[];
   retrieval_metadata: RetrievalMetadata;
   trace: TraceEvent[];
+  decision_reason: string | null;
+  evidence: DecisionEvidence;
+  execution_mode?: AgentExecutionMode;
+  provider?: string;
+  model?: string | null;
+  fallback_message?: string | null;
+  proposal?: AgentProposal | null;
+  provider_metadata?: ProviderMetadata | null;
+};
+
+export type DemoScenario = {
+  scenario_id: string;
+  title: string;
+  purpose: string;
+  expected: string;
+  run: AgentRun;
+  messages: DemoConversationMessage[];
+  memory_evidence: DemoMemoryEvidence[];
+  proposal_confidence?: number | null;
 };
 
 export type MemoryRecord = {
@@ -98,6 +195,12 @@ export type Health = {
   status: HealthStatus;
   components: { name: string; status: ComponentHealthStatus; detail: string }[];
 };
+export type RuntimeConfig = {
+  provider: string;
+  model: string;
+  environment: string;
+  live_proposal_available: boolean;
+};
 
 export type AgentResponse = {
   conversation_id: string;
@@ -105,15 +208,45 @@ export type AgentResponse = {
   message: string;
   intent: string;
   request_type: string;
+  decision_reason?: string | null;
+  citations?: { citation_id: string; source: string }[];
   error_category: string | null;
   failure_category: string | null;
   degraded_components: string[];
   recovery_action: string | null;
+  write_outcome_unknown?: boolean;
   tool_call?: { name: string; status: string; result?: Record<string, unknown> | null } | null;
   pending_action?: { action_id?: string; tool_name?: string; status?: string } | null;
+  execution_mode: AgentExecutionMode;
+  provider: string;
+  model: string | null;
+  fallback_message: string | null;
+  proposal: AgentProposal | null;
+  provider_metadata: ProviderMetadata | null;
 };
 
 export type ConversationTurn = {
   request: string;
   response: AgentResponse;
+};
+
+export type PlaygroundRequest = {
+  message: string;
+  customerId: number;
+  orderId: string;
+  scenario: string;
+  executionMode: AgentExecutionMode;
+};
+
+export type PlaygroundExecution = {
+  request: PlaygroundRequest;
+  requestPayload: Record<string, unknown>;
+  response: AgentResponse;
+  run: AgentRun;
+};
+
+export type PlaygroundHistoryItem = {
+  run: AgentRun;
+  scenario: string;
+  orderId: string;
 };
