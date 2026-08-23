@@ -214,107 +214,74 @@ The registry and investigation view show bounded evidence, deterministic
 decisions, authority state, and outcome. They do not present live telemetry or
 direct execution controls.
 
-## Final showcase package
+## Production showcase
 
-The final screenshot package is under
-[`screenshots/demo-final-release-v3/`](screenshots/demo-final-release-v3/). It
-is organized as a short engineering story:
+The current visual evidence package is under
+[`screenshots/demo-final-release-v3/`](screenshots/demo-final-release-v3/). These
+screenshots are generated from bounded deterministic projections. They show the
+customer request, agent response, evidence, deterministic decision, and authority
+outcome—not hidden reasoning, raw provider output, or production telemetry.
 
-1. [Control-plane overview](screenshots/demo-final-release-v3/01-control-plane-overview.png)
-2. [Authority flow](screenshots/demo-final-release-v3/07-authority-flow.png)
-3. [Investigation report](screenshots/demo-final-release-v3/08-investigation-report.png)
-4. [Operational run registry](screenshots/demo-final-release-v3/06-operational-run-registry.png)
-5. [Refund confirmation boundary](screenshots/demo-final-release-v3/02-refund-confirmation-boundary.png)
-6. [Prompt-injection policy prevention](screenshots/demo-final-release-v3/03-prompt-injection-policy-deny.png)
-7. [Idempotency protection](screenshots/demo-final-release-v3/04-idempotency-protection.png)
-8. [Missing-information clarification](screenshots/demo-final-release-v3/05-missing-information-clarification.png)
-9. [Mobile investigation](screenshots/demo-final-release-v3/09-mobile-view.png)
+### 1. Control plane overview
 
-These screenshots are generated from local deterministic projections. They show
-evidence and decisions, not hidden reasoning, raw provider output, or
-production telemetry.
+![Control plane overview](screenshots/demo-final-release-v3/01-control-plane-overview.png)
 
-## Console walkthrough
+*Overview of the operator control plane: the product story starts with evidence, explicit guarantees, and bounded authority.*
 
-The screenshots below are captured from the local Operator Console using a deterministic integration
-provider. They show real bounded projections, not fabricated production telemetry. Fields unavailable
-from the backend remain explicitly unavailable.
+### 2. Authority boundary architecture
 
-### 1. Platform overview
+![Authority boundary architecture](screenshots/demo-final-release-v3/07-authority-flow.png)
 
-The `/overview` screen introduces the platform boundary, published safety guarantees, D2c/D2d
-validation status, and the guided path from a scenario to an evidence review.
+*Architecture view separating context and model proposals from deterministic decisions and controlled runtime authority.*
 
-![Platform overview dashboard](docs/assets/screenshots/overview-desktop.png)
+### 3. Agent lifecycle scenarios
 
-*Platform overview showing the proposal-to-authority boundary, guided journey, and scoped release evidence.*
+Each scenario shows the original customer request, the bounded agent response, and
+the decision boundary that connects evidence to authority.
 
-### 2. Agent Playground
+#### Refund confirmation
 
-The Playground lets engineers submit a business or safety scenario through the existing API and
-inspect the resulting lifecycle projection. It does not provide direct tool execution, policy
-overrides, confirmation bypasses, or hidden model reasoning.
+![Refund confirmation boundary](screenshots/demo-final-release-v3/02-refund-confirmation-boundary.png)
 
-![Agent Playground](docs/assets/screenshots/playground-desktop.png)
+*Grounded refund evidence produces a proposal, while the confirmation boundary keeps execution awaiting approval.*
 
-*Agent Playground showing scenario input, a bounded response, trace availability, and the observed lifecycle.*
+#### Prompt injection defense
 
-### 3. Agent investigation
+![Prompt injection defense](screenshots/demo-final-release-v3/03-prompt-injection-policy-deny.png)
 
-Selecting a run opens `/runs/:runId`. The investigation view exposes the observed decision lifecycle:
+*Untrusted scope expansion is denied by policy and receives no execution authority.*
 
-```text
-User request
-  ↓
-Agent proposal
-  ↓
-Grounding validation
-  ↓
-Policy evaluation
-  ↓
-Confirmation state
-  ↓
-Execution authority
-```
+#### Duplicate operation protection
 
-![Agent investigation view](docs/assets/screenshots/investigation-desktop.png)
+![Duplicate operation protection](screenshots/demo-final-release-v3/04-idempotency-protection.png)
 
-*Operator investigation view showing trace stages, bounded grounding evidence, policy projection, confirmation state, and execution authority.*
+*An existing refund operation is detected before a second business effect can be created.*
 
-### 4. Architecture
+#### Missing information clarification
 
-The `/architecture` view makes the trust boundary visible: the LLM produces a proposal, while
-deterministic validation, policy, confirmation, and execution layers decide what may proceed.
+![Missing information clarification](screenshots/demo-final-release-v3/05-missing-information-clarification.png)
 
-![Architecture view](docs/assets/screenshots/architecture-desktop.png)
+*An incomplete target leads to clarification, with execution explicitly not attempted.*
 
-*Architecture view showing the separation between semantic proposal, deterministic controls, and execution authority.*
+### 4. Operational run registry
 
-### 5. Safety evidence
+![Operational run registry](screenshots/demo-final-release-v3/06-operational-run-registry.png)
 
-The Safety view connects the console workflow to the published validation evidence. It presents
-scoped D2c semantic/safety results, the D2d operational release-gate result, and the measured
-safety invariants. It is not live production telemetry and does not imply unrestricted production
-certification.
+*Runs and traces organize deterministic scenario evidence for operator investigation rather than presenting live telemetry.*
 
-![Safety and evaluation evidence](docs/assets/screenshots/safety-desktop.png)
+### 5. Investigation report and audit evidence
 
-*Safety dashboard connecting deterministic guarantees, D2c validation, D2d operational validation, and the hardening trend.*
+![Investigation report](screenshots/demo-final-release-v3/08-investigation-report.png)
 
-<details>
-<summary>Mobile capture set</summary>
+*Read-only investigation reporting connects available evidence, deterministic decisions, authority state, and outcome without exposing hidden reasoning.*
 
-The mobile captures were checked at a `390 × 844` viewport and contain no horizontal overflow:
+### 6. Mobile responsive view
 
-- [Mobile overview](docs/assets/screenshots/mobile-overview.png)
-- [Mobile Playground](docs/assets/screenshots/mobile-playground.png)
-- [Mobile architecture](docs/assets/screenshots/mobile-architecture.png)
+![Mobile investigation view](screenshots/demo-final-release-v3/09-mobile-view.png)
 
-</details>
+*Responsive investigation surface showing that the same evidence and authority boundaries remain available on a narrow viewport.*
 
-For the written version of this tour, see the [public release notes](docs/release-notes.md). The
-[architecture document](docs/architecture.md) remains the source for the system diagram and
-trust-boundary details.
+For the written architecture tour, see the [architecture document](docs/architecture.md).
 
 ## Local demo
 
