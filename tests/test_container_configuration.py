@@ -65,7 +65,13 @@ def test_compose_wires_demo_authentication_and_bootstrap_without_production_inhe
         "service_completed_successfully"
     )
     assert compose["services"]["frontend"]["build"]["args"]["LOCAL_DEMO_AUTH_TOKEN"]
-    assert production["services"]["backend"]["environment"]["AUTH_MODE"] == "static"
+    assert production["services"]["backend"]["environment"]["AUTH_MODE"] == "oidc"
+    assert production["services"]["backend"]["environment"]["OIDC_ISSUER"] == (
+        "${OIDC_ISSUER:?OIDC_ISSUER must be set}"
+    )
+    assert production["services"]["backend"]["environment"]["OIDC_AUDIENCE"] == (
+        "${OIDC_AUDIENCE:?OIDC_AUDIENCE must be set}"
+    )
     assert production["services"]["backend"]["environment"]["LANGGRAPH_STRICT_MSGPACK"] == ("true")
     assert production["services"]["backend"]["environment"]["LLM_PROVIDER"] == ("openai_compatible")
     assert production["services"]["backend"]["environment"]["AGENT_DECISION_CONTRACT_VERSION"] == (

@@ -1,4 +1,5 @@
 from enum import StrEnum
+from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
@@ -11,6 +12,13 @@ class ActorType(StrEnum):
 
 class CredentialScheme(StrEnum):
     BEARER = "bearer"
+
+
+class PrincipalType(StrEnum):
+    LOCAL_DEMO = "local_demo"
+    STATIC = "static"
+    OIDC = "oidc"
+    INTERNAL = "internal"
 
 
 class AuthenticationCredentials(BaseModel):
@@ -29,8 +37,20 @@ class Principal(BaseModel):
 
     actor_id: str = Field(min_length=1, max_length=200)
     actor_type: ActorType
-    roles: list[str] = Field(default_factory=list)
+    principal_type: PrincipalType = PrincipalType.STATIC
+    subject: str | None = Field(
+        default=None, min_length=1, max_length=500, repr=False, exclude=True
+    )
+    email: str | None = Field(default=None, min_length=3, max_length=320, repr=False, exclude=True)
+    roles: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=50
+    )
+    groups: list[Annotated[str, Field(min_length=1, max_length=200)]] = Field(
+        default_factory=list, max_length=100
+    )
+    tenant_id: str | None = Field(default=None, min_length=1, max_length=200)
     customer_id: int | None = Field(default=None, gt=0)
+    customer_ids: list[Annotated[int, Field(gt=0)]] = Field(default_factory=list, max_length=100)
     credential_id: str | None = Field(default=None, min_length=1, max_length=200)
 
 

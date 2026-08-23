@@ -12,7 +12,14 @@ from app.auth.dependencies import (
     get_current_principal,
     require_role,
 )
-from app.auth.models import ActorType, AuthenticationCredentials, CredentialScheme, Principal
+from app.auth.models import (
+    ActorType,
+    AuthenticationCredentials,
+    CredentialScheme,
+    Principal,
+    PrincipalType,
+)
+from app.auth.oidc import OIDCAuthenticator
 from app.auth.protocols import AuthenticationConfigurationError, InvalidCredentialsError
 from app.core.config import AuthenticationMode, Settings
 
@@ -149,6 +156,7 @@ def test_local_demo_authentication_resolves_support_operator_principal() -> None
     assert principal == Principal(
         actor_id="demo-support",
         actor_type=ActorType.SUPPORT_OPERATOR,
+        principal_type=PrincipalType.LOCAL_DEMO,
         roles=["support_operator"],
         credential_id="local-demo",
     )
@@ -163,3 +171,14 @@ def test_local_demo_authentication_still_rejects_invalid_credentials() -> None:
 
     with pytest.raises(InvalidCredentialsError):
         build_authenticator(settings).authenticate(_credentials("wrong-demo-token"))
+
+
+def test_oidc_mode_builds_production_authenticator_without_discovery_at_startup() -> None:
+    settings = Settings(
+        _env_file=None,
+        auth_mode=AuthenticationMode.OIDC,
+        oidc_issuer="https://identity.example.test",
+        oidc_audience="agent-control-plane",
+    )
+
+    assert isinstance(build_authenticator(settings), OIDCAuthenticator)

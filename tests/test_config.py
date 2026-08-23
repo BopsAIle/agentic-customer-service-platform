@@ -19,9 +19,49 @@ def test_production_rejects_missing_authentication() -> None:
         Settings(_env_file=None, app_env="production", auth_mode=AuthenticationMode.DISABLED)
 
 
-def test_production_static_authentication_requires_configured_principals() -> None:
-    with pytest.raises(ValidationError, match="non-empty AUTH_TOKENS_JSON"):
-        Settings(_env_file=None, app_env="production", auth_mode=AuthenticationMode.STATIC)
+def test_production_rejects_static_authentication_compatibility_mode() -> None:
+    with pytest.raises(ValidationError, match="production requires OIDC authentication"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            auth_mode=AuthenticationMode.STATIC,
+            auth_tokens_json=(
+                '{"compatibility-token":{"actor_id":"operator",'
+                '"actor_type":"support_operator","roles":["support_operator"]}}'
+            ),
+        )
+
+
+def test_production_accepts_explicit_https_oidc_configuration() -> None:
+    settings = Settings(
+        _env_file=None,
+        app_env="production",
+        auth_mode=AuthenticationMode.OIDC,
+        oidc_issuer="https://identity.example.test",
+        oidc_audience="agent-control-plane",
+        policy_audit_backend="postgres",
+        agent_run_projection_backend="postgres",
+    )
+
+    assert settings.auth_mode == AuthenticationMode.OIDC
+
+
+def test_oidc_mode_requires_issuer_and_audience() -> None:
+    with pytest.raises(ValidationError, match="OIDC_ISSUER and OIDC_AUDIENCE"):
+        Settings(_env_file=None, auth_mode=AuthenticationMode.OIDC)
+
+
+def test_production_oidc_rejects_insecure_discovery() -> None:
+    with pytest.raises(ValidationError, match="requires HTTPS"):
+        Settings(
+            _env_file=None,
+            app_env="production",
+            auth_mode=AuthenticationMode.OIDC,
+            oidc_issuer="http://identity.example.test",
+            oidc_audience="agent-control-plane",
+            policy_audit_backend="postgres",
+            agent_run_projection_backend="postgres",
+        )
 
 
 def test_deterministic_integration_provider_is_restricted_to_integration_demo() -> None:

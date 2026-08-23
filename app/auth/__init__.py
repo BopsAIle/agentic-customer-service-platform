@@ -5,7 +5,9 @@ from app.auth.models import (
     CredentialScheme,
     CustomerScope,
     Principal,
+    PrincipalType,
 )
+from app.auth.oidc import OIDCAuthenticator, OIDCConfiguration
 from app.auth.protocols import AuthenticationError, Authenticator
 
 __all__ = [
@@ -15,6 +17,9 @@ __all__ = [
     "Authenticator",
     "CredentialScheme",
     "CustomerScope",
+    "OIDCAuthenticator",
+    "OIDCConfiguration",
     "Principal",
+    "PrincipalType",
     "StaticBearerAuthenticator",
 ]
