@@ -41,6 +41,10 @@ jobs:
         run: uv run --frozen mypy app tests evaluation scripts
       - name: Pytest
         run: uv run --frozen pytest
+      - name: Deterministic capacity benchmark
+        run: uv run --frozen python scripts/run_capacity_benchmark.py --iterations 20 --workers 4
+      - name: Isolated persistence capacity benchmark
+        run: uv run --frozen python scripts/benchmark_postgres_capacity.py --operations 100 --workers 8
 
   frontend-quality:
     name: Frontend Quality
@@ -138,6 +142,18 @@ jobs:
         run: uv run --frozen python -m evaluation.runner --safety
       - name: Resilience evaluation
         run: uv run --frozen python -m evaluation.runner --resilience
+      - name: Validate external evidence tooling
+        run: uv run --frozen python -m app.evidence.cli --help
+      - name: Upload external evidence payloads when produced
+        if: always()
+        uses: actions/upload-artifact@ea165f8f65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: evaluation-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            artifacts/evidence-manifests/
+            artifacts/evidence-payloads/
+          if-no-files-found: warn
+          retention-days: 14
 
   docker-validation:
     name: Docker Build and Scan
@@ -159,14 +175,16 @@ jobs:
         env:
           POSTGRES_PASSWORD: validation-only
           DATABASE_URL: postgresql+psycopg://app:validation-only@db:5432/customer_service
-          PRODUCTION_AUTH_TOKENS_JSON: >-
-            {"validation-only-token":{"actor_id":"operator-validation","actor_type":"support_operator","roles":["support_operator"]}}
+          OIDC_ISSUER: https://identity.validation.invalid
+          OIDC_AUDIENCE: agent-control-plane
         run: |
           docker compose -f docker-compose.yml -f docker-compose.prod.yml config > /tmp/production-compose.yml
           if grep -q deterministic_integration /tmp/production-compose.yml; then
             echo "Integration-only LLM provider leaked into production Compose configuration."
             exit 1
           fi
+      - name: Validate production topology policy
+        run: uv run --frozen python scripts/validate_production_topology.py
       - name: Build backend image
         run: docker build --tag customer-service-backend:ci .
       - name: Build frontend image
@@ -185,6 +203,41 @@ jobs:
           aquasec/trivy:0.70.0
           image --exit-code 1 --ignore-unfixed --severity CRITICAL
           --skip-version-check customer-service-frontend:ci
+
+  operator-e2e:
+    name: Frontend E2E
+    needs: docker-validation
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci --prefix frontend
+      - name: Install Chromium
+        run: npx --prefix frontend playwright install --with-deps chromium
+      - name: Run deterministic operator journeys
+        env:
+          OPERATOR_E2E_PROJECT_NAME: operator-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          E2E_CAPTURE_SCREENSHOTS: "1"
+        run: bash scripts/run_operator_e2e.sh
+      - name: Upload bounded journey evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: operator-e2e-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            screenshots/operator-e2e/
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: warn
+          retention-days: 14
 
   integration-smoke:
     name: Authenticated Full-Stack Lifecycle Smoke

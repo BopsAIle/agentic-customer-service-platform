@@ -20,4 +20,20 @@ describe("RagPanel", () => {
     expect(html).toContain("KNOWLEDGE RETRIEVAL");
     expect(html).toContain("Refund policy");
   });
+
+  it("shows bounded grounded-answer metrics without exposing claim text", () => {
+    const html = renderToStaticMarkup(
+      <RagPanel
+        documents={[{ citation_id: "ref-1", title: "Refund policy", section: "Eligibility", source: "policy", score: 0.91 }]}
+        grounding={{ status: "pass", sources_used: 1, citation_count: 1, citation_coverage: 1, unsupported_claim_count: 0, confidence: 0.91, accepted: true }}
+        embedded
+      />,
+    );
+
+    expect(html).toContain("Grounded answer validation");
+    expect(html).toContain("Sources used");
+    expect(html).toContain("Unsupported claims");
+    expect(html).toContain("91%");
+    expect(html).not.toContain("hidden reasoning");
+  });
 });

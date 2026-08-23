@@ -90,6 +90,21 @@ Memory summaries are bounded and marked `context_only`. RAG records contain
 document, chunk, score, and grounding metadata only. The projection excludes
 raw provider output, hidden reasoning, secrets, and executable tool arguments.
 
+### Grounded answer generation
+
+For knowledge answers, retrieval supplies the only knowledge evidence available
+to the synthesis layer. The bounded generator attaches citations to factual
+claims, and a deterministic validator checks citation coverage, quoted-excerpt
+identity, unsupported claims, empty evidence, and conflicting sources. Answers
+that do not meet the coverage boundary fail closed to an explicit uncertainty
+response.
+
+The RAG operator panel shows only bounded generation metadata: sources used,
+citation count, grounding status, evidence-derived confidence, and unsupported
+claim count. It does not expose hidden reasoning, embeddings, raw prompts, or
+unrestricted document content. Citation-constrained generation reduces risk in
+the evaluated cases; it does not certify that hallucinations are impossible.
+
 ## Scenario 1 — Confirmation-bound refund
 
 **Request**
@@ -157,6 +172,37 @@ was prevented unless the returned bounded projection records that outcome.
 | Investigation | Decision timeline, grounding/RAG projection, policy outcome, confirmation lifecycle, and execution authority |
 | Safety | D2c/D2d evidence and zero-valued safety invariants from the repository evidence |
 | Architecture | Context, proposal, decision, and authority ownership boundaries |
+
+## Executable operator journeys
+
+The static showcase is complemented by six Playwright journeys that exercise
+the browser, API, and bounded operator projections together:
+
+| Journey | Executable evidence |
+| --- | --- |
+| Refund confirmation | Evidence and proposal are visible before mutation; a real deterministic runtime action executes only after confirmation. |
+| Prompt injection defense | The recorded proposal remains untrusted, policy denies authority, and execution is absent. |
+| Duplicate protection | The first confirmation commits one effect; replay returns the completed result without a second tool execution. |
+| Missing information | The compiler requests clarification and the UI records that execution was not attempted. |
+| RAG grounding | Retrieved document citations, validator status, confidence, and zero unsupported claims are visible when projected. |
+| Investigation | Timeline, evidence, deterministic decision, authority, outcome, and bounded report are inspectable at `/runs/:id`. |
+
+Run the hermetic suite with:
+
+```bash
+npm --prefix frontend ci
+npx --prefix frontend playwright install chromium
+bash scripts/run_operator_e2e.sh
+```
+
+The browser suite uses a local OpenAI-compatible fixture only to emit typed
+semantic proposals. It does not provide authority: production code still owns
+compilation, policy, confirmation, idempotency, and execution. Prompt-injection
+and showcase-only safety scenarios are read from the existing backend demo
+projection rather than fabricated in the browser. No external provider call or
+secret is required.
+
+Screenshots are generated under `screenshots/operator-e2e/` at `1440x900`.
 
 ## Runs & traces investigation
 

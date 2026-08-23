@@ -237,14 +237,14 @@ export function DemoShowcase({ scenarios }: { scenarios: DemoScenario[] }) {
     <GuaranteeGrid />
     <ArchitectureFlow />
     <section className="showcase-scenario-section" aria-labelledby="scenario-evidence-title"><div className="flex flex-wrap items-end justify-between gap-4"><div><div className="eyebrow">Production-style evidence</div><h2 id="scenario-evidence-title" className="section-title mt-1">Inspect a complete agent lifecycle</h2><p className="mt-1 max-w-2xl text-sm leading-6 text-muted">Choose a recorded scenario to see the conversation, context sources, proposal boundary, deterministic decision, and authority outcome in one view.</p></div><Badge tone="neutral">Read-only evidence view</Badge></div><div className="showcase-scenario-picker" role="tablist" aria-label="Showcase scenarios">{scenarios.map((scenario) => <button type="button" role="tab" aria-selected={selected.scenario_id === scenario.scenario_id} className={selected.scenario_id === scenario.scenario_id ? "showcase-scenario-active" : ""} key={scenario.scenario_id} onClick={() => { setSelectedId(scenario.scenario_id); setFocus(null); }}>{scenario.title}</button>)}</div></section>
-    <InvestigationSummary scenario={selected} onReport={() => setReportOpen(true)} />
-    {focus === "confirmation" && <div className="showcase-focus-note"><LockKeyhole size={16} aria-hidden="true" /><span><strong>Confirmation boundary</strong> · The proposal is eligible, but no sensitive mutation can proceed until explicit confirmation is satisfied.</span></div>}
-    <Conversation scenario={selected} />
-    <div className="showcase-context-grid"><MemoryShowcaseCard scenario={selected} /><RagShowcaseCard scenario={selected} /></div>
-    <ProposalShowcaseCard scenario={selected} />
-    <DecisionShowcaseCard scenario={selected} />
-    <Lifecycle scenario={selected} />
+    <div data-testid="investigation-summary"><InvestigationSummary scenario={selected} onReport={() => setReportOpen(true)} /></div>
+    {focus === "confirmation" && <div data-testid="confirmation-boundary" className="showcase-focus-note"><LockKeyhole size={16} aria-hidden="true" /><span><strong>Confirmation boundary</strong> · The proposal is eligible, but no sensitive mutation can proceed until explicit confirmation is satisfied.</span></div>}
+    <div data-testid="conversation-evidence"><Conversation scenario={selected} /></div>
+    <div className="showcase-context-grid"><div data-testid="memory-evidence"><MemoryShowcaseCard scenario={selected} /></div><div data-testid="evidence-panel"><RagShowcaseCard scenario={selected} /></div></div>
+    <div data-testid="model-proposal"><ProposalShowcaseCard scenario={selected} /></div>
+    <div data-testid="decision-boundary"><DecisionShowcaseCard scenario={selected} /></div>
+    <div data-testid="lifecycle-panel"><Lifecycle scenario={selected} /></div>
     <section className="showcase-footer-note"><Ban size={15} aria-hidden="true" /><span>This showcase uses bounded recorded evidence. It does not expose raw prompts, provider responses, hidden reasoning, secrets, or direct execution controls.</span></section>
-    {reportOpen && <InvestigationReportPreview scenario={selected} onClose={() => setReportOpen(false)} />}
+    {reportOpen && <div data-testid="investigation-report"><InvestigationReportPreview scenario={selected} onClose={() => setReportOpen(false)} /></div>}
   </div>;
 }

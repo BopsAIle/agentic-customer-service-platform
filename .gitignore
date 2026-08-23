@@ -17,6 +17,8 @@ htmlcov/
 *.sqlite3
 *.log
 artifacts/
+frontend/playwright-report/
+frontend/test-results/
 /models/
 .qdrant/
 .DS_Store

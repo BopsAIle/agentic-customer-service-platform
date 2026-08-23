@@ -1,0 +1,29 @@
+# Browser-E2E-only override. The local provider emits semantic proposals;
+# production compilation, policy, confirmation, and execution paths remain unchanged.
+services:
+  operator-e2e-provider:
+    build: .
+    command: ["python", "-m", "scripts.operator_e2e_provider"]
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8081/health', timeout=2)",
+        ]
+      interval: 2s
+      timeout: 3s
+      retries: 20
+
+  backend:
+    environment:
+      LLM_PROVIDER: openai_compatible
+      LLM_MODEL: operator-e2e-semantic-v3
+      LLM_BASE_URL: http://operator-e2e-provider:8081/v1
+      LLM_API_KEY: local-e2e-non-secret
+      LLM_STRUCTURED_OUTPUT_MODE: schema
+      AGENT_DECISION_CONTRACT_VERSION: semantic_decision_v3
+    depends_on:
+      operator-e2e-provider:
+        condition: service_healthy

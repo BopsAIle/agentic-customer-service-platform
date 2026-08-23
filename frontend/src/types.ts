@@ -52,6 +52,16 @@ export type RetrievalMetadata = {
   sparse_candidate_count: number;
 };
 
+export type AnswerGrounding = {
+  status: string;
+  sources_used: number;
+  citation_count: number;
+  citation_coverage: number | null;
+  unsupported_claim_count: number;
+  confidence: number | null;
+  accepted: boolean;
+};
+
 export type MemoryUsage = {
   item_count: number;
   keys: string[];
@@ -149,6 +159,7 @@ export type AgentRun = {
   policy: PolicyEvent[];
   rag_documents: RagDocument[];
   retrieval_metadata: RetrievalMetadata;
+  answer_grounding?: AnswerGrounding;
   trace: TraceEvent[];
   decision_reason: string | null;
   evidence: DecisionEvidence;
@@ -209,7 +220,15 @@ export type AgentResponse = {
   intent: string;
   request_type: string;
   decision_reason?: string | null;
-  citations?: { citation_id: string; source: string }[];
+  citations?: {
+    citation_id: string;
+    document_id: string;
+    title: string;
+    chunk_id: string;
+    source: string;
+    relevance_score: number;
+    quoted_excerpt: string;
+  }[];
   error_category: string | null;
   failure_category: string | null;
   degraded_components: string[];
