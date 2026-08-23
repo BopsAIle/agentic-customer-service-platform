@@ -38,3 +38,10 @@ violations.
 The authoritative D2d contract is [`docs/d2d-release-gate.md`](d2d-release-gate.md). A gate pass
 means the frozen production-oriented reference deployment passed its defined operational checks;
 it is not unrestricted production, enterprise, capacity, or compliance certification.
+
+## Artifact retention
+
+Historical evidence already committed to the repository remains immutable. For future runs, the
+[evaluation artifact retention policy](evaluation-artifact-policy.md) defines which integrity and
+summary records remain in Git and how large raw attempt data may be retained externally without
+weakening reproducibility or privacy controls.

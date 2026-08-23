@@ -30,7 +30,7 @@ or replace a semantic judge.
 
 ## Live scoring versions
 
-The hosted live benchmark currently uses the `direct_tool_v1` decision contract. Historical reports
+The historical hosted live benchmark uses the `direct_tool_v1` decision contract. Historical reports
 remain reproducible with `live_scoring_v2`. The versioned `live_scoring_v3` scorer re-scores the
 same frozen raw attempts without invoking a model or changing cases, prompts, or model outputs.
 It separates action-tool selection, correct no-tool abstention, and overall routing, and adds
@@ -72,7 +72,9 @@ reliably remain unavailable.
 
 ## Decision contract architecture
 
-The runtime supports three explicit contracts while the default remains `direct_tool_v1`:
+The runtime supports three explicit contracts. The default runnable path uses
+`semantic_decision_v3`; `direct_tool_v1` remains an explicit compatibility and historical-evidence
+mode:
 
 | Contract | Model responsibility | Application responsibility |
 | --- | --- | --- |

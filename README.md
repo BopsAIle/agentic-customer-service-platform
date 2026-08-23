@@ -64,7 +64,6 @@ flowchart TB
     RAG --> QDRANT[(Qdrant)]
     AGENT -. bounded metadata .-> OTEL[OpenTelemetry]
     OTEL --> JAEGER[Jaeger]
-    AGENT -. async work .-> WORKERS[Background Workers]
 ```
 
 The trust boundary is explicit:
@@ -167,6 +166,7 @@ M6.34 validated the source-bound operational reference deployment:
 - zero duplicate mutations, unauthorized mutations, confirmation bypasses, stale resurrection, declined resurrection, and privacy violations.
 
 Read the [release evidence index](docs/release-evidence.md) for experiment identities, artifact paths, and hashes. Read the [evaluation overview](docs/evaluation-overview.md) for the D2c/D2d gate split and the [D2d contract](docs/d2d-release-gate.md) for operational acceptance criteria.
+Future evaluation outputs follow the [evaluation artifact retention policy](docs/evaluation-artifact-policy.md), which keeps compact integrity metadata in Git while allowing large raw attempt dumps to use immutable external storage.
 
 ## Why this architecture exists
 
@@ -407,6 +407,7 @@ Makefile             Development and verification commands
 
 - [Architecture](docs/architecture.md)
 - [Evaluation overview](docs/evaluation-overview.md)
+- [Evaluation artifact retention policy](docs/evaluation-artifact-policy.md)
 - [Release evidence](docs/release-evidence.md)
 - [Public release notes](docs/release-notes.md)
 - [D2d operational contract](docs/d2d-release-gate.md)

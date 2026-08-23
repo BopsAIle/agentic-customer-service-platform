@@ -76,5 +76,6 @@ def test_d2a_decision_does_not_overclaim_local_model_quality() -> None:
     normalized = " ".join(markdown.split())
     assert "do not show that the model families are universally incompatible" in normalized
     assert "not an automatic production-model selection" in normalized
-    assert "`direct_tool_v1` remains the production runtime default" in normalized
+    assert "At the D2a decision date, `direct_tool_v1` remained" in normalized
+    assert "M6.73 later changed the runnable default" in normalized
     assert Eligibility.ELIGIBLE.value in DECISION_PATH.read_text(encoding="utf-8")

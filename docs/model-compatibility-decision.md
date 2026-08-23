@@ -13,8 +13,9 @@
 D2a asks only whether a candidate model/runtime can reliably construct the fixed
 `SemanticDecisionV3` contract under the 30-second, zero-retry protocol. It does not compare
 architectures or establish routing quality, safety quality, cost leadership, deployment approval,
-or general model quality. The semantic architecture remains frozen, and `direct_tool_v1` remains
-the production runtime default.
+or general model quality. The semantic architecture remained frozen. At the D2a decision date,
+`direct_tool_v1` remained the production runtime default; M6.73 later changed the runnable default
+to `semantic_decision_v3` without changing this frozen compatibility evidence.
 
 All candidates used the same schema, function-calling transport schema, prompt, eight-case
 structured-contract subset, three repetitions, temperature zero, reasoning disabled, and no

@@ -29,9 +29,10 @@ select executable tools, customer scope, trusted identifiers, policy outcomes, o
 state. Grounding, destructive symbolic-target restrictions, customer-scoped resolution, business
 validation, policy, replay, and exactly-once controls remain server-owned.
 
-This is an evaluation/reference-architecture decision, not a production adoption decision.
-`direct_tool_v1` remains the current runtime default. No provider or hosted-model default changes
-with this decision; a future release/adoption milestone must evaluate any default switch separately.
+This was an evaluation/reference-architecture decision, not a production adoption decision. At the
+decision date, `direct_tool_v1` remained the runtime default and this decision made no provider or
+hosted-model default change. M6.73 later aligned the default runnable contract with the validated
+`semantic_decision_v3` architecture; the historical experiment and its evidence remain unchanged.
 
 ## Evidence
 
@@ -121,7 +122,8 @@ architecture experiment would be warranted only if future evidence invalidates t
 - The canonical A/B used one hosted control model.
 - EN/TR evidence is useful but small.
 - Architecture selection does not establish universal model/runtime compatibility.
-- It does not approve a production contract or provider-default change.
+- At the time, it did not approve a runtime contract or provider-default change; that adoption was
+  handled separately by M6.73.
 - A model/runtime matrix remains necessary.
 
 ## D2 entry condition

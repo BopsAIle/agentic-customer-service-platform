@@ -22,7 +22,6 @@ flowchart TB
 
     AGENT -. bounded operational evidence .-> OTEL[OpenTelemetry]
     OTEL --> JAEGER[Jaeger]
-    AGENT -. asynchronous work .-> WORKERS[Background Workers]
 
     AUTHORITY -. business tools and persistence .-> POSTGRES
 
@@ -57,3 +56,10 @@ The platform separates four observable responsibilities:
 
 The Operator Console presents these boundaries without exposing chain-of-thought or hidden model
 reasoning. For a short, evidence-scoped walkthrough, see the [demonstration scenarios](demo-scenarios.md).
+
+## Runtime contract
+
+The default runnable path uses `semantic_decision_v3`: the model emits a bounded semantic proposal,
+and the server-owned grounding, admissibility, compiler, typed validation, policy, confirmation,
+and execution layers retain authority. `direct_tool_v1` remains available only as an explicitly
+selected compatibility contract for historical evaluation or legacy integrations.
