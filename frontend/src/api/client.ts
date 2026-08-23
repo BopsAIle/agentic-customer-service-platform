@@ -1,4 +1,4 @@
-import type { AgentResponse, AgentRun, Health, MemoryRecord } from "../types";
+import type { AgentExecutionMode, AgentResponse, AgentRun, DemoScenario, Health, MemoryRecord, RuntimeConfig } from "../types";
 import {
   createConfiguredAuthProvider,
   type AuthProvider,
@@ -67,12 +67,14 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const api = {
   runs: (limit = 25) => request<AgentRun[]>(`/ui/agent-runs?limit=${limit}`),
-  chat: (conversationId: string, customerId: number, message: string) =>
+  demoScenarios: () => request<DemoScenario[]>("/ui/demo-scenarios"),
+  chat: (conversationId: string, customerId: number, message: string, executionMode: AgentExecutionMode = "recorded_replay") =>
     request<AgentResponse>("/agent/chat", {
       method: "POST",
-      body: JSON.stringify({ conversation_id: conversationId, customer_id: customerId, message }),
+      body: JSON.stringify({ conversation_id: conversationId, customer_id: customerId, message, execution_mode: executionMode }),
     }),
   run: (runId: string) => request<AgentRun>(`/ui/agent-runs/${runId}`),
   memory: (customerId: number) => request<MemoryRecord[]>(`/ui/memory/${customerId}`),
   health: () => request<Health>("/ui/system-health"),
+  runtimeConfig: () => request<RuntimeConfig>("/ui/runtime-config"),
 };

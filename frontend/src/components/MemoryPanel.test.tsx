@@ -4,7 +4,17 @@ import { describe, expect, it } from "vitest";
 import type { MemoryRecord, MemoryUsage } from "../types";
 import { MemoryPanel } from "./MemoryPanel";
 
-const usage: MemoryUsage = { item_count: 1, keys: ["response_style"], types: ["preference"] };
+const usage: MemoryUsage = {
+  item_count: 1,
+  keys: ["response_style"],
+  types: ["preference"],
+  retrieved: true,
+  retrieved_count: 1,
+  items_used: 1,
+  purpose: "context_enrichment",
+  decision_influence: "context_only",
+  authority_influence: "none",
+};
 
 const record: MemoryRecord = {
   id: 17,
@@ -28,6 +38,14 @@ describe("MemoryPanel", () => {
     expect(html).toContain("user explicit");
     expect(html).toContain("2027-01-20T00:00:00.000Z");
     expect(html).toContain("Memory content is intentionally hidden");
+    expect(html).toContain("Decision impact");
+    expect(html).toContain("context only");
+    expect(html).toContain("No impact");
+    expect(html).toContain("Memory role");
+    expect(html).toContain("Context enrichment only");
+    expect(html).toContain("CUSTOMER STATE");
+    expect(html).toContain("Customer preference enrichment");
+    expect(html).toContain("Context assembly");
     expect(html).not.toContain("PRIVATE_MEMORY_SENTINEL_DO_NOT_EXPOSE");
   });
 
