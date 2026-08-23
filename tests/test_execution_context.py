@@ -7,7 +7,13 @@ from sqlalchemy.orm import Session
 from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.nodes.retrieve_memory import make_retrieve_memory_node
 from app.agent.runtime import AgentRuntime
-from app.agent.schemas import AgentRequestType, AgentResponse, Intent, StructuredDecision
+from app.agent.schemas import (
+    AgentExecutionMode,
+    AgentRequestType,
+    AgentResponse,
+    Intent,
+    StructuredDecision,
+)
 from app.agent.state import AgentState
 from app.api.routes.agent import get_agent_runtime
 from app.auth.models import ActorType, Principal
@@ -78,6 +84,7 @@ class CapturingRuntime(AgentRuntime):
         context: ExecutionContext | None = None,
         conversation_id: str | None = None,
         customer_id: int | None = None,
+        execution_mode: AgentExecutionMode = AgentExecutionMode.RECORDED_REPLAY,
     ) -> AgentResponse:
         self.captured_context = context
         return super().run(
@@ -86,6 +93,7 @@ class CapturingRuntime(AgentRuntime):
             context=context,
             conversation_id=conversation_id,
             customer_id=customer_id,
+            execution_mode=execution_mode,
         )
 
 
