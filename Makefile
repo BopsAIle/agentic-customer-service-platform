@@ -1,4 +1,4 @@
-.PHONY: sync dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-report eval-baseline d2d-dry-run observability-up observability-down frontend-install frontend-dev frontend-build frontend-test frontend-typecheck frontend-lint ci-backend ci-frontend security-audit docker-validate e2e-smoke
+.PHONY: sync dev up down test lint typecheck migrate seed rag-ingest rag-reset eval eval-safety eval-resilience eval-rag-grounding eval-report eval-baseline d2d-dry-run verify-evidence observability-up observability-down frontend-install frontend-dev frontend-build frontend-test frontend-typecheck frontend-lint ci-backend ci-frontend security-audit docker-validate production-topology-validate production-config-validate recovery-validate capacity-benchmark capacity-db-benchmark capacity-load e2e-smoke
 
 sync:
 	uv sync --frozen
@@ -42,6 +42,9 @@ eval-safety:
 eval-resilience:
 	uv run --frozen python -m evaluation.runner --resilience
 
+eval-rag-grounding:
+	uv run --frozen python -m evaluation.rag_grounding_audit
+
 eval-report:
 	uv run --frozen python -m evaluation.runner
 
@@ -50,6 +53,13 @@ eval-baseline:
 
 d2d-dry-run:
 	uv run --frozen python -m evaluation.d2d.runner
+
+verify-evidence:
+	@test -n "$(MANIFEST)" || (echo "Usage: make verify-evidence MANIFEST=... [ROOT=...] [SOURCE_SHA=...] [SCHEMA_VERSION=...]" >&2 && exit 2)
+	uv run --frozen python -m app.evidence.cli "$(MANIFEST)" \
+		--root "$(or $(ROOT),artifacts/evidence-payloads)" \
+		$(if $(SOURCE_SHA),--source-sha "$(SOURCE_SHA)",) \
+		$(if $(SCHEMA_VERSION),--schema-version "$(SCHEMA_VERSION)",)
 
 observability-up:
 	docker compose up --build -d
@@ -87,6 +97,25 @@ docker-validate:
 	docker compose config --quiet
 	docker build --tag customer-service-backend:local .
 	docker build --tag customer-service-frontend:local frontend
+
+production-topology-validate:
+	uv run --frozen python scripts/validate_production_topology.py
+
+production-config-validate:
+	uv run --frozen python scripts/validate_production_config.py
+
+recovery-validate:
+	@test -n "$(MANIFEST)" || (echo "Usage: make recovery-validate MANIFEST=... [ROOT=...]" >&2 && exit 2)
+	uv run --frozen python scripts/validate_recovery.py "$(MANIFEST)" --root "$(or $(ROOT),artifacts/evidence-payloads)"
+
+capacity-benchmark:
+	uv run --frozen python scripts/run_capacity_benchmark.py
+
+capacity-db-benchmark:
+	uv run --frozen python scripts/benchmark_postgres_capacity.py
+
+capacity-load:
+	uv run --frozen python scripts/load_test_capacity.py
 
 e2e-smoke:
 	python3 scripts/e2e_authenticated_smoke.py

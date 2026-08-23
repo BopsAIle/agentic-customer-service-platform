@@ -1,0 +1,99 @@
+# Capacity Report
+
+This is a reproducible measurement record for the production-oriented
+reference topology. It is not a production certification or a universal
+throughput claim.
+
+## Benchmark environment
+
+The deterministic benchmark runs locally with:
+
+- the repository's Python 3.12 environment;
+- deterministic embeddings, reranking, policy evaluation, and private
+  in-memory workload state;
+- no OpenAI, Ollama, external network, or provider credentials;
+- configurable iterations and worker count.
+
+Run it with:
+
+```bash
+make capacity-benchmark
+make capacity-db-benchmark
+make capacity-load
+```
+
+`capacity-db-benchmark` uses a temporary SQLite database by default. Set
+`CAPACITY_DATABASE_URL` to a dedicated PostgreSQL benchmark database to measure
+PostgreSQL. The database benchmark creates and removes only its private
+`capacity_benchmark_effects` table; do not point it at an application database
+without an approved maintenance window.
+
+## Workloads
+
+The benchmark covers:
+
+1. Read-only customer inquiry.
+2. RAG grounded response and grounding validation.
+3. Confirmation-required pending operation.
+4. Confirmed write receipt path.
+5. Duplicate execution replay.
+6. Fail-closed policy rejection.
+
+The persistence workload additionally checks same-key concurrency, independent
+keys, and tenant-labelled isolation inputs. It records p50, p95, p99, mean,
+throughput, and bounded status counts.
+
+## Current deterministic result
+
+Run output is intentionally generated at validation time because latency is
+machine-dependent. The acceptance invariants are:
+
+- provider calls: `0`;
+- same idempotency key: one business effect and one receipt;
+- different keys: independent effects;
+- policy rejection: denied;
+- grounded response: citation-constrained and accepted by the existing
+  validator.
+
+Do not copy local latency numbers into a production SLO without recording the
+hardware, database topology, workload mix, and versioned benchmark output.
+
+## Measurement-only runtime metrics
+
+The application exposes bounded duration histograms for:
+
+- agent run;
+- decision compilation;
+- policy evaluation;
+- confirmation validation;
+- checkpoint persistence setup/write path;
+- idempotency lookup;
+- RAG retrieval;
+- grounding validation.
+
+Only durations, counts, statuses, and bounded categories are recorded. User
+messages, prompts, customer data, tool arguments, tokens, and provider
+responses are excluded.
+
+## Bottlenecks and scaling recommendations
+
+The likely scale-sensitive boundaries are shared PostgreSQL connections and
+transactions, Qdrant retrieval capacity, checkpoint storage, evidence-store
+latency, and telemetry export. The reference topology supports API
+horizontal-scaling validation, but production sizing requires workload-specific
+measurements.
+
+- API horizontal scaling: supported when shared state and tenant context are
+  configured correctly.
+- PostgreSQL: tune pool size, transaction duration, indexes, and backup load.
+- Qdrant: size indexes, replicas, and shard strategy for the corpus and query
+  mix.
+- Evidence storage: use immutable object storage with hash verification and
+  retention controls.
+
+## Limitations
+
+The local benchmark does not represent managed cloud pricing, network latency,
+provider latency, failure distributions, multi-region behavior, or a formal
+SLO. Multi-replica tests remain environment-dependent and must be run against
+the deployment topology intended for release.
