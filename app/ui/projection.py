@@ -15,6 +15,7 @@ from app.policies.models import PendingActionStatus, PolicyAuditEvent
 from app.ui.repository import InMemoryAgentRunProjectionRepository
 from app.ui.schemas import (
     AgentRunView,
+    UIAnswerGrounding,
     UICompilerDecision,
     UIConfirmationLifecycle,
     UIDecisionEvidence,
@@ -194,6 +195,7 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
         retrieval_metadata = UIRetrievalMetadata.model_validate(
             state.get("retrieval_metadata") or {}
         )
+        answer_grounding = UIAnswerGrounding.model_validate(state.get("answer_grounding") or {})
         trace = []
         for node in projection.nodes:
             stage = trace_stage_for_node(node.name)
@@ -203,6 +205,15 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
                     "items_used": memory_count,
                     "role": "context_enrichment" if memory_count else "not_used",
                 }
+            if node.name == "retrieve_knowledge":
+                grounding_payload = answer_grounding.model_dump(exclude_none=True)
+                trace_metadata.update(
+                    {
+                        key: value
+                        for key, value in grounding_payload.items()
+                        if isinstance(value, (str, int, float, bool))
+                    }
+                )
             if node.name == "understand_request":
                 provider_metadata = state.get("provider_metadata")
                 if provider_metadata is not None:
@@ -238,6 +249,7 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             run_id=projection.run_id,
             request_id=projection.context.request_id,
             conversation_id=projection.context.conversation_id,
+            tenant_id=projection.context.tenant_id,
             action_id=_action_id(state),
             customer_id=projection.context.effective_customer_id,
             actor_id=projection.context.principal.actor_id,
@@ -258,6 +270,7 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             policy=policy,
             rag_documents=rag_documents,
             retrieval_metadata=retrieval_metadata,
+            answer_grounding=answer_grounding,
             trace=trace,
             decision_reason=_decision_reason(state, policy_events, response),
             evidence=decision_evidence,

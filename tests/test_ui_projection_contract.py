@@ -64,6 +64,15 @@ def test_projection_exposes_bounded_decision_evidence_without_provider_text() ->
         "write_outcome_unknown": False,
         "retrieved_chunks": [],
         "retrieval_metadata": {},
+        "answer_grounding": {
+            "status": "pass",
+            "sources_used": 1,
+            "citation_count": 1,
+            "citation_coverage": 1.0,
+            "unsupported_claim_count": 0,
+            "confidence": 0.9,
+            "accepted": True,
+        },
         "memory_context": [],
     }
     with store.capture(
@@ -86,6 +95,8 @@ def test_projection_exposes_bounded_decision_evidence_without_provider_text() ->
     assert view.evidence.compiler.status == "clarification_required"
     assert view.evidence.compiler.reason == "A refund reason is required."
     assert view.decision_reason == "A refund reason is required."
+    assert view.answer_grounding.status == "pass"
+    assert view.answer_grounding.citation_coverage == 1.0
     assert "provider text" not in view.model_dump_json()
 
 

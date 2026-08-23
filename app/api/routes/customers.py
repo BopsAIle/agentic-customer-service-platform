@@ -23,7 +23,11 @@ def get_customer(
 ) -> CustomerResponse:
     customer_scope = resolve_customer_scope(principal, customer_id)
     try:
-        return get_customer_tool(session, GetCustomerInput(customer_id=customer_scope.customer_id))
+        return get_customer_tool(
+            session,
+            GetCustomerInput(customer_id=customer_scope.customer_id),
+            tenant_id=principal.tenant_id or "default",
+        )
     except ToolError as error:
         raise_http_for_tool_error(error)
 
@@ -37,7 +41,9 @@ def get_customer_orders(
     customer_scope = resolve_customer_scope(principal, customer_id)
     try:
         return get_customer_orders_tool(
-            session, GetCustomerInput(customer_id=customer_scope.customer_id)
+            session,
+            GetCustomerInput(customer_id=customer_scope.customer_id),
+            tenant_id=principal.tenant_id or "default",
         )
     except ToolError as error:
         raise_http_for_tool_error(error)
@@ -52,7 +58,9 @@ def get_customer_tickets(
     customer_scope = resolve_customer_scope(principal, customer_id)
     try:
         return get_customer_tickets_tool(
-            session, GetCustomerInput(customer_id=customer_scope.customer_id)
+            session,
+            GetCustomerInput(customer_id=customer_scope.customer_id),
+            tenant_id=principal.tenant_id or "default",
         )
     except ToolError as error:
         raise_http_for_tool_error(error)

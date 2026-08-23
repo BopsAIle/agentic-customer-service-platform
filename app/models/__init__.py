@@ -12,6 +12,8 @@ from app.models.entities import (
     RefundRequest,
     RefundStatus,
     SupportTicket,
+    Tenant,
+    TenantStatus,
     TicketStatus,
 )
 
@@ -28,6 +30,8 @@ __all__ = [
     "RefundStatus",
     "SupportTicket",
     "TicketStatus",
+    "Tenant",
+    "TenantStatus",
     "MemoryRecord",
     "PolicyAuditRecord",
 ]

@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_support_operator
+from app.auth.models import Principal
 from app.core.config import LLMProvider, get_settings
 from app.core.database import get_db
 from app.health import RuntimeHealthService
@@ -42,8 +43,10 @@ def demo_scenario_projections() -> list[DemoScenarioView]:
     return demo_scenarios()
 
 
-def _run_or_404(run_id: str, repository: AgentRunProjectionRepository) -> AgentRunView:
-    run = repository.get_by_run_id(run_id)
+def _run_or_404(
+    run_id: str, repository: AgentRunProjectionRepository, tenant_id: str = "default"
+) -> AgentRunView:
+    run = repository.get_by_run_id(run_id, tenant_id=tenant_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
     return run
@@ -53,12 +56,15 @@ def _run_or_404(run_id: str, repository: AgentRunProjectionRepository) -> AgentR
 def agent_runs(
     customer_id: int | None = None,
     limit: int = Query(default=50, ge=1, le=100),
+    principal: Principal = Depends(require_support_operator),
     session: Session = Depends(get_db),
 ) -> list[AgentRunView]:
     repository = build_agent_run_projection_repository(get_settings(), session)
     if customer_id is not None:
-        return repository.list_for_customer(customer_id, limit=limit)
-    return repository.list_recent(limit=limit)
+        return repository.list_for_customer(
+            customer_id, tenant_id=principal.tenant_id or "default", limit=limit
+        )
+    return repository.list_recent(tenant_id=principal.tenant_id or "default", limit=limit)
 
 
 @router.get(
@@ -66,10 +72,16 @@ def agent_runs(
     response_model=ConversationView,
     response_model_exclude_none=True,
 )
-def conversation(conversation_id: str, session: Session = Depends(get_db)) -> ConversationView:
+def conversation(
+    conversation_id: str,
+    principal: Principal = Depends(require_support_operator),
+    session: Session = Depends(get_db),
+) -> ConversationView:
     repository = build_agent_run_projection_repository(get_settings(), session)
     runs = repository.list_for_conversation(
-        conversation_id, limit=get_settings().agent_run_projection_query_limit
+        conversation_id,
+        tenant_id=principal.tenant_id or "default",
+        limit=get_settings().agent_run_projection_query_limit,
     )
     if not runs:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
@@ -87,21 +99,41 @@ def conversation(conversation_id: str, session: Session = Depends(get_db)) -> Co
 
 
 @router.get("/agent-runs/{agent_run_id}", response_model=AgentRunView)
-def agent_run(agent_run_id: str, session: Session = Depends(get_db)) -> AgentRunView:
-    return _run_or_404(agent_run_id, build_agent_run_projection_repository(get_settings(), session))
+def agent_run(
+    agent_run_id: str,
+    principal: Principal = Depends(require_support_operator),
+    session: Session = Depends(get_db),
+) -> AgentRunView:
+    return _run_or_404(
+        agent_run_id,
+        build_agent_run_projection_repository(get_settings(), session),
+        principal.tenant_id or "default",
+    )
 
 
 @router.get("/tool-events/{agent_run_id}", response_model=list[UIToolEvent])
-def tool_events(agent_run_id: str, session: Session = Depends(get_db)) -> list[UIToolEvent]:
+def tool_events(
+    agent_run_id: str,
+    principal: Principal = Depends(require_support_operator),
+    session: Session = Depends(get_db),
+) -> list[UIToolEvent]:
     return _run_or_404(
-        agent_run_id, build_agent_run_projection_repository(get_settings(), session)
+        agent_run_id,
+        build_agent_run_projection_repository(get_settings(), session),
+        principal.tenant_id or "default",
     ).tools
 
 
 @router.get("/policy-events/{agent_run_id}", response_model=list[UIPolicyEvent])
-def policy_events(agent_run_id: str, session: Session = Depends(get_db)) -> list[UIPolicyEvent]:
+def policy_events(
+    agent_run_id: str,
+    principal: Principal = Depends(require_support_operator),
+    session: Session = Depends(get_db),
+) -> list[UIPolicyEvent]:
     events = SqlAlchemyPolicyAuditRepository(session).list_for_agent_run(
-        agent_run_id, limit=get_settings().policy_audit_query_limit
+        agent_run_id,
+        tenant_id=principal.tenant_id or "default",
+        limit=get_settings().policy_audit_query_limit,
     )
     if not events:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy audit not found")
@@ -109,9 +141,15 @@ def policy_events(agent_run_id: str, session: Session = Depends(get_db)) -> list
 
 
 @router.get("/policy-audit/{conversation_id}", response_model=list[UIPolicyEvent])
-def policy_audit(conversation_id: str, session: Session = Depends(get_db)) -> list[UIPolicyEvent]:
+def policy_audit(
+    conversation_id: str,
+    principal: Principal = Depends(require_support_operator),
+    session: Session = Depends(get_db),
+) -> list[UIPolicyEvent]:
     events = SqlAlchemyPolicyAuditRepository(session).list_for_conversation(
-        conversation_id, limit=get_settings().policy_audit_query_limit
+        conversation_id,
+        tenant_id=principal.tenant_id or "default",
+        limit=get_settings().policy_audit_query_limit,
     )
     if not events:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Policy audit not found")
@@ -147,21 +185,37 @@ def _policy_event_view(event: object) -> UIPolicyEvent:
 
 
 @router.get("/rag-events/{agent_run_id}", response_model=list[UIRagDocument])
-def rag_events(agent_run_id: str, session: Session = Depends(get_db)) -> list[UIRagDocument]:
+def rag_events(
+    agent_run_id: str,
+    principal: Principal = Depends(require_support_operator),
+    session: Session = Depends(get_db),
+) -> list[UIRagDocument]:
     return _run_or_404(
-        agent_run_id, build_agent_run_projection_repository(get_settings(), session)
+        agent_run_id,
+        build_agent_run_projection_repository(get_settings(), session),
+        principal.tenant_id or "default",
     ).rag_documents
 
 
 @router.get("/traces/{agent_run_id}", response_model=list[UITraceEvent])
-def traces(agent_run_id: str, session: Session = Depends(get_db)) -> list[UITraceEvent]:
+def traces(
+    agent_run_id: str,
+    principal: Principal = Depends(require_support_operator),
+    session: Session = Depends(get_db),
+) -> list[UITraceEvent]:
     return _run_or_404(
-        agent_run_id, build_agent_run_projection_repository(get_settings(), session)
+        agent_run_id,
+        build_agent_run_projection_repository(get_settings(), session),
+        principal.tenant_id or "default",
     ).trace
 
 
 @router.get("/memory/{customer_id}", response_model=list[MemoryView])
-def memory(customer_id: int, session: Session = Depends(get_db)) -> list[MemoryView]:
+def memory(
+    customer_id: int,
+    principal: Principal = Depends(require_support_operator),
+    session: Session = Depends(get_db),
+) -> list[MemoryView]:
     if customer_id <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid customer ID")
     settings = get_settings()
@@ -171,7 +225,12 @@ def memory(customer_id: int, session: Session = Depends(get_db)) -> list[MemoryV
         default_ttl_days=settings.memory_default_ttl_days,
         support_context_ttl_days=settings.memory_support_context_ttl_days,
     )
-    records = service.retrieve(session, customer_id, "")
+    records = service.retrieve(
+        session,
+        customer_id,
+        "",
+        principal=principal,
+    )
     return [
         MemoryView(
             id=record.id,

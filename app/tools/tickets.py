@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import Customer, Order, SupportTicket, TicketStatus
@@ -20,8 +21,10 @@ class CreateSupportTicketInput(BaseModel):
     description: str = Field(min_length=1, max_length=5000)
 
 
-def get_ticket(session: Session, request: GetTicketInput) -> TicketResponse:
-    ticket = get_ticket_for_customer(session, request.ticket_id, request.customer_id)
+def get_ticket(
+    session: Session, request: GetTicketInput, *, tenant_id: str = "default"
+) -> TicketResponse:
+    ticket = get_ticket_for_customer(session, request.ticket_id, request.customer_id, tenant_id)
     if ticket is None:
         raise ResourceNotFoundError("Support ticket", request.ticket_id)
     return TicketResponse.model_validate(ticket)
@@ -32,24 +35,39 @@ def create_support_ticket(
     request: CreateSupportTicketInput,
     *,
     idempotency: IdempotencyScope,
+    tenant_id: str = "default",
 ) -> TicketResponse:
     def load_result(ticket_id: int) -> TicketResponse:
-        ticket = session.get(SupportTicket, ticket_id)
+        ticket = session.scalar(
+            select(SupportTicket).where(
+                SupportTicket.id == ticket_id, SupportTicket.tenant_id == tenant_id
+            )
+        )
         if ticket is None:
             raise ResourceNotFoundError("Support ticket", ticket_id)
         return TicketResponse.model_validate(ticket)
 
     def perform() -> tuple[TicketResponse, int]:
-        if session.get(Customer, request.customer_id) is None:
+        if (
+            session.scalar(
+                select(Customer).where(
+                    Customer.id == request.customer_id, Customer.tenant_id == tenant_id
+                )
+            )
+            is None
+        ):
             raise ResourceNotFoundError("Customer", request.customer_id)
         if request.order_id is not None:
-            order = session.get(Order, request.order_id)
+            order = session.scalar(
+                select(Order).where(Order.id == request.order_id, Order.tenant_id == tenant_id)
+            )
             if order is None:
                 raise ResourceNotFoundError("Order", request.order_id)
             if order.customer_id != request.customer_id:
                 raise OwnershipError("Order", request.order_id, request.customer_id)
         ticket = SupportTicket(
             customer_id=request.customer_id,
+            tenant_id=tenant_id,
             order_id=request.order_id,
             category=request.category,
             status=TicketStatus.OPEN,

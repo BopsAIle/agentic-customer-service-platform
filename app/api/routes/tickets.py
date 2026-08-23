@@ -36,6 +36,7 @@ def get_ticket_by_id(
         return get_ticket(
             session,
             GetTicketInput(ticket_id=ticket_id, customer_id=customer_scope.customer_id),
+            tenant_id=principal.tenant_id or "default",
         )
     except ToolError as error:
         raise_http_for_tool_error(error)
@@ -53,7 +54,12 @@ def create_ticket(
         result = create_support_ticket(
             session,
             request.model_copy(update={"customer_id": customer_scope.customer_id}),
-            idempotency=IdempotencyScope(actor_id=principal.actor_id, key=idempotency_key),
+            idempotency=IdempotencyScope(
+                actor_id=principal.actor_id,
+                key=idempotency_key,
+                tenant_id=principal.tenant_id or "default",
+            ),
+            tenant_id=principal.tenant_id or "default",
         )
         commit_business_write(session, "create_support_ticket")
         return result

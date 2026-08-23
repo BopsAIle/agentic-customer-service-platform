@@ -20,6 +20,7 @@ _DECISION_REASON_KEY = "_operator_decision_reason"
 _MEMORY_USAGE_KEY = "_operator_memory_usage"
 _EXECUTION_METADATA_KEY = "_operator_execution_metadata"
 _PROPOSAL_KEY = "_operator_proposal"
+_ANSWER_GROUNDING_KEY = "_operator_answer_grounding"
 
 
 class AgentRunProjectionRepository(Protocol):
@@ -27,16 +28,26 @@ class AgentRunProjectionRepository(Protocol):
 
     def upsert(self, projection: AgentRunView) -> None: ...
 
-    def get_by_run_id(self, run_id: str) -> AgentRunView | None: ...
+    def get_by_run_id(self, run_id: str, *, tenant_id: str = "default") -> AgentRunView | None: ...
 
-    def list_recent(self, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT) -> list[AgentRunView]: ...
+    def list_recent(
+        self, *, tenant_id: str = "default", limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+    ) -> list[AgentRunView]: ...
 
     def list_for_customer(
-        self, customer_id: int, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+        self,
+        customer_id: int,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_PROJECTION_QUERY_LIMIT,
     ) -> list[AgentRunView]: ...
 
     def list_for_conversation(
-        self, conversation_id: str, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_PROJECTION_QUERY_LIMIT,
     ) -> list[AgentRunView]: ...
 
 
@@ -66,35 +77,51 @@ class InMemoryAgentRunProjectionRepository:
                 )
                 del self._projections[oldest_run_id]
 
-    def get_by_run_id(self, run_id: str) -> AgentRunView | None:
+    def get_by_run_id(self, run_id: str, *, tenant_id: str = "default") -> AgentRunView | None:
         with self._lock:
-            return self._projections.get(run_id)
+            projection = self._projections.get(run_id)
+            return (
+                projection if projection is not None and projection.tenant_id == tenant_id else None
+            )
 
-    def list_recent(self, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT) -> list[AgentRunView]:
+    def list_recent(
+        self, *, tenant_id: str = "default", limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+    ) -> list[AgentRunView]:
         with self._lock:
-            return _sort_recent(list(self._projections.values()), limit)
+            return _sort_recent(
+                [item for item in self._projections.values() if item.tenant_id == tenant_id], limit
+            )
 
     def list_for_customer(
-        self, customer_id: int, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+        self,
+        customer_id: int,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_PROJECTION_QUERY_LIMIT,
     ) -> list[AgentRunView]:
         with self._lock:
             return _sort_recent(
                 [
                     projection
                     for projection in self._projections.values()
-                    if projection.customer_id == customer_id
+                    if projection.customer_id == customer_id and projection.tenant_id == tenant_id
                 ],
                 limit,
             )
 
     def list_for_conversation(
-        self, conversation_id: str, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_PROJECTION_QUERY_LIMIT,
     ) -> list[AgentRunView]:
         with self._lock:
             matching = [
                 projection
                 for projection in self._projections.values()
                 if projection.conversation_id == conversation_id
+                and projection.tenant_id == tenant_id
             ]
             return _sort_recent(matching, limit)[::-1]
 
@@ -108,7 +135,8 @@ class SqlAlchemyAgentRunProjectionRepository:
     def upsert(self, projection: AgentRunView) -> None:
         record = self.session.scalar(
             select(AgentRunProjectionRecord).where(
-                AgentRunProjectionRecord.run_id == projection.run_id
+                AgentRunProjectionRecord.run_id == projection.run_id,
+                AgentRunProjectionRecord.tenant_id == projection.tenant_id,
             )
         )
         try:
@@ -121,7 +149,8 @@ class SqlAlchemyAgentRunProjectionRepository:
             self.session.rollback()
             record = self.session.scalar(
                 select(AgentRunProjectionRecord).where(
-                    AgentRunProjectionRecord.run_id == projection.run_id
+                    AgentRunProjectionRecord.run_id == projection.run_id,
+                    AgentRunProjectionRecord.tenant_id == projection.tenant_id,
                 )
             )
             if record is None:
@@ -129,32 +158,51 @@ class SqlAlchemyAgentRunProjectionRepository:
             _update_record(record, projection)
             self.session.commit()
 
-    def get_by_run_id(self, run_id: str) -> AgentRunView | None:
+    def get_by_run_id(self, run_id: str, *, tenant_id: str = "default") -> AgentRunView | None:
         record = self.session.scalar(
-            select(AgentRunProjectionRecord).where(AgentRunProjectionRecord.run_id == run_id)
+            select(AgentRunProjectionRecord).where(
+                AgentRunProjectionRecord.run_id == run_id,
+                AgentRunProjectionRecord.tenant_id == tenant_id,
+            )
         )
         return _from_record(record) if record is not None else None
 
-    def list_recent(self, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT) -> list[AgentRunView]:
-        return self._list(select(AgentRunProjectionRecord), limit, newest_first=True)
+    def list_recent(
+        self, *, tenant_id: str = "default", limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+    ) -> list[AgentRunView]:
+        return self._list(
+            select(AgentRunProjectionRecord).where(AgentRunProjectionRecord.tenant_id == tenant_id),
+            limit,
+            newest_first=True,
+        )
 
     def list_for_customer(
-        self, customer_id: int, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+        self,
+        customer_id: int,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_PROJECTION_QUERY_LIMIT,
     ) -> list[AgentRunView]:
         return self._list(
             select(AgentRunProjectionRecord).where(
-                AgentRunProjectionRecord.effective_customer_id == customer_id
+                AgentRunProjectionRecord.effective_customer_id == customer_id,
+                AgentRunProjectionRecord.tenant_id == tenant_id,
             ),
             limit,
             newest_first=True,
         )
 
     def list_for_conversation(
-        self, conversation_id: str, *, limit: int = DEFAULT_PROJECTION_QUERY_LIMIT
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_PROJECTION_QUERY_LIMIT,
     ) -> list[AgentRunView]:
         return self._list(
             select(AgentRunProjectionRecord).where(
-                AgentRunProjectionRecord.conversation_id == conversation_id
+                AgentRunProjectionRecord.conversation_id == conversation_id,
+                AgentRunProjectionRecord.tenant_id == tenant_id,
             ),
             limit,
             newest_first=False,
@@ -207,10 +255,12 @@ def _to_record(projection: AgentRunView) -> AgentRunProjectionRecord:
         "provider_metadata": payload["provider_metadata"],
     }
     retrieval_metadata[_PROPOSAL_KEY] = payload["proposal"]
+    retrieval_metadata[_ANSWER_GROUNDING_KEY] = payload["answer_grounding"]
     return AgentRunProjectionRecord(
         run_id=projection.run_id,
         request_id=projection.request_id,
         conversation_id=projection.conversation_id,
+        tenant_id=projection.tenant_id,
         action_id=projection.action_id,
         effective_customer_id=projection.customer_id,
         actor_id=projection.actor_id,
@@ -249,6 +299,7 @@ def _update_record(record: AgentRunProjectionRecord, projection: AgentRunView) -
     for field in (
         "request_id",
         "conversation_id",
+        "tenant_id",
         "action_id",
         "effective_customer_id",
         "actor_id",
@@ -284,11 +335,13 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
     raw_execution_metadata = stored_retrieval_metadata.pop(_EXECUTION_METADATA_KEY, None)
     execution_metadata = raw_execution_metadata if isinstance(raw_execution_metadata, dict) else {}
     proposal = stored_retrieval_metadata.pop(_PROPOSAL_KEY, None)
+    answer_grounding = stored_retrieval_metadata.pop(_ANSWER_GROUNDING_KEY, None)
     return AgentRunView.model_validate(
         {
             "run_id": record.run_id,
             "request_id": record.request_id,
             "conversation_id": record.conversation_id,
+            "tenant_id": record.tenant_id,
             "action_id": record.action_id,
             "customer_id": record.effective_customer_id,
             "actor_id": record.actor_id,
@@ -314,6 +367,7 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
             "policy": record.policy,
             "rag_documents": record.rag_documents,
             "retrieval_metadata": stored_retrieval_metadata,
+            "answer_grounding": answer_grounding,
             "trace": record.trace,
             "decision_reason": decision_reason,
             "evidence": decision_evidence,

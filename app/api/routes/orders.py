@@ -47,6 +47,7 @@ def get_order_by_id(
         return get_order(
             session,
             GetOrderInput(order_id=order_id, customer_id=customer_scope.customer_id),
+            tenant_id=principal.tenant_id or "default",
         )
     except ToolError as error:
         raise_http_for_tool_error(error)
@@ -65,7 +66,12 @@ def cancel_order_by_id(
         result = cancel_order(
             session,
             CancelOrderInput(customer_id=customer_scope.customer_id, order_id=order_id),
-            idempotency=IdempotencyScope(actor_id=principal.actor_id, key=idempotency_key),
+            idempotency=IdempotencyScope(
+                actor_id=principal.actor_id,
+                key=idempotency_key,
+                tenant_id=principal.tenant_id or "default",
+            ),
+            tenant_id=principal.tenant_id or "default",
         )
         commit_business_write(session, "cancel_order")
         return result
@@ -93,7 +99,12 @@ def request_order_refund(
                 order_id=order_id,
                 reason=request.reason,
             ),
-            idempotency=IdempotencyScope(actor_id=principal.actor_id, key=idempotency_key),
+            idempotency=IdempotencyScope(
+                actor_id=principal.actor_id,
+                key=idempotency_key,
+                tenant_id=principal.tenant_id or "default",
+            ),
+            tenant_id=principal.tenant_id or "default",
         )
         commit_business_write(session, "request_refund")
         return result

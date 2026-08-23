@@ -10,30 +10,36 @@ class GetCustomerInput(BaseModel):
     customer_id: int = Field(gt=0)
 
 
-def get_customer(session: Session, request: GetCustomerInput) -> CustomerResponse:
+def get_customer(
+    session: Session, request: GetCustomerInput, *, tenant_id: str = "default"
+) -> CustomerResponse:
     customer = customer_service.get_customer_for_scope(
-        session, request.customer_id, request.customer_id
+        session, request.customer_id, request.customer_id, tenant_id
     )
     if customer is None:
         raise ResourceNotFoundError("Customer", request.customer_id)
     return CustomerResponse.model_validate(customer)
 
 
-def get_customer_orders(session: Session, request: GetCustomerInput) -> list[OrderResponse]:
-    customer = customer_service.get_customer(session, request.customer_id)
+def get_customer_orders(
+    session: Session, request: GetCustomerInput, *, tenant_id: str = "default"
+) -> list[OrderResponse]:
+    customer = customer_service.get_customer(session, request.customer_id, tenant_id)
     if customer is None:
         raise ResourceNotFoundError("Customer", request.customer_id)
     return [
         OrderResponse.model_validate(order)
-        for order in customer_service.get_customer_orders(session, request.customer_id)
+        for order in customer_service.get_customer_orders(session, request.customer_id, tenant_id)
     ]
 
 
-def get_customer_tickets(session: Session, request: GetCustomerInput) -> list[TicketResponse]:
-    customer = customer_service.get_customer(session, request.customer_id)
+def get_customer_tickets(
+    session: Session, request: GetCustomerInput, *, tenant_id: str = "default"
+) -> list[TicketResponse]:
+    customer = customer_service.get_customer(session, request.customer_id, tenant_id)
     if customer is None:
         raise ResourceNotFoundError("Customer", request.customer_id)
     return [
         TicketResponse.model_validate(ticket)
-        for ticket in customer_service.get_customer_tickets(session, request.customer_id)
+        for ticket in customer_service.get_customer_tickets(session, request.customer_id, tenant_id)
     ]

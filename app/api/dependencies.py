@@ -17,5 +17,6 @@ def get_execution_context(
         request_id=str(uuid4()),
         conversation_id=request.conversation_id,
         principal=principal,
+        tenant_id=principal.tenant_id or "default",
         effective_customer_id=customer_scope.customer_id,
     )

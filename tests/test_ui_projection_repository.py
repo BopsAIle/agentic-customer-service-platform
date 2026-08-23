@@ -47,6 +47,15 @@ def projection(
         path=["understand_request", "respond"],
         memory=UIMemoryUsage(item_count=0),
         retrieval_metadata=UIRetrievalMetadata(),
+        answer_grounding={
+            "status": "pass",
+            "sources_used": 1,
+            "citation_count": 1,
+            "citation_coverage": 1.0,
+            "unsupported_claim_count": 0,
+            "confidence": 0.9,
+            "accepted": True,
+        },
     )
 
 
@@ -72,6 +81,8 @@ def test_sql_projection_upsert_is_durable_and_preserves_created_at(
     assert second.status == "completed"
     assert second.action_id == "action-durable"
     assert second.duration_ms == 20.0
+    assert second.answer_grounding.status == "pass"
+    assert second.answer_grounding.citation_coverage == 1.0
     assert record.created_at == created_at
     assert record.updated_at > created_at
     assert db_session.query(AgentRunProjectionRecord).count() == 1

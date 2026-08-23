@@ -88,6 +88,18 @@ class UIRetrievalMetadata(BaseModel):
     sparse_candidate_count: int = 0
 
 
+class UIAnswerGrounding(BaseModel):
+    """Bounded answer-synthesis evidence; claim text and hidden reasoning are excluded."""
+
+    status: str = "not_recorded"
+    sources_used: int = Field(default=0, ge=0)
+    citation_count: int = Field(default=0, ge=0)
+    citation_coverage: float | None = Field(default=None, ge=0.0, le=1.0)
+    unsupported_claim_count: int = Field(default=0, ge=0)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    accepted: bool = False
+
+
 class UIMemoryUsage(BaseModel):
     item_count: int
     keys: list[str] = Field(default_factory=list)
@@ -170,6 +182,7 @@ class AgentRunView(BaseModel):
     run_id: str
     request_id: str
     conversation_id: str
+    tenant_id: str = "default"
     action_id: str | None = None
     customer_id: int
     actor_id: str
@@ -190,6 +203,7 @@ class AgentRunView(BaseModel):
     policy: list[UIPolicyEvent] = Field(default_factory=list)
     rag_documents: list[UIRagDocument] = Field(default_factory=list)
     retrieval_metadata: UIRetrievalMetadata = Field(default_factory=UIRetrievalMetadata)
+    answer_grounding: UIAnswerGrounding = Field(default_factory=UIAnswerGrounding)
     trace: list[UITraceEvent] = Field(default_factory=list)
     decision_reason: str | None = None
     evidence: UIDecisionEvidence = Field(default_factory=UIDecisionEvidence)

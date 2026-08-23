@@ -54,12 +54,35 @@ class EscalationStatus(StrEnum):
     RESOLVED = "resolved"
 
 
+class TenantStatus(StrEnum):
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+
+
+class Tenant(Base):
+    __tablename__ = "tenants"
+
+    id: Mapped[str] = mapped_column(String(200), primary_key=True)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    status: Mapped[TenantStatus] = mapped_column(
+        String(20), nullable=False, default=TenantStatus.ACTIVE
+    )
+    created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
+
+
 class Customer(Base):
     __tablename__ = "customers"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "email", name="uq_customer_tenant_email"),
+        Index("ix_customers_tenant_id", "tenant_id"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(200), ForeignKey("tenants.id"), nullable=False, default="default"
+    )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
-    email: Mapped[str] = mapped_column(String(320), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(320), index=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
     orders: Mapped[list["Order"]] = relationship(back_populates="customer")
     tickets: Mapped[list["SupportTicket"]] = relationship(back_populates="customer")
@@ -69,8 +92,12 @@ class Customer(Base):
 
 class Order(Base):
     __tablename__ = "orders"
+    __table_args__ = (Index("ix_orders_tenant_customer", "tenant_id", "customer_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(200), ForeignKey("tenants.id"), nullable=False, default="default"
+    )
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True, nullable=False)
     status: Mapped[OrderStatus] = mapped_column(String(20), nullable=False)
     total_amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
@@ -83,8 +110,12 @@ class Order(Base):
 
 class SupportTicket(Base):
     __tablename__ = "support_tickets"
+    __table_args__ = (Index("ix_tickets_tenant_customer", "tenant_id", "customer_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(200), ForeignKey("tenants.id"), nullable=False, default="default"
+    )
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True, nullable=False)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
     category: Mapped[str] = mapped_column(String(100), nullable=False)
@@ -98,8 +129,10 @@ class SupportTicket(Base):
 class RefundRequest(Base):
     __tablename__ = "refund_requests"
     __table_args__ = (
+        Index("ix_refunds_tenant_customer", "tenant_id", "customer_id"),
         Index(
             "uq_refund_requests_active_order",
+            "tenant_id",
             "order_id",
             unique=True,
             postgresql_where=text("status IN ('requested', 'approved', 'processing')"),
@@ -108,6 +141,9 @@ class RefundRequest(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(200), ForeignKey("tenants.id"), nullable=False, default="default"
+    )
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True, nullable=False)
     order_id: Mapped[int] = mapped_column(ForeignKey("orders.id"), index=True, nullable=False)
     reason: Mapped[str] = mapped_column(Text, nullable=False)
@@ -119,8 +155,12 @@ class RefundRequest(Base):
 
 class Escalation(Base):
     __tablename__ = "escalations"
+    __table_args__ = (Index("ix_escalations_tenant_customer", "tenant_id", "customer_id"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(200), ForeignKey("tenants.id"), nullable=False, default="default"
+    )
     customer_id: Mapped[int] = mapped_column(ForeignKey("customers.id"), index=True, nullable=False)
     ticket_id: Mapped[int | None] = mapped_column(ForeignKey("support_tickets.id"), nullable=True)
     order_id: Mapped[int | None] = mapped_column(ForeignKey("orders.id"), nullable=True)
@@ -138,14 +178,19 @@ class BusinessActionReceipt(Base):
     __tablename__ = "business_action_receipts"
     __table_args__ = (
         UniqueConstraint(
+            "tenant_id",
             "actor_id",
             "operation",
             "idempotency_key",
             name="uq_business_action_receipt_scope",
         ),
+        Index("ix_business_receipts_tenant_customer", "tenant_id", "customer_id"),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(200), ForeignKey("tenants.id"), nullable=False, default="default"
+    )
     actor_id: Mapped[str] = mapped_column(String(200), nullable=False)
     operation: Mapped[str] = mapped_column(String(80), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -160,6 +205,7 @@ class PolicyAuditRecord(Base):
 
     __tablename__ = "policy_audit_events"
     __table_args__ = (
+        Index("ix_policy_audit_tenant_created", "tenant_id", "created_at", "id"),
         Index("ix_policy_audit_conversation_created", "conversation_id", "created_at", "id"),
         Index("ix_policy_audit_customer_created", "effective_customer_id", "created_at", "id"),
         Index("ix_policy_audit_request_created", "request_id", "created_at", "id"),
@@ -167,6 +213,9 @@ class PolicyAuditRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
+    tenant_id: Mapped[str] = mapped_column(
+        String(200), ForeignKey("tenants.id"), nullable=False, default="default"
+    )
     event_id: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
     agent_run_id: Mapped[str] = mapped_column(String(200), index=True, nullable=False)
     request_id: Mapped[str] = mapped_column(String(200), nullable=False)
@@ -193,6 +242,8 @@ class AgentRunProjectionRecord(Base):
 
     __tablename__ = "agent_run_projections"
     __table_args__ = (
+        UniqueConstraint("tenant_id", "run_id", name="uq_agent_run_projection_tenant_run"),
+        Index("ix_agent_run_projection_tenant_created", "tenant_id", "created_at", "id"),
         Index(
             "ix_agent_run_projection_conversation_created",
             "conversation_id",
@@ -209,7 +260,10 @@ class AgentRunProjectionRecord(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    run_id: Mapped[str] = mapped_column(String(200), unique=True, nullable=False)
+    tenant_id: Mapped[str] = mapped_column(
+        String(200), ForeignKey("tenants.id"), nullable=False, default="default"
+    )
+    run_id: Mapped[str] = mapped_column(String(200), nullable=False)
     request_id: Mapped[str] = mapped_column(String(200), nullable=False)
     conversation_id: Mapped[str] = mapped_column(String(200), nullable=False)
     action_id: Mapped[str | None] = mapped_column(String(200), nullable=True)

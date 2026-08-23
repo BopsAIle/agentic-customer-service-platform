@@ -21,18 +21,27 @@ class RequestRefundInput(BaseModel):
 
 
 def request_refund(
-    session: Session, request: RequestRefundInput, *, idempotency: IdempotencyScope
+    session: Session,
+    request: RequestRefundInput,
+    *,
+    idempotency: IdempotencyScope,
+    tenant_id: str = "default",
 ) -> RefundRequestResponse:
     def load_result(refund_id: int) -> RefundRequestResponse:
-        refund = session.get(RefundRequest, refund_id)
+        refund = session.scalar(
+            select(RefundRequest).where(
+                RefundRequest.id == refund_id, RefundRequest.tenant_id == tenant_id
+            )
+        )
         if refund is None:
             raise ResourceNotFoundError("Refund request", refund_id)
         return RefundRequestResponse.model_validate(refund)
 
     def perform() -> tuple[RefundRequestResponse, int]:
-        validate_refund_request(session, request)
+        validate_refund_request(session, request, tenant_id=tenant_id)
         refund = RefundRequest(
             customer_id=request.customer_id,
+            tenant_id=tenant_id,
             order_id=request.order_id,
             reason=request.reason,
             status=RefundStatus.REQUESTED,
@@ -57,8 +66,12 @@ def request_refund(
         ) from error
 
 
-def validate_refund_request(session: Session, request: RequestRefundInput) -> None:
-    order = session.get(Order, request.order_id)
+def validate_refund_request(
+    session: Session, request: RequestRefundInput, *, tenant_id: str = "default"
+) -> None:
+    order = session.scalar(
+        select(Order).where(Order.id == request.order_id, Order.tenant_id == tenant_id)
+    )
     if order is None:
         raise ResourceNotFoundError("Order", request.order_id)
     if order.customer_id != request.customer_id:
@@ -76,6 +89,7 @@ def validate_refund_request(session: Session, request: RequestRefundInput) -> No
     existing = session.scalar(
         select(RefundRequest)
         .where(RefundRequest.order_id == request.order_id)
+        .where(RefundRequest.tenant_id == tenant_id)
         .where(RefundRequest.status.in_(active_statuses))
     )
     if existing is not None:

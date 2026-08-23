@@ -1,4 +1,5 @@
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import (
@@ -28,30 +29,49 @@ def escalate_to_human(
     request: EscalateToHumanInput,
     *,
     idempotency: IdempotencyScope,
+    tenant_id: str = "default",
 ) -> EscalationResponse:
     def load_result(escalation_id: int) -> EscalationResponse:
-        escalation = session.get(Escalation, escalation_id)
+        escalation = session.scalar(
+            select(Escalation).where(
+                Escalation.id == escalation_id, Escalation.tenant_id == tenant_id
+            )
+        )
         if escalation is None:
             raise ResourceNotFoundError("Escalation", escalation_id)
         return EscalationResponse.model_validate(escalation)
 
     def perform() -> tuple[EscalationResponse, int]:
-        if session.get(Customer, request.customer_id) is None:
+        if (
+            session.scalar(
+                select(Customer).where(
+                    Customer.id == request.customer_id, Customer.tenant_id == tenant_id
+                )
+            )
+            is None
+        ):
             raise ResourceNotFoundError("Customer", request.customer_id)
         if request.ticket_id is not None:
-            ticket = session.get(SupportTicket, request.ticket_id)
+            ticket = session.scalar(
+                select(SupportTicket).where(
+                    SupportTicket.id == request.ticket_id, SupportTicket.tenant_id == tenant_id
+                )
+            )
             if ticket is None:
                 raise ResourceNotFoundError("Support ticket", request.ticket_id)
             if ticket.customer_id != request.customer_id:
                 raise OwnershipError("Support ticket", request.ticket_id, request.customer_id)
         if request.order_id is not None:
-            order = session.get(Order, request.order_id)
+            order = session.scalar(
+                select(Order).where(Order.id == request.order_id, Order.tenant_id == tenant_id)
+            )
             if order is None:
                 raise ResourceNotFoundError("Order", request.order_id)
             if order.customer_id != request.customer_id:
                 raise OwnershipError("Order", request.order_id, request.customer_id)
         escalation = Escalation(
             customer_id=request.customer_id,
+            tenant_id=tenant_id,
             ticket_id=request.ticket_id,
             order_id=request.order_id,
             reason=request.reason,

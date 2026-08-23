@@ -34,18 +34,24 @@ class CancelOrderOutput(BaseModel):
     message: str
 
 
-def get_order(session: Session, request: GetOrderInput) -> OrderResponse:
-    order = get_order_for_customer(session, request.order_id, request.customer_id)
+def get_order(
+    session: Session, request: GetOrderInput, *, tenant_id: str = "default"
+) -> OrderResponse:
+    order = get_order_for_customer(session, request.order_id, request.customer_id, tenant_id)
     if order is None:
         raise ResourceNotFoundError("Order", request.order_id)
     return OrderResponse.model_validate(order)
 
 
 def cancel_order(
-    session: Session, request: CancelOrderInput, *, idempotency: IdempotencyScope
+    session: Session,
+    request: CancelOrderInput,
+    *,
+    idempotency: IdempotencyScope,
+    tenant_id: str = "default",
 ) -> CancelOrderOutput:
     def load_result(order_id: int) -> CancelOrderOutput:
-        order = session.get(Order, order_id)
+        order = get_order_record(session, order_id, tenant_id)
         if order is None:
             raise ResourceNotFoundError("Order", order_id)
         return CancelOrderOutput(
@@ -57,7 +63,7 @@ def cancel_order(
         )
 
     def perform() -> tuple[CancelOrderOutput, int]:
-        order = validate_cancel_order(session, request, lock=True)
+        order = validate_cancel_order(session, request, lock=True, tenant_id=tenant_id)
         order_status = OrderStatus(order.status)
         if order_status == OrderStatus.CANCELLED:
             return load_result(order.id), order.id
@@ -91,12 +97,20 @@ def cancel_order(
 
 
 def validate_cancel_order(
-    session: Session, request: CancelOrderInput, *, lock: bool = False
+    session: Session,
+    request: CancelOrderInput,
+    *,
+    lock: bool = False,
+    tenant_id: str = "default",
 ) -> Order:
     if lock:
-        order = session.scalar(select(Order).where(Order.id == request.order_id).with_for_update())
+        order = session.scalar(
+            select(Order)
+            .where(Order.id == request.order_id, Order.tenant_id == tenant_id)
+            .with_for_update()
+        )
     else:
-        order = get_order_record(session, request.order_id)
+        order = get_order_record(session, request.order_id, tenant_id)
     if order is None:
         raise ResourceNotFoundError("Order", request.order_id)
     if order.customer_id != request.customer_id:

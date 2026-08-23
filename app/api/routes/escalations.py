@@ -27,7 +27,12 @@ def create_escalation(
         result = escalate_to_human(
             session,
             request.model_copy(update={"customer_id": customer_scope.customer_id}),
-            idempotency=IdempotencyScope(actor_id=principal.actor_id, key=idempotency_key),
+            idempotency=IdempotencyScope(
+                actor_id=principal.actor_id,
+                key=idempotency_key,
+                tenant_id=principal.tenant_id or "default",
+            ),
+            tenant_id=principal.tenant_id or "default",
         )
         commit_business_write(session, "escalate_to_human")
         return result

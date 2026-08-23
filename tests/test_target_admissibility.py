@@ -17,9 +17,11 @@ class SpyResolver(BusinessTargetResolver):
         super().__init__(session)
         self.calls = 0
 
-    def resolve_order_id(self, target: SemanticTarget, customer_id: int) -> int | None:
+    def resolve_order_id(
+        self, target: SemanticTarget, customer_id: int, tenant_id: str = "default"
+    ) -> int | None:
         self.calls += 1
-        return super().resolve_order_id(target, customer_id)
+        return super().resolve_order_id(target, customer_id, tenant_id)
 
 
 def _decision(intent: Intent, target: SemanticTarget | None) -> SemanticDecision:

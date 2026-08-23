@@ -108,8 +108,9 @@ class RecordingMemoryService(MemoryService):
         customer_id: int,
         query: str,
         now: datetime | None = None,
+        principal: Principal | None = None,
     ) -> list[MemoryRecordView]:
-        del session, customer_id, query, now
+        del session, customer_id, query, now, principal
         self.retrieve_calls += 1
         return []
 

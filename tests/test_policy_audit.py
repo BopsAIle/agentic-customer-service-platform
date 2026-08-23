@@ -102,22 +102,12 @@ def test_concurrent_audit_appends_are_distinct_and_visible_to_other_instances(
 
 
 def test_production_and_integration_reject_memory_audit_backend() -> None:
-    static_tokens = SecretStr(
-        json.dumps(
-            {
-                "opaque-token": {
-                    "actor_id": "operator",
-                    "actor_type": "support_operator",
-                    "roles": ["support_operator"],
-                }
-            }
-        )
-    )
     with pytest.raises(ValueError, match="policy audit"):
         Settings(
             app_env="production",
-            auth_mode="static",
-            auth_tokens_json=static_tokens,
+            auth_mode="oidc",
+            oidc_issuer="https://identity.example.test",
+            oidc_audience="agent-control-plane",
             policy_audit_backend="memory",
         )
     with pytest.raises(ValueError, match="policy audit"):
@@ -148,19 +138,21 @@ def test_audit_insert_failure_fails_before_business_mutation(db_session: Session
             raise RuntimeError("audit storage unavailable")
 
         def list_for_agent_run(
-            self, agent_run_id: str, *, limit: int = 50
+            self, agent_run_id: str, *, tenant_id: str = "default", limit: int = 50
         ) -> list[PolicyAuditEvent]:
-            del agent_run_id, limit
+            del agent_run_id, tenant_id, limit
             return []
 
         def list_for_conversation(
-            self, conversation_id: str, *, limit: int = 50
+            self, conversation_id: str, *, tenant_id: str = "default", limit: int = 50
         ) -> list[PolicyAuditEvent]:
-            del conversation_id, limit
+            del conversation_id, tenant_id, limit
             return []
 
-        def list_for_customer(self, customer_id: int, *, limit: int = 50) -> list[PolicyAuditEvent]:
-            del customer_id, limit
+        def list_for_customer(
+            self, customer_id: int, *, tenant_id: str = "default", limit: int = 50
+        ) -> list[PolicyAuditEvent]:
+            del customer_id, tenant_id, limit
             return []
 
     decision = StructuredDecision(
