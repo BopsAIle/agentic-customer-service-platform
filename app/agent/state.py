@@ -4,8 +4,11 @@ from typing import Annotated, Literal, TypedDict
 from app.agent.decision_compiler import CompiledDecision
 from app.agent.schemas import (
     AgentErrorCategory,
+    AgentExecutionMode,
+    AgentProposal,
     AgentRequestType,
     Intent,
+    ProviderRunMetadata,
     SemanticDecision,
 )
 from app.core.context import ExecutionContext
@@ -29,6 +32,10 @@ class AgentState(TypedDict, total=False):
     request_type: AgentRequestType
     semantic_decision: SemanticDecision | None
     compile_result: CompiledDecision | None
+    grounding_status: str
+    grounding_reference_type: str | None
+    grounding_trusted_source: str | None
+    target_validation_status: str
     selected_tool: str | None
     tool_arguments: dict[str, object]
     tool_result: dict[str, object] | None
@@ -58,3 +65,9 @@ class AgentState(TypedDict, total=False):
     degraded_components: list[str]
     recovery_action: str | None
     write_outcome_unknown: bool
+    execution_mode: AgentExecutionMode
+    provider: str
+    model: str | None
+    fallback_message: str | None
+    proposal: AgentProposal | None
+    provider_metadata: ProviderRunMetadata | None

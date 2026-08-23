@@ -20,6 +20,7 @@ services:
     environment: &backend-environment
       DATABASE_URL: postgresql+psycopg://app:app@db:5432/customer_service
       APP_ENV: development
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai_compatible}
       AUTH_MODE: local_demo
       LOCAL_DEMO_AUTH_TOKEN: ${LOCAL_DEMO_AUTH_TOKEN:-local-demo-support-token}
       LOCAL_DEMO_ACTOR_ID: ${LOCAL_DEMO_ACTOR_ID:-operator-local-demo}

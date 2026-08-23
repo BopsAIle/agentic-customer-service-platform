@@ -1,5 +1,7 @@
+import inspect
 from collections.abc import Sequence
 from pathlib import Path
+from time import perf_counter
 from typing import Any, cast
 
 import httpx
@@ -62,9 +64,16 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
         if settings.llm_structured_output_mode == "function_calling":
             # The decision schema is the only synthetic tool exposed to the model. It is
             # transport-only; business tools remain selected and authorized by the control plane.
-            self._model = model.with_structured_output(
-                self._decision_schema,
-                method="function_calling",
+            structured_output = model.with_structured_output
+            parameters = inspect.signature(structured_output).parameters
+            supports_method = "method" in parameters or any(
+                parameter.kind is inspect.Parameter.VAR_KEYWORD
+                for parameter in parameters.values()
+            )
+            self._model = (
+                structured_output(self._decision_schema, method="function_calling")
+                if supports_method
+                else structured_output(self._decision_schema)
             )
         else:
             self._model = model.with_structured_output(self._decision_schema)
@@ -84,6 +93,14 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             self._decision_schema.model_json_schema()
         )
         self._transport_schema = transport_parameters(self._model)
+        self._last_call_metadata: dict[str, object] = {
+            "provider": "OpenAI",
+            "model": settings.llm_model,
+            "latency_ms": None,
+            "input_tokens": None,
+            "output_tokens": None,
+            "cost_usd": None,
+        }
 
     @property
     def last_validation_diagnostic(self) -> StructuredDecisionValidationDiagnostic | None:
@@ -92,6 +109,10 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
     @property
     def last_structured_call_metadata(self) -> StructuredCallMetadata:
         return self._last_structured_call_metadata.copy()
+
+    @property
+    def last_call_metadata(self) -> dict[str, object]:
+        return self._last_call_metadata.copy()
 
     def structured_schema_metadata(self) -> dict[str, Any]:
         transport_hash = (
@@ -156,18 +177,27 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             "target_keys": [],
             "target_identifier_json_type": None,
         }
+        started = perf_counter()
         try:
             steps = getattr(self._model, "steps", None)
             if isinstance(steps, list) and len(steps) >= 2:
                 result: object = steps[0].invoke(prompt_messages)
                 response_metadata = structured_call_metadata(result)
+                transport_result = result
                 for step in steps[1:]:
                     result = step.invoke(result)
             else:
                 result = self._model.invoke(prompt_messages)
                 response_metadata = structured_call_metadata(result)
+                transport_result = result
             self._last_structured_call_metadata = response_metadata.copy()
+            self._last_call_metadata = _call_metadata(
+                transport_result, self._last_call_metadata, (perf_counter() - started) * 1000
+            )
         except ValidationError as error:
+            self._last_call_metadata = _call_metadata(
+                None, self._last_call_metadata, (perf_counter() - started) * 1000
+            )
             structured_call = response_metadata.get("structured_call_present")
             arguments_decoded = response_metadata.get("arguments_decoded")
             if structured_call is False:
@@ -187,6 +217,9 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             )
             raise
         except (TypeError, ValueError) as error:
+            self._last_call_metadata = _call_metadata(
+                None, self._last_call_metadata, (perf_counter() - started) * 1000
+            )
             self._last_validation_diagnostic = from_exception(
                 error,
                 contract_version=self.decision_contract_version,
@@ -200,6 +233,9 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             decision = self._decision_schema.model_validate(result)
             return cast(SemanticDecision | SemanticDecisionV3 | StructuredDecision, decision)
         except ValidationError as error:
+            self._last_call_metadata = _call_metadata(
+                result, self._last_call_metadata, (perf_counter() - started) * 1000
+            )
             response_metadata = structured_call_metadata(result)
             self._last_validation_diagnostic = from_validation_error(
                 error,
@@ -211,3 +247,29 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
                 **response_metadata,
             )
             raise
+
+
+def _call_metadata(
+    response: object, current: dict[str, object], latency_ms: float
+) -> dict[str, object]:
+    """Extract usage counters only when supplied; never retain provider content."""
+
+    metadata = dict(current)
+    metadata["latency_ms"] = round(latency_ms, 3)
+    usage: object = getattr(response, "usage_metadata", None)
+    if not isinstance(usage, dict):
+        response_metadata = getattr(response, "response_metadata", None)
+        usage = (
+            response_metadata.get("token_usage") if isinstance(response_metadata, dict) else None
+        )
+    if isinstance(usage, dict):
+        input_tokens = usage.get("input_tokens", usage.get("prompt_tokens"))
+        output_tokens = usage.get("output_tokens", usage.get("completion_tokens"))
+        if isinstance(input_tokens, int) and input_tokens >= 0:
+            metadata["input_tokens"] = input_tokens
+        if isinstance(output_tokens, int) and output_tokens >= 0:
+            metadata["output_tokens"] = output_tokens
+        cost = usage.get("cost_usd")
+        if isinstance(cost, (int, float)) and cost >= 0:
+            metadata["cost_usd"] = float(cost)
+    return metadata

@@ -56,6 +56,10 @@ def make_compile_decision_node(
                 "last_error": "The semantic request could not be compiled safely.",
                 "decision_reason": result.reason,
                 "compile_result": result,
+                "grounding_status": grounding.status.value,
+                "grounding_reference_type": grounding.reference_type,
+                "grounding_trusted_source": grounding.trusted_source,
+                "target_validation_status": admissibility.value,
             }
         return {
             "intent": result.intent,
@@ -68,6 +72,10 @@ def make_compile_decision_node(
             "memory_key": result.memory_key,
             "decision_reason": result.reason,
             "compile_result": result,
+            "grounding_status": grounding.status.value,
+            "grounding_reference_type": grounding.reference_type,
+            "grounding_trusted_source": grounding.trusted_source,
+            "target_validation_status": admissibility.value,
             "error_category": None,
             "last_error": None,
         }

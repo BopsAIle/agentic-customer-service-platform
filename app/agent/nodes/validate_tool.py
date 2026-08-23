@@ -14,12 +14,14 @@ def validate_tool(state: AgentState) -> AgentState:
         return {
             "last_error": f"Tool {tool_name} is not registered.",
             "error_category": AgentErrorCategory.UNKNOWN_TOOL,
+            "target_validation_status": "rejected",
         }
     context = state.get("execution_context")
     if context is None:
         return {
             "last_error": "Authenticated execution context is required.",
             "error_category": AgentErrorCategory.POLICY_DENIED,
+            "target_validation_status": "rejected",
         }
     raw_arguments = dict(state.get("tool_arguments", {}))
     requested_customer = raw_arguments.get("customer_id")
@@ -27,6 +29,7 @@ def validate_tool(state: AgentState) -> AgentState:
         return {
             "last_error": "The selected resource does not belong to this customer.",
             "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
+            "target_validation_status": "rejected",
         }
     if "customer_id" in definition.input_model.model_fields:
         raw_arguments["customer_id"] = context.effective_customer_id
@@ -36,6 +39,7 @@ def validate_tool(state: AgentState) -> AgentState:
         return {
             "last_error": "The selected tool arguments were invalid.",
             "error_category": AgentErrorCategory.INVALID_TOOL_ARGUMENTS,
+            "target_validation_status": "rejected",
         }
     arguments_data = arguments.model_dump(mode="json")
-    return {"tool_arguments": arguments_data}
+    return {"tool_arguments": arguments_data, "target_validation_status": "validated"}

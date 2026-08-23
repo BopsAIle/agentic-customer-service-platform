@@ -25,10 +25,17 @@ def chat(
     runtime: AgentRuntime = Depends(get_agent_runtime),
 ) -> AgentResponse:
     try:
+        if request.execution_mode.value == "recorded_replay":
+            return runtime.run(
+                context=execution_context,
+                message=request.message,
+                session=session,
+            )
         return runtime.run(
             context=execution_context,
             message=request.message,
             session=session,
+            execution_mode=request.execution_mode,
         )
     except ToolError as error:
         raise_http_for_tool_error(error)

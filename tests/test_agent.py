@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import (
+    AgentExecutionMode,
     AgentRequestType,
     Intent,
     StructuredDecision,
 )
 from app.api.routes.agent import get_agent_runtime
+from app.core.config import LLMProvider
 from app.main import app
 from app.models import Escalation, Order
 from app.models.entities import OrderStatus
@@ -602,6 +604,64 @@ def test_agent_api_happy_path_and_pending_action(client: TestClient, db_session:
 def test_agent_api_validates_request_schema(client: TestClient) -> None:
     response = client.post("/agent/chat", json={"conversation_id": "bad", "customer_id": 1})
     assert response.status_code == 422
+
+
+def test_live_proposal_mode_falls_back_without_openai_configuration(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = AgentRuntime(
+        provider=FakeDecisionProvider(
+            [decision(Intent.CAPABILITY_QUESTION, AgentRequestType.INFORMATIONAL)]
+        )
+    )
+    runtime.settings = runtime.settings.model_copy(
+        update={
+            "llm_provider": LLMProvider.OPENAI_COMPATIBLE,
+            "llm_api_key": None,
+            "llm_base_url": "http://localhost:11434/v1",
+        }
+    )
+    app.dependency_overrides[get_agent_runtime] = lambda: runtime
+    try:
+        response = client.post(
+            "/agent/chat",
+            json={
+                "conversation_id": "api-live-fallback-1",
+                "customer_id": 1,
+                "message": "What can you help me with?",
+                "execution_mode": "live_proposal",
+            },
+        )
+    finally:
+        app.dependency_overrides.pop(get_agent_runtime, None)
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["execution_mode"] == "recorded_replay"
+    assert payload["fallback_message"] == "Live model unavailable. Showing bounded evidence replay."
+    assert payload["provider"] == "recorded_evidence"
+    assert "api_key" not in response.text.casefold()
+
+
+def test_live_proposal_mode_requires_explicit_openai_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    runtime = AgentRuntime(provider=FakeDecisionProvider([]))
+    marker = object()
+    runtime.settings = runtime.settings.model_copy(
+        update={
+            "llm_provider": LLMProvider.OPENAI_COMPATIBLE,
+            "llm_api_key": "test-only-key",
+            "llm_base_url": "https://api.openai.com/v1",
+        }
+    )
+    monkeypatch.setattr("app.agent.runtime.OpenAICompatibleProvider", lambda settings: marker)
+    provider, contract, mode, fallback = runtime._provider_for_execution(
+        AgentExecutionMode.LIVE_PROPOSAL
+    )
+    assert provider is marker
+    assert contract == "semantic_decision_v3"
+    assert mode == AgentExecutionMode.LIVE_PROPOSAL
+    assert fallback is None
 
 
 def test_agent_api_rejection_and_human_path(client: TestClient) -> None:

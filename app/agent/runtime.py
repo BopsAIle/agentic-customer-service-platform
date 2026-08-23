@@ -15,7 +15,16 @@ from app.agent.llm.integration import (
     DeterministicSemanticDecisionV3Provider,
 )
 from app.agent.llm.provider import OpenAICompatibleProvider
-from app.agent.schemas import AgentRequestType, AgentResponse, AgentToolCall, Intent
+from app.agent.schemas import (
+    AgentExecutionMode,
+    AgentProposal,
+    AgentRequestType,
+    AgentResponse,
+    AgentToolCall,
+    Intent,
+    ProposalValidationStatus,
+    ProviderRunMetadata,
+)
 from app.agent.state import AgentState
 from app.auth.models import ActorType, Principal
 from app.core.config import DecisionContractVersion, LLMProvider, Settings, get_settings
@@ -122,12 +131,16 @@ class AgentRuntime:
         context: ExecutionContext | None = None,
         conversation_id: str | None = None,
         customer_id: int | None = None,
+        execution_mode: AgentExecutionMode = AgentExecutionMode.RECORDED_REPLAY,
     ) -> AgentResponse:
         execution_context = context or _legacy_execution_context(conversation_id, customer_id)
         conversation_id = execution_context.conversation_id
         customer_id = execution_context.effective_customer_id
         thread_id = checkpoint_thread_id(execution_context)
         thread_id_hash = checkpoint_thread_id_hash(execution_context)
+        provider, decision_contract_version, actual_mode, fallback_message = (
+            self._provider_for_execution(execution_mode)
+        )
         # A checkpoint thread is conversation/workflow identity.  Every call to
         # run(), including confirmation and replay requests, is a new graph
         # invocation and therefore gets its own run identity.
@@ -163,7 +176,7 @@ class AgentRuntime:
                     self.settings, session
                 )
                 graph = build_graph(
-                    self.provider,
+                    provider,
                     session,
                     self.checkpointer,
                     policy_engine=self.policy_engine,
@@ -174,7 +187,7 @@ class AgentRuntime:
                     grounded_generator=self.grounded_generator,
                     memory_service=self.memory_service,
                     resilience_config=self.resilience_config,
-                    decision_contract_version=self.decision_contract_version,
+                    decision_contract_version=decision_contract_version,
                 )
                 with projection_store.capture(
                     run_id=agent_run_id,
@@ -204,7 +217,11 @@ class AgentRuntime:
                             },
                         ),
                     )
-                    response = _response_from_state(state)
+                    response = _response_from_state(
+                        state,
+                        execution_mode=actual_mode,
+                        fallback_message=fallback_message,
+                    )
                     action_id = state.get("action_id")
                     if not isinstance(action_id, str):
                         pending_action = state.get("pending_action")
@@ -264,6 +281,40 @@ class AgentRuntime:
                 if labels["status"] == "error":
                     metric.agent_errors_total.add(1, labels)
 
+    def _provider_for_execution(
+        self, requested_mode: AgentExecutionMode
+    ) -> tuple[
+        DecisionProposalProvider,
+        DecisionContractVersion,
+        AgentExecutionMode,
+        str | None,
+    ]:
+        if requested_mode != AgentExecutionMode.LIVE_PROPOSAL:
+            return self.provider, self.decision_contract_version, requested_mode, None
+        if (
+            self.settings.llm_provider != LLMProvider.OPENAI_COMPATIBLE
+            or not self.settings.llm_api_key
+            or not _is_openai_api_base_url(self.settings.llm_base_url)
+        ):
+            return (
+                DeterministicSemanticDecisionV3Provider(),
+                "semantic_decision_v3",
+                AgentExecutionMode.RECORDED_REPLAY,
+                "Live model unavailable. Showing bounded evidence replay.",
+            )
+        live_settings = self.settings.model_copy(
+            update={
+                "agent_decision_contract_version": "semantic_decision_v3",
+                "llm_structured_output_mode": self.settings.llm_structured_output_mode,
+            }
+        )
+        return (
+            OpenAICompatibleProvider(live_settings),
+            "semantic_decision_v3",
+            AgentExecutionMode.LIVE_PROPOSAL,
+            None,
+        )
+
 
 def _legacy_execution_context(
     conversation_id: str | None, customer_id: int | None
@@ -298,7 +349,13 @@ def _build_decision_provider(
     return OpenAICompatibleProvider(selected_settings)
 
 
-def _response_from_state(state: AgentState) -> AgentResponse:
+def _response_from_state(
+    state: AgentState,
+    *,
+    execution_mode: AgentExecutionMode,
+    fallback_message: str | None,
+) -> AgentResponse:
+    provider_metadata = state.get("provider_metadata")
     tool_call = None
     if state.get("selected_tool") and state.get("tool_execution_status") in {
         "executed",
@@ -324,4 +381,67 @@ def _response_from_state(state: AgentState) -> AgentResponse:
         degraded_components=state.get("degraded_components", []),
         recovery_action=state.get("recovery_action"),
         write_outcome_unknown=state.get("write_outcome_unknown", False),
+        execution_mode=execution_mode,
+        provider="OpenAI"
+        if execution_mode == AgentExecutionMode.LIVE_PROPOSAL
+        else "recorded_evidence",
+        model=(provider_metadata.model if provider_metadata is not None else None),
+        fallback_message=fallback_message,
+        proposal=_proposal_from_state(state),
+        provider_metadata=_provider_run_metadata(provider_metadata),
+    )
+
+
+def _is_openai_api_base_url(value: str) -> bool:
+    return value.rstrip("/").casefold() == "https://api.openai.com/v1"
+
+
+def _provider_run_metadata(value: object) -> ProviderRunMetadata | None:
+    if isinstance(value, ProviderRunMetadata):
+        return value
+    if not isinstance(value, dict):
+        return None
+    provider = value.get("provider")
+    if not isinstance(provider, str):
+        return None
+    return ProviderRunMetadata.model_validate(value)
+
+
+def _proposal_from_state(state: AgentState) -> AgentProposal | None:
+    intent = state.get("intent")
+    semantic = state.get("semantic_decision")
+    if intent is None and semantic is None:
+        return None
+    extracted: dict[str, str | int | bool] = {}
+    target = getattr(semantic, "target", None)
+    if target is not None:
+        target_type = getattr(target, "type", None)
+        if isinstance(target_type, str):
+            extracted["target_type"] = target_type
+        for field in ("order_id", "ticket_id"):
+            value = getattr(target, field, None)
+            if isinstance(value, int):
+                extracted[field] = value
+    compile_result = state.get("compile_result")
+    compile_status = getattr(getattr(compile_result, "status", None), "value", None)
+    if compile_status in {"compile_rejected", "clarification_required"}:
+        validation = ProposalValidationStatus.REJECTED
+    elif compile_status is not None:
+        validation = ProposalValidationStatus.PASSED
+    else:
+        validation = ProposalValidationStatus.PENDING
+    citations = state.get("citations", [])
+    references = [
+        str(item.get("citation_id"))
+        for item in citations
+        if isinstance(item, dict) and item.get("citation_id")
+    ][:10]
+    action = state.get("selected_tool")
+    suggested_action = action if isinstance(action, str) else None
+    return AgentProposal(
+        intent=(intent.value if isinstance(intent, Intent) else str(intent or "unknown")),
+        suggested_action=suggested_action,
+        extracted_fields=extracted,
+        evidence_references=references,
+        validation=validation,
     )

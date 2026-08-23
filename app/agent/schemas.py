@@ -42,6 +42,43 @@ class AgentRequestType(StrEnum):
     MEMORY_ACTION = "memory_action"
 
 
+class AgentExecutionMode(StrEnum):
+    """Explicit playground modes; neither mode grants model output authority."""
+
+    RECORDED_REPLAY = "recorded_replay"
+    LIVE_PROPOSAL = "live_proposal"
+
+
+class ProposalValidationStatus(StrEnum):
+    PENDING = "pending"
+    PASSED = "passed"
+    REJECTED = "rejected"
+    NOT_RECORDED = "not_recorded"
+
+
+class AgentProposal(BaseModel):
+    """Bounded proposal projection; raw prompts, reasoning, and tool arguments are excluded."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    intent: str
+    suggested_action: str | None = None
+    extracted_fields: dict[str, str | int | bool] = Field(default_factory=dict)
+    evidence_references: list[str] = Field(default_factory=list)
+    validation: ProposalValidationStatus = ProposalValidationStatus.NOT_RECORDED
+
+
+class ProviderRunMetadata(BaseModel):
+    """Safe provider metadata; token fields remain absent when the provider omits usage."""
+
+    provider: str
+    model: str | None = None
+    latency_ms: float | None = Field(default=None, ge=0)
+    input_tokens: int | None = Field(default=None, ge=0)
+    output_tokens: int | None = Field(default=None, ge=0)
+    cost_usd: float | None = Field(default=None, ge=0)
+
+
 class SemanticTarget(BaseModel):
     """A typed user-referent, never an executable tool argument bag."""
 
@@ -210,9 +247,16 @@ class AgentResponse(BaseModel):
     degraded_components: list[str] = Field(default_factory=list)
     recovery_action: str | None = None
     write_outcome_unknown: bool = False
+    execution_mode: AgentExecutionMode = AgentExecutionMode.RECORDED_REPLAY
+    provider: str = "recorded_evidence"
+    model: str | None = None
+    fallback_message: str | None = None
+    proposal: AgentProposal | None = None
+    provider_metadata: ProviderRunMetadata | None = None
 
 
 class AgentChatRequest(BaseModel):
     conversation_id: str = Field(min_length=1, max_length=200)
     customer_id: int = Field(gt=0)
     message: str = Field(min_length=1, max_length=5000)
+    execution_mode: AgentExecutionMode = AgentExecutionMode.RECORDED_REPLAY

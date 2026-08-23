@@ -6,6 +6,7 @@ from app.agent.schemas import (
     AgentErrorCategory,
     AgentRequestType,
     Intent,
+    ProviderRunMetadata,
     SemanticDecision,
     SemanticDecisionV3,
     StructuredDecision,
@@ -54,6 +55,7 @@ def make_understand_request_node(
                     "error_category": AgentErrorCategory.LLM_ERROR,
                     "failure_category": error.category.value,
                     "recovery_action": "clarify",
+                    "provider_metadata": _provider_metadata(provider),
                 }
             except (TypeError, ValueError):
                 llm_span.set_attribute("llm.status", "error")
@@ -64,6 +66,7 @@ def make_understand_request_node(
                     "error_category": AgentErrorCategory.LLM_ERROR,
                     "failure_category": "llm_malformed_output",
                     "recovery_action": "clarify",
+                    "provider_metadata": _provider_metadata(provider),
                 }
             llm_span.set_attribute("llm.status", "ok")
         if not _matches_contract(decision, decision_contract_version):
@@ -75,12 +78,14 @@ def make_understand_request_node(
                 "error_category": AgentErrorCategory.LLM_ERROR,
                 "failure_category": "llm_contract_mismatch",
                 "recovery_action": "clarify",
+                "provider_metadata": _provider_metadata(provider),
             }
         if isinstance(decision, (SemanticDecision, SemanticDecisionV3)):
             return {
                 "semantic_decision": normalize_semantic_decision(decision),
                 "last_error": None,
                 "error_category": None,
+                "provider_metadata": _provider_metadata(provider),
             }
         extracted_candidate, extracted_key = extract_memory_request(_latest_user_message(state))
         return {
@@ -95,9 +100,29 @@ def make_understand_request_node(
             "memory_key": decision.memory_key or extracted_key,
             "last_error": None,
             "error_category": None,
+            "provider_metadata": _provider_metadata(provider),
         }
 
     return understand_request
+
+
+def _provider_metadata(provider: DecisionProposalProvider) -> ProviderRunMetadata | None:
+    value = getattr(provider, "last_call_metadata", None)
+    if not isinstance(value, dict):
+        return None
+    safe = {
+        key: value[key]
+        for key in (
+            "provider",
+            "model",
+            "latency_ms",
+            "input_tokens",
+            "output_tokens",
+            "cost_usd",
+        )
+        if key in value and value[key] is not None
+    }
+    return ProviderRunMetadata.model_validate(safe) if safe else None
 
 
 def _matches_contract(
