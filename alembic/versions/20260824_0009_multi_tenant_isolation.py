@@ -56,81 +56,107 @@ def upgrade() -> None:
         ],
     )
 
+    # Use PostgreSQL ALTER TABLE operations instead of batch recreation. Batch
+    # recreation attempts to drop each table's primary key, which is unsafe
+    # while existing child foreign keys still reference it.
     for table_name in _TABLES:
-        with op.batch_alter_table(table_name, recreate="always") as batch:
-            batch.add_column(
-                sa.Column(
-                    "tenant_id",
-                    sa.String(length=200),
-                    nullable=False,
-                    server_default="default",
-                )
-            )
-            batch.create_foreign_key(
-                f"fk_{table_name}_tenant_id",
-                "tenants",
-                ["tenant_id"],
-                ["id"],
-            )
-            batch.create_index(f"ix_{table_name}_tenant_id", ["tenant_id"])
-
-    with op.batch_alter_table("customers", recreate="always") as batch:
-        batch.create_unique_constraint("uq_customer_tenant_email", ["tenant_id", "email"])
-
-    with op.batch_alter_table("business_action_receipts", recreate="always") as batch:
-        batch.drop_constraint("uq_business_action_receipt_scope", type_="unique")
-        batch.create_unique_constraint(
-            "uq_business_action_receipt_scope",
-            ["tenant_id", "actor_id", "operation", "idempotency_key"],
+        op.add_column(
+            table_name,
+            sa.Column(
+                "tenant_id",
+                sa.String(length=200),
+                nullable=False,
+                server_default="default",
+            ),
         )
 
-    with op.batch_alter_table("refund_requests", recreate="always") as batch:
-        batch.drop_index("uq_refund_requests_active_order")
-        batch.create_index(
-            "uq_refund_requests_active_order",
-            ["tenant_id", "order_id"],
-            unique=True,
-            postgresql_where=sa.text("status IN ('requested', 'approved', 'processing')"),
-            sqlite_where=sa.text("status IN ('requested', 'approved', 'processing')"),
+    for table_name in _TABLES:
+        op.create_foreign_key(
+            f"fk_{table_name}_tenant_id",
+            table_name,
+            "tenants",
+            ["tenant_id"],
+            ["id"],
         )
-
-    with op.batch_alter_table("agent_run_projections", recreate="always") as batch:
-        batch.drop_constraint("uq_agent_run_projection_run_id", type_="unique")
-        batch.create_unique_constraint(
-            "uq_agent_run_projection_tenant_run", ["tenant_id", "run_id"]
+        op.create_index(f"ix_{table_name}_tenant_id", table_name, ["tenant_id"])
+        op.alter_column(
+            table_name,
+            "tenant_id",
+            existing_type=sa.String(length=200),
+            existing_nullable=False,
+            server_default=None,
         )
 
     op.drop_index("ix_customers_email", table_name="customers")
+    op.create_unique_constraint(
+        "uq_customer_tenant_email", "customers", ["tenant_id", "email"]
+    )
     op.create_index("ix_customers_email", "customers", ["email"], unique=False)
+
+    op.drop_constraint(
+        "uq_business_action_receipt_scope", "business_action_receipts", type_="unique"
+    )
+    op.create_unique_constraint(
+        "uq_business_action_receipt_scope",
+        "business_action_receipts",
+        ["tenant_id", "actor_id", "operation", "idempotency_key"],
+    )
+
+    op.drop_index("uq_refund_requests_active_order", table_name="refund_requests")
+    op.create_index(
+        "uq_refund_requests_active_order",
+        "refund_requests",
+        ["tenant_id", "order_id"],
+        unique=True,
+        postgresql_where=sa.text("status IN ('requested', 'approved', 'processing')"),
+        sqlite_where=sa.text("status IN ('requested', 'approved', 'processing')"),
+    )
+
+    op.drop_constraint(
+        "uq_agent_run_projection_run_id", "agent_run_projections", type_="unique"
+    )
+    op.create_unique_constraint(
+        "uq_agent_run_projection_tenant_run",
+        "agent_run_projections",
+        ["tenant_id", "run_id"],
+    )
 
 
 def downgrade() -> None:
-    with op.batch_alter_table("refund_requests", recreate="always") as batch:
-        batch.drop_index("uq_refund_requests_active_order")
-        batch.create_index(
-            "uq_refund_requests_active_order",
-            ["order_id"],
-            unique=True,
-            postgresql_where=sa.text("status IN ('requested', 'approved', 'processing')"),
-            sqlite_where=sa.text("status IN ('requested', 'approved', 'processing')"),
-        )
+    op.drop_index("uq_refund_requests_active_order", table_name="refund_requests")
+    op.create_index(
+        "uq_refund_requests_active_order",
+        "refund_requests",
+        ["order_id"],
+        unique=True,
+        postgresql_where=sa.text("status IN ('requested', 'approved', 'processing')"),
+        sqlite_where=sa.text("status IN ('requested', 'approved', 'processing')"),
+    )
 
+    op.drop_constraint(
+        "uq_agent_run_projection_tenant_run", "agent_run_projections", type_="unique"
+    )
+    op.create_unique_constraint(
+        "uq_agent_run_projection_run_id", "agent_run_projections", ["run_id"]
+    )
+
+    op.drop_constraint(
+        "uq_business_action_receipt_scope", "business_action_receipts", type_="unique"
+    )
+    op.create_unique_constraint(
+        "uq_business_action_receipt_scope",
+        "business_action_receipts",
+        ["actor_id", "operation", "idempotency_key"],
+    )
+
+    op.drop_constraint("uq_customer_tenant_email", "customers", type_="unique")
     op.drop_index("ix_customers_email", table_name="customers")
     op.create_index("ix_customers_email", "customers", ["email"], unique=True)
 
-    with op.batch_alter_table("agent_run_projections", recreate="always") as batch:
-        batch.drop_constraint("uq_agent_run_projection_tenant_run", type_="unique")
-        batch.create_unique_constraint("uq_agent_run_projection_run_id", ["run_id"])
-
-    with op.batch_alter_table("business_action_receipts", recreate="always") as batch:
-        batch.drop_constraint("uq_business_action_receipt_scope", type_="unique")
-        batch.create_unique_constraint(
-            "uq_business_action_receipt_scope", ["actor_id", "operation", "idempotency_key"]
-        )
-
     for table_name in reversed(_TABLES):
-        with op.batch_alter_table(table_name, recreate="always") as batch:
-            batch.drop_index(f"ix_{table_name}_tenant_id")
-            batch.drop_constraint(f"fk_{table_name}_tenant_id", type_="foreignkey")
-            batch.drop_column("tenant_id")
+        op.drop_index(f"ix_{table_name}_tenant_id", table_name=table_name)
+        op.drop_constraint(
+            f"fk_{table_name}_tenant_id", table_name=table_name, type_="foreignkey"
+        )
+        op.drop_column(table_name, "tenant_id")
     op.drop_table("tenants")
