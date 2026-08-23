@@ -1,0 +1,7 @@
+.trace-report-overview strong,
+.trace-report-decision strong {
+  white-space: normal !important;
+  overflow: visible !important;
+  text-overflow: clip !important;
+  overflow-wrap: anywhere;
+}

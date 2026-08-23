@@ -22,7 +22,8 @@ operational authority. The platform keeps the boundary explicit:
 - Runtime executes only approved effects.
 
 The showcase exposes these observable boundaries without exposing hidden
-reasoning, model tokens, or raw provider output.
+reasoning, model tokens, or raw provider output. It is an evidence snapshot,
+not a runtime execution surface.
 
 ## Live Agent Demonstration
 
@@ -53,7 +54,7 @@ inventing a customer name or order number that is not in the seed.
 
 | Scenario | Model/proposal evidence | Deterministic decision boundary | Execution |
 | --- | --- | --- | --- |
-| Successful refund request | Refund intent and target are captured when the provider returns them | Grounding, target, and policy checks precede confirmation | Waiting for confirmation; no automatic mutation |
+| Successful refund request | Refund intent and target are captured when the provider returns them | Grounding, target, and policy checks precede confirmation | Awaiting confirmation; no automatic mutation |
 | Missing information | Refund intent may be understood without an order target | Clarification is required before the request can become a mutation | Not attempted |
 | Prompt injection | Untrusted instructions are treated as input, not authority | Scope, target, and policy checks contain the request | No tool call / not executed |
 | Unauthorized action | A proposed target is checked against the authenticated customer scope | Ownership validation can deny the action | No unauthorized mutation |
@@ -64,7 +65,7 @@ for what a particular local environment actually projected.
 
 ## Production-style demo scenarios
 
-The Playground also loads a dedicated read-only fixture projection from
+The Playground also loads a dedicated read-only evidence projection from
 `GET /ui/demo-scenarios`. These scenarios are recorded evidence fixtures, not
 executions: selecting one populates the operator view without calling a
 provider, writing to PostgreSQL, or creating a runtime run.

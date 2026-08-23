@@ -23,6 +23,18 @@ The platform keeps those questions separate from response generation. The
 model suggests meaning and actions; server-owned controls decide what may
 proceed.
 
+## Design principle
+
+An agent should not own authority.
+
+The model proposes.
+The system decides.
+The runtime executes only approved effects.
+
+This is a production-oriented agent control plane built around bounded
+authority, deterministic decisioning, evidence-backed operations, and safety
+governance for LLM systems.
+
 ## What to see first
 
 The React Operator Console is designed as a compact AI platform control plane:
