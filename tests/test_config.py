@@ -39,13 +39,13 @@ def test_structured_output_mode_defaults_to_schema() -> None:
     assert settings.llm_structured_output_mode == "schema"
 
 
-def test_decision_contract_defaults_to_direct_and_accepts_semantic() -> None:
-    assert Settings(_env_file=None).agent_decision_contract_version == "direct_tool_v1"
+def test_decision_contract_defaults_to_semantic_v3_and_accepts_explicit_compatibility() -> None:
+    assert Settings(_env_file=None).agent_decision_contract_version == "semantic_decision_v3"
     assert (
         Settings(
-            _env_file=None, agent_decision_contract_version="semantic_decision_v2"
+            _env_file=None, agent_decision_contract_version="direct_tool_v1"
         ).agent_decision_contract_version
-        == "semantic_decision_v2"
+        == "direct_tool_v1"
     )
 
 

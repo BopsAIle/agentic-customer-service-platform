@@ -98,6 +98,18 @@ def test_v3_target_union_is_complete_strict_and_discriminated() -> None:
     assert discriminated["discriminator"]["propertyName"] == "type"
 
 
+def test_v3_proposal_cannot_supply_executable_tool_arguments() -> None:
+    with pytest.raises(ValidationError):
+        SemanticDecisionV3.model_validate(
+            {
+                "intent": "order_cancel",
+                "target": {"type": "explicit_order", "order_id": 3},
+                "tool_name": "cancel_order",
+                "arguments": {"customer_id": 999, "order_id": 3},
+            }
+        )
+
+
 def test_v3_transport_schema_exposes_branch_local_required_identifiers() -> None:
     branches = _transport_branches()
     assert set(branches) == {"explicit_order", "latest_order", "explicit_ticket"}
@@ -121,7 +133,7 @@ def test_v2_and_v3_share_the_hardened_prompt_and_have_distinct_schemas() -> None
     assert prompt_hash_for_contract("semantic_decision_v3") == prompt_hash_for_contract(
         "semantic_decision_v2"
     )
-    assert Settings(_env_file=None).agent_decision_contract_version == "direct_tool_v1"
+    assert Settings(_env_file=None).agent_decision_contract_version == "semantic_decision_v3"
     assert (
         Settings(
             _env_file=None, agent_decision_contract_version="semantic_decision_v3"

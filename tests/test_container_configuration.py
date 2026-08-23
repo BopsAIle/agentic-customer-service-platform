@@ -58,6 +58,9 @@ def test_compose_wires_demo_authentication_and_bootstrap_without_production_inhe
     production = yaml.safe_load((ROOT / "docker-compose.prod.yml").read_text())
 
     assert compose["services"]["backend"]["environment"]["AUTH_MODE"] == "local_demo"
+    assert compose["services"]["backend"]["environment"]["AGENT_DECISION_CONTRACT_VERSION"] == (
+        "${AGENT_DECISION_CONTRACT_VERSION:-semantic_decision_v3}"
+    )
     assert compose["services"]["backend"]["depends_on"]["demo-setup"]["condition"] == (
         "service_completed_successfully"
     )
@@ -65,6 +68,9 @@ def test_compose_wires_demo_authentication_and_bootstrap_without_production_inhe
     assert production["services"]["backend"]["environment"]["AUTH_MODE"] == "static"
     assert production["services"]["backend"]["environment"]["LANGGRAPH_STRICT_MSGPACK"] == ("true")
     assert production["services"]["backend"]["environment"]["LLM_PROVIDER"] == ("openai_compatible")
+    assert production["services"]["backend"]["environment"]["AGENT_DECISION_CONTRACT_VERSION"] == (
+        "semantic_decision_v3"
+    )
     assert production["services"]["backend"]["environment"]["LOCAL_DEMO_AUTH_TOKEN"] == ""
     assert production["services"]["backend"]["environment"]["POLICY_AUDIT_BACKEND"] == "postgres"
     assert (
@@ -84,12 +90,16 @@ def test_integration_llm_provider_is_explicit_and_excluded_from_production_overl
 
     assert integration["services"]["backend"]["environment"] == {
         "APP_ENV": "integration",
+        "AGENT_DECISION_CONTRACT_VERSION": "semantic_decision_v3",
         "LANGGRAPH_STRICT_MSGPACK": "true",
         "LLM_PROVIDER": "deterministic_integration",
         "POLICY_AUDIT_BACKEND": "postgres",
         "AGENT_RUN_PROJECTION_BACKEND": "postgres",
     }
     assert integration["services"]["demo-setup"]["environment"]["APP_ENV"] == "integration"
+    assert integration["services"]["demo-setup"]["environment"][
+        "AGENT_DECISION_CONTRACT_VERSION"
+    ] == ("semantic_decision_v3")
     assert integration["services"]["frontend"]["build"]["args"]["FRONTEND_AUTH_MODE"] == (
         "integration"
     )

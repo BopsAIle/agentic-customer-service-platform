@@ -77,8 +77,10 @@ class AgentRuntime:
     ) -> None:
         settings = get_settings()
         self.settings = settings
-        self.decision_contract_version = decision_contract_version or (
-            settings.agent_decision_contract_version
+        self.decision_contract_version = _resolve_decision_contract(
+            settings,
+            provider=provider,
+            explicit_contract=decision_contract_version,
         )
         self.provider = provider or _build_decision_provider(
             settings, self.decision_contract_version
@@ -347,6 +349,31 @@ def _build_decision_provider(
             return DeterministicSemanticDecisionV3Provider()
         return DeterministicIntegrationDecisionProvider()
     return OpenAICompatibleProvider(selected_settings)
+
+
+def _resolve_decision_contract(
+    settings: Settings,
+    *,
+    provider: DecisionProposalProvider | None,
+    explicit_contract: DecisionContractVersion | None,
+) -> DecisionContractVersion:
+    if explicit_contract is not None:
+        return explicit_contract
+    if provider is None:
+        return settings.agent_decision_contract_version
+
+    declared_contract = getattr(provider, "decision_contract_version", None)
+    if declared_contract in {
+        "direct_tool_v1",
+        "semantic_decision_v2",
+        "semantic_decision_v3",
+    }:
+        return cast(DecisionContractVersion, declared_contract)
+
+    # Injecting a provider is an explicit compatibility/test boundary. Providers
+    # without a declared semantic contract retain the legacy direct contract;
+    # the normal settings-built runtime never enters this branch.
+    return "direct_tool_v1"
 
 
 def _response_from_state(

@@ -6,6 +6,7 @@ services:
       APP_ENV: integration
       LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: deterministic_integration
+      AGENT_DECISION_CONTRACT_VERSION: semantic_decision_v3
       POLICY_AUDIT_BACKEND: postgres
       AGENT_RUN_PROJECTION_BACKEND: postgres
 
@@ -14,6 +15,7 @@ services:
       APP_ENV: integration
       LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: deterministic_integration
+      AGENT_DECISION_CONTRACT_VERSION: semantic_decision_v3
       POLICY_AUDIT_BACKEND: postgres
       AGENT_RUN_PROJECTION_BACKEND: postgres
 

@@ -23,7 +23,7 @@ from app.resilience.retry import run_with_retry
 def make_understand_request_node(
     provider: DecisionProposalProvider,
     resilience_config: ResilienceConfig | None = None,
-    decision_contract_version: str = "direct_tool_v1",
+    decision_contract_version: str = "semantic_decision_v3",
 ) -> Callable[[AgentState], AgentState]:
     def understand_request(state: AgentState) -> AgentState:
         context = state["execution_context"]

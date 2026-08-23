@@ -39,7 +39,7 @@ class Settings(BaseSettings):
     llm_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
     llm_reasoning_effort: LLMReasoningEffort | None = None
     llm_structured_output_mode: LLMStructuredOutputMode = "schema"
-    agent_decision_contract_version: DecisionContractVersion = "direct_tool_v1"
+    agent_decision_contract_version: DecisionContractVersion = "semantic_decision_v3"
     llm_connect_timeout_seconds: float = Field(default=5.0, gt=0.0)
     llm_timeout_seconds: float = Field(default=30.0, gt=0.0)
     confirmation_ttl_seconds: int = Field(default=300, gt=0)

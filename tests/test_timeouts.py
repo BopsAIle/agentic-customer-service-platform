@@ -193,7 +193,11 @@ def test_function_calling_structured_output_parses_decision_arguments(
 
     monkeypatch.setattr("app.agent.llm.provider.ChatOpenAI", FakeChatOpenAI)
     provider = OpenAICompatibleProvider(
-        Settings(_env_file=None, llm_structured_output_mode="function_calling")
+        Settings(
+            _env_file=None,
+            llm_structured_output_mode="function_calling",
+            agent_decision_contract_version="direct_tool_v1",
+        )
     )
 
     result = provider.decide(

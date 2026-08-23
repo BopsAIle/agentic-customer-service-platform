@@ -279,7 +279,7 @@ def build_graph(
     grounded_generator: GroundedAnswerGenerator,
     memory_service: MemoryService,
     resilience_config: ResilienceConfig,
-    decision_contract_version: str = "direct_tool_v1",
+    decision_contract_version: str = "semantic_decision_v3",
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("load_context", cast(Any, _instrument_node("load_context", _load_context)))
