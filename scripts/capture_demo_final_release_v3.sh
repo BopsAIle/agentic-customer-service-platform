@@ -38,10 +38,10 @@ capture() {
 }
 
 capture "control-plane overview" "1440,900" "01-control-plane-overview.png" "/showcase"
-capture "refund confirmation boundary" "1440,900" "02-refund-confirmation-boundary.png" "/showcase?scenario=refund-memory-rag&compact=1&focus=confirmation"
-capture "prompt injection policy prevention" "1440,900" "03-prompt-injection-policy-deny.png" "/showcase?scenario=prompt-injection-defense&compact=1"
-capture "idempotency protection" "1440,900" "04-idempotency-protection.png" "/showcase?scenario=duplicate-operation-protection&compact=1"
-capture "missing information clarification" "1440,900" "05-missing-information-clarification.png" "/showcase?scenario=missing-information-clarification&compact=1"
+capture "refund confirmation boundary" "1440,900" "02-refund-confirmation-boundary-v2.png" "/showcase?scenario=refund-memory-rag&compact=1&focus=confirmation"
+capture "prompt injection policy prevention" "1440,900" "03-prompt-injection-policy-deny-v2.png" "/showcase?scenario=prompt-injection-defense&compact=1"
+capture "idempotency protection" "1440,900" "04-idempotency-protection-v2.png" "/showcase?scenario=duplicate-operation-protection&compact=1"
+capture "missing information clarification" "1440,900" "05-missing-information-clarification-v2.png" "/showcase?scenario=missing-information-clarification&compact=1"
 capture "operational run registry" "1440,900" "06-operational-run-registry.png" "/traces?fixtures=1"
 capture "authority flow" "1440,900" "07-authority-flow.png" "/runs/${REFUND_RUN_ID}?focus=evidence"
 capture "investigation report" "1440,900" "08-investigation-report.png" "/runs/${REFUND_RUN_ID}?report=1"
