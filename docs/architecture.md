@@ -44,3 +44,16 @@ Trust boundaries:
   final business mutation and its idempotency boundary.
 - Qdrant/RAG, memory, and observability provide contextual or diagnostic evidence. None is an
   independent source of execution authority.
+
+## Why LLM is not the execution authority
+
+The platform separates four observable responsibilities:
+
+- **Context:** Provides information only. Memory and RAG enrich understanding but cannot authorize
+  actions.
+- **Proposal:** The model produces semantic suggestions. Output remains untrusted.
+- **Decision:** Deterministic layers validate provenance, policy, risk, and admissibility.
+- **Authority:** Only controlled runtime paths can mutate state.
+
+The Operator Console presents these boundaries without exposing chain-of-thought or hidden model
+reasoning. For a short, evidence-scoped walkthrough, see the [demonstration scenarios](demo-scenarios.md).
