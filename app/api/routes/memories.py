@@ -32,7 +32,12 @@ def list_memories(
     if customer_id <= 0:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid customer ID")
     customer_scope = resolve_customer_scope(principal, customer_id)
-    return service.retrieve(session, customer_scope.customer_id, "")
+    return service.retrieve(
+        session,
+        customer_scope.customer_id,
+        "",
+        principal=customer_scope.principal,
+    )
 
 
 @router.delete("/{customer_id}/memories/{memory_id}")
@@ -47,7 +52,16 @@ def delete_memory(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid memory ID")
     customer_scope = resolve_customer_scope(principal, customer_id)
     record = session.get(MemoryRecord, memory_id)
-    if record is None or record.customer_id != customer_scope.customer_id:
+    if (
+        record is None
+        or record.customer_id != customer_scope.customer_id
+        or record.tenant_id != (customer_scope.principal.tenant_id or "default")
+    ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Memory not found")
-    result = service.forget(session, customer_scope.customer_id, record.normalized_key)
+    result = service.forget(
+        session,
+        customer_scope.customer_id,
+        record.normalized_key,
+        tenant_id=customer_scope.principal.tenant_id or "default",
+    )
     return {"status": result.status}

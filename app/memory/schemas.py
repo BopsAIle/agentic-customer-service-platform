@@ -26,6 +26,31 @@ class MemorySource(StrEnum):
     AGENT_INFERRED = "agent_inferred"
 
 
+class MemorySensitivityLevel(StrEnum):
+    PUBLIC = "public"
+    INTERNAL = "internal"
+    SENSITIVE = "sensitive"
+    RESTRICTED = "restricted"
+
+
+class MemoryRetentionPolicy(StrEnum):
+    STANDARD = "standard"
+    SHORT = "short"
+    NO_STORE = "no_store"
+
+
+class MemoryStorageEligibility(StrEnum):
+    ALLOWED = "allowed"
+    REDACT = "redact"
+    REJECT = "reject"
+
+
+class MemoryRedactionState(StrEnum):
+    NOT_REQUIRED = "not_required"
+    REDACTED = "redacted"
+    REJECTED = "rejected"
+
+
 class MemoryCandidate(BaseModel):
     memory_type: MemoryType
     content: str = Field(min_length=1, max_length=300)
@@ -46,12 +71,19 @@ class MemoryRecordView(BaseModel):
     updated_at: datetime
     expires_at: datetime | None = None
     status: MemoryStatus
+    sensitivity_level: MemorySensitivityLevel = MemorySensitivityLevel.INTERNAL
+    retention_policy: MemoryRetentionPolicy = MemoryRetentionPolicy.STANDARD
+    redaction_state: MemoryRedactionState = MemoryRedactionState.NOT_REQUIRED
 
 
 class MemoryPolicyDecision(BaseModel):
     outcome: str
     candidate: MemoryCandidate | None = None
     reason: str
+    sensitivity_level: MemorySensitivityLevel = MemorySensitivityLevel.INTERNAL
+    retention_policy: MemoryRetentionPolicy = MemoryRetentionPolicy.STANDARD
+    storage_eligibility: MemoryStorageEligibility = MemoryStorageEligibility.ALLOWED
+    redaction_state: MemoryRedactionState = MemoryRedactionState.NOT_REQUIRED
 
 
 class MemoryOperationResult(BaseModel):

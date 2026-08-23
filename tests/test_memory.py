@@ -13,6 +13,7 @@ from app.memory.policy import evaluate_candidate
 from app.memory.schemas import (
     MemoryCandidate,
     MemoryOperationResult,
+    MemoryRetentionPolicy,
     MemorySource,
     MemoryStatus,
     MemoryType,
@@ -51,10 +52,20 @@ class FailingMemoryService(MemoryService):
         *,
         source: MemorySource = MemorySource.USER_EXPLICIT,
         now: datetime | None = None,
+        retention_policy: MemoryRetentionPolicy = MemoryRetentionPolicy.STANDARD,
+        tenant_id: str = "default",
     ) -> MemoryOperationResult:
         if self.operation == "remember":
             raise self.error
-        return super().remember(session, customer_id, candidate, source=source, now=now)
+        return super().remember(
+            session,
+            customer_id,
+            candidate,
+            source=source,
+            now=now,
+            retention_policy=retention_policy,
+            tenant_id=tenant_id,
+        )
 
     def forget(
         self,
@@ -62,10 +73,11 @@ class FailingMemoryService(MemoryService):
         customer_id: int,
         normalized_key: str,
         now: datetime | None = None,
+        tenant_id: str = "default",
     ) -> MemoryOperationResult:
         if self.operation == "forget":
             raise self.error
-        return super().forget(session, customer_id, normalized_key, now=now)
+        return super().forget(session, customer_id, normalized_key, now=now, tenant_id=tenant_id)
 
 
 def test_memory_policy_rejects_sensitive_and_instruction_injection() -> None:

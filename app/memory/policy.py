@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import re
 
-from app.memory.schemas import MemoryCandidate, MemoryPolicyDecision, MemoryType
+from app.memory.dlp import classify_candidate, detected_types
+from app.memory.schemas import (
+    MemoryCandidate,
+    MemoryPolicyDecision,
+    MemoryStorageEligibility,
+    MemoryType,
+)
 
 _KEY_PATTERN = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
 _REJECTED_PATTERNS = (
@@ -34,26 +40,55 @@ def normalize_candidate(candidate: MemoryCandidate) -> MemoryCandidate:
 
 def evaluate_candidate(candidate: MemoryCandidate) -> MemoryPolicyDecision:
     normalized = normalize_candidate(candidate)
-    lowered = normalized.content.casefold()
-    if not _KEY_PATTERN.fullmatch(normalized.normalized_key):
-        return MemoryPolicyDecision(outcome="reject", reason="invalid_memory_key")
-    if len(normalized.content) > 300:
-        return MemoryPolicyDecision(outcome="reject", reason="memory_content_too_long")
+    classified = classify_candidate(normalized)
+    candidate_value = classified.candidate
+    metadata = {
+        "sensitivity_level": classified.sensitivity_level,
+        "retention_policy": classified.retention_policy,
+        "storage_eligibility": classified.storage_eligibility,
+        "redaction_state": classified.redaction_state,
+    }
+    if classified.storage_eligibility == MemoryStorageEligibility.REJECT:
+        types = ",".join(data_type.value for data_type in detected_types(normalized))
+        return MemoryPolicyDecision(
+            outcome="reject",
+            candidate=candidate_value,
+            reason=f"dlp_restricted_content:{types or 'sensitive_data'}",
+            **metadata,
+        )
+    if not _KEY_PATTERN.fullmatch(candidate_value.normalized_key):
+        return MemoryPolicyDecision(
+            outcome="reject", reason="invalid_memory_key", candidate=candidate_value, **metadata
+        )
+    if len(candidate_value.content) > 300:
+        return MemoryPolicyDecision(
+            outcome="reject",
+            reason="memory_content_too_long",
+            candidate=candidate_value,
+            **metadata,
+        )
+    lowered = candidate_value.content.casefold()
     if any(pattern in lowered for pattern in _REJECTED_PATTERNS):
-        return MemoryPolicyDecision(outcome="reject", reason="sensitive_or_instructional_content")
+        return MemoryPolicyDecision(
+            outcome="reject",
+            reason="sensitive_or_instructional_content",
+            candidate=candidate_value,
+            **metadata,
+        )
     if (
-        normalized.memory_type == MemoryType.PREFERENCE
-        and normalized.normalized_key in _AUTO_PREFERENCE_KEYS
+        candidate_value.memory_type == MemoryType.PREFERENCE
+        and candidate_value.normalized_key in _AUTO_PREFERENCE_KEYS
     ):
         return MemoryPolicyDecision(
-            outcome="allow", candidate=normalized, reason="low_risk_preference"
+            outcome="allow", candidate=candidate_value, reason="low_risk_preference", **metadata
         )
-    if normalized.explicit_user_request:
+    if candidate_value.explicit_user_request:
         return MemoryPolicyDecision(
-            outcome="allow", candidate=normalized, reason="explicit_user_request"
+            outcome="allow", candidate=candidate_value, reason="explicit_user_request", **metadata
         )
     return MemoryPolicyDecision(
         outcome="require_explicit",
-        candidate=normalized,
+        candidate=candidate_value,
         reason="durable_context_requires_consent",
+        **metadata,
     )
