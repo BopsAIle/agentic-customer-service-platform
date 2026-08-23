@@ -15,13 +15,20 @@ from app.policies.models import PendingActionStatus, PolicyAuditEvent
 from app.ui.repository import InMemoryAgentRunProjectionRepository
 from app.ui.schemas import (
     AgentRunView,
+    UICompilerDecision,
+    UIConfirmationLifecycle,
+    UIDecisionEvidence,
+    UIGroundingEvidence,
     UIMemoryUsage,
     UIPolicyEvent,
     UIRagDocument,
     UIRetrievalMetadata,
+    UITargetValidation,
     UIToolEvent,
     UITraceEvent,
+    UIWriteOutcome,
 )
+from app.ui.trace import trace_event_key_for_node, trace_stage_for_node
 
 
 @dataclass
@@ -163,8 +170,9 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
                     )
         memory = state.get("memory_context")
         memory_items = memory if isinstance(memory, list) else []
+        memory_count = len(memory_items)
         memory_view = UIMemoryUsage(
-            item_count=len(memory_items),
+            item_count=memory_count,
             keys=sorted(
                 str(item.get("normalized_key"))
                 for item in memory_items
@@ -175,19 +183,48 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
                 for item in memory_items
                 if isinstance(item, dict) and item.get("memory_type")
             )[:10],
+            retrieved=memory_count > 0,
+            retrieved_count=memory_count,
+            items_used=memory_count,
+            context_usage="context_enrichment" if memory_count else "not_used",
+            purpose="context_enrichment" if memory_count else "not_used",
+            decision_influence="context_only" if memory_count else "not_used",
+            authority_influence="none" if memory_count else "not_applicable",
         )
         retrieval_metadata = UIRetrievalMetadata.model_validate(
             state.get("retrieval_metadata") or {}
         )
-        trace = [
-            UITraceEvent(
-                name=node.name,
-                status=node.status,
-                duration_ms=node.duration_ms,
-                timestamp=node.timestamp,
+        trace = []
+        for node in projection.nodes:
+            stage = trace_stage_for_node(node.name)
+            trace_metadata: dict[str, str | int | float | bool] = {}
+            if stage.value == "memory_context":
+                trace_metadata = {
+                    "items_used": memory_count,
+                    "role": "context_enrichment" if memory_count else "not_used",
+                }
+            if node.name == "understand_request":
+                provider_metadata = state.get("provider_metadata")
+                if provider_metadata is not None:
+                    metadata_payload = provider_metadata.model_dump(exclude_none=True)
+                    trace_metadata.update(
+                        {
+                            key: value
+                            for key, value in metadata_payload.items()
+                            if isinstance(value, (str, int, float, bool))
+                        }
+                    )
+            trace.append(
+                UITraceEvent(
+                    name=node.name,
+                    event_key=trace_event_key_for_node(node.name),
+                    stage=stage,
+                    status=node.status,
+                    duration_ms=node.duration_ms,
+                    timestamp=node.timestamp,
+                    metadata=trace_metadata,
+                )
             )
-            for node in projection.nodes
-        ]
         pending_action = state.get("pending_action")
         run_status = "error" if response.error_category else "completed"
         if (
@@ -196,6 +233,7 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             and pending_action.status == PendingActionStatus.PENDING
         ):
             run_status = "waiting_confirmation"
+        decision_evidence = _decision_evidence(state, policy_events, response)
         view = AgentRunView(
             run_id=projection.run_id,
             request_id=projection.context.request_id,
@@ -221,6 +259,14 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             rag_documents=rag_documents,
             retrieval_metadata=retrieval_metadata,
             trace=trace,
+            decision_reason=_decision_reason(state, policy_events, response),
+            evidence=decision_evidence,
+            execution_mode=response.execution_mode.value,
+            provider=response.provider,
+            model=response.model,
+            fallback_message=response.fallback_message,
+            proposal=response.proposal,
+            provider_metadata=response.provider_metadata,
         )
         return view
 
@@ -252,6 +298,135 @@ def _risk_level(tool_name: str) -> int | None:
 
     metadata = TOOL_REGISTRY.get(tool_name)
     return int(metadata.risk_level) if metadata else None
+
+
+def _decision_evidence(
+    state: AgentState,
+    policy_events: list[PolicyAuditEvent],
+    response: AgentResponse,
+) -> UIDecisionEvidence:
+    compile_result = state.get("compile_result")
+    compiler_status = getattr(getattr(compile_result, "status", None), "value", None)
+    compiler_reason: str | None = None
+    if compiler_status in {"clarification_required", "compile_rejected"}:
+        compiler_reason = _bounded_text(
+            getattr(compile_result, "rejection_reason", None)
+            or getattr(compile_result, "reason", None)
+        )
+    policy_decision = state.get("policy_decision")
+    pending_action = state.get("pending_action")
+    confirmation_required = bool(
+        policy_decision is not None
+        and getattr(getattr(policy_decision, "outcome", None), "value", None)
+        == "require_confirmation"
+    )
+    confirmation_status: str
+    confirmation_action_id: str | None
+    confirmation_risk: int | None
+    if pending_action is not None:
+        confirmation_status = pending_action.status.value
+        confirmation_action_id = pending_action.action_id
+        confirmation_risk = pending_action.risk_level
+    else:
+        confirmation_status = state.get("confirmation_status") or (
+            "required" if confirmation_required else "not_required"
+        )
+        confirmation_action_id = state.get("action_id")
+        confirmation_risk = getattr(policy_decision, "risk_level", None)
+    selected_tool = state.get("selected_tool")
+    write_status = _write_outcome_status(state, response, selected_tool)
+    return UIDecisionEvidence(
+        grounding=UIGroundingEvidence(
+            status=state.get("grounding_status", "not_recorded"),
+            reference_type=state.get("grounding_reference_type"),
+            trusted_source=state.get("grounding_trusted_source"),
+        ),
+        compiler=UICompilerDecision(
+            status=compiler_status or "not_applicable",
+            selected_tool=(
+                getattr(compile_result, "selected_tool", None)
+                if compile_result is not None
+                else None
+            ),
+            requires_retrieval=bool(
+                getattr(compile_result, "requires_retrieval", False)
+                if compile_result is not None
+                else False
+            ),
+            reason=compiler_reason,
+        ),
+        target_validation=UITargetValidation(
+            status=state.get("target_validation_status", "not_recorded")
+        ),
+        confirmation=UIConfirmationLifecycle(
+            status=str(confirmation_status),
+            required=confirmation_required,
+            action_id=confirmation_action_id,
+            risk_level=confirmation_risk,
+        ),
+        write_outcome=UIWriteOutcome(status=write_status),
+    )
+
+
+def _decision_reason(
+    state: AgentState,
+    policy_events: list[PolicyAuditEvent],
+    response: AgentResponse,
+) -> str | None:
+    """Return a deterministic explanation, never the provider's free-form reason."""
+
+    compile_result = state.get("compile_result")
+    compiler_status = getattr(getattr(compile_result, "status", None), "value", None)
+    if compiler_status in {"clarification_required", "compile_rejected"}:
+        return _bounded_text(
+            getattr(compile_result, "rejection_reason", None)
+            or getattr(compile_result, "reason", None)
+        )
+    if policy_events:
+        event = policy_events[-1]
+        outcome = event.policy_outcome.value
+        return _bounded_text(f"Policy outcome: {outcome}.")
+    if response.error_category is not None:
+        return _bounded_text(f"Request blocked: {response.error_category.value}.")
+    return None
+
+
+def _write_outcome_status(
+    state: AgentState,
+    response: AgentResponse,
+    selected_tool: str | None,
+) -> str:
+    if response.write_outcome_unknown or state.get("write_outcome_unknown"):
+        return "unknown"
+    if selected_tool is None or not _is_write_tool(selected_tool):
+        return "not_applicable"
+    execution_status = state.get("tool_execution_status")
+    if execution_status == "executed":
+        return "executed"
+    if execution_status == "failed":
+        return "failed"
+    pending_action = state.get("pending_action")
+    if pending_action is not None and pending_action.status == PendingActionStatus.PENDING:
+        return "pending_confirmation"
+    if pending_action is not None and pending_action.status in {
+        PendingActionStatus.REJECTED,
+        PendingActionStatus.EXPIRED,
+    }:
+        return "blocked"
+    return "not_attempted"
+
+
+def _is_write_tool(tool_name: str) -> bool:
+    from app.tools import registry
+
+    metadata = registry.TOOL_REGISTRY.get(tool_name)
+    return bool(metadata and metadata.operation_type.value == "write")
+
+
+def _bounded_text(value: object, limit: int = 300) -> str | None:
+    if not isinstance(value, str) or not value:
+        return None
+    return value[:limit]
 
 
 def _action_id(state: AgentState) -> str | None:

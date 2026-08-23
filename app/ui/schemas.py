@@ -1,8 +1,10 @@
 from datetime import datetime
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from app.agent.schemas import AgentProposal, ProviderRunMetadata
 from app.health import ComponentHealthStatus
 
 
@@ -10,6 +12,26 @@ class UIMessageView(BaseModel):
     role: str
     content_available: bool
     content: str | None = None
+
+
+class DemoConversationMessage(BaseModel):
+    """Customer-facing text for a recorded showcase fixture."""
+
+    role: Literal["customer", "agent"]
+    content: str
+    timestamp: datetime | None = None
+    state: str | None = None
+    evidence_tags: list[str] = Field(default_factory=list)
+
+
+class DemoMemoryEvidence(BaseModel):
+    """Bounded synthetic memory metadata; unrestricted memory content is excluded."""
+
+    category: str
+    summary: str
+    source: str
+    authority: Literal["context_only"] = "context_only"
+    purpose: Literal["context_enrichment"] = "context_enrichment"
 
 
 class UIToolEvent(BaseModel):
@@ -46,6 +68,11 @@ class UIRagDocument(BaseModel):
     section: str
     source: str
     score: float
+    document_version: str | None = None
+    chunk_id: str | None = None
+    grounding_status: str | None = None
+    retrieved_at: datetime | None = None
+    citation_preview: str | None = None
 
 
 class UIRetrievalMetadata(BaseModel):
@@ -65,13 +92,78 @@ class UIMemoryUsage(BaseModel):
     item_count: int
     keys: list[str] = Field(default_factory=list)
     types: list[str] = Field(default_factory=list)
+    retrieved: bool = False
+    retrieved_count: int = 0
+    items_used: int = 0
+    context_usage: Literal["context_enrichment", "not_used"] = "not_used"
+    purpose: Literal["context_enrichment", "not_used"] = "not_used"
+    decision_influence: Literal["context_only", "decision_support", "not_used"] = "not_used"
+    authority_influence: Literal["none", "blocked", "not_applicable"] = "not_applicable"
+
+
+class UITraceStage(StrEnum):
+    """Stable operator-facing stage identifiers for the runtime trace."""
+
+    USER_REQUEST = "user_request"
+    INTENT_DETECTION = "intent_detection"
+    CONTEXT_RETRIEVAL = "context_retrieval"
+    GROUNDING = "grounding"
+    TARGET_VALIDATION = "target_validation"
+    POLICY_EVALUATION = "policy_evaluation"
+    CONFIRMATION = "confirmation"
+    EXECUTION_AUTHORITY = "execution_authority"
+    MEMORY_CONTEXT = "memory_context"
+    ROUTING = "routing"
+    RESPONSE = "response"
+    INTERNAL = "internal"
+
+
+class UIGroundingEvidence(BaseModel):
+    status: str = "not_recorded"
+    reference_type: str | None = None
+    trusted_source: str | None = None
+
+
+class UICompilerDecision(BaseModel):
+    status: str = "not_recorded"
+    selected_tool: str | None = None
+    requires_retrieval: bool = False
+    reason: str | None = None
+
+
+class UITargetValidation(BaseModel):
+    status: str = "not_recorded"
+
+
+class UIConfirmationLifecycle(BaseModel):
+    status: str = "not_required"
+    required: bool = False
+    action_id: str | None = None
+    risk_level: int | None = None
+
+
+class UIWriteOutcome(BaseModel):
+    status: str = "not_attempted"
+
+
+class UIDecisionEvidence(BaseModel):
+    """Bounded, privacy-safe evidence for one projected agent run."""
+
+    grounding: UIGroundingEvidence = Field(default_factory=UIGroundingEvidence)
+    compiler: UICompilerDecision = Field(default_factory=UICompilerDecision)
+    target_validation: UITargetValidation = Field(default_factory=UITargetValidation)
+    confirmation: UIConfirmationLifecycle = Field(default_factory=UIConfirmationLifecycle)
+    write_outcome: UIWriteOutcome = Field(default_factory=UIWriteOutcome)
 
 
 class UITraceEvent(BaseModel):
     name: str
+    event_key: str | None = None
+    stage: UITraceStage = UITraceStage.INTERNAL
     status: str
     duration_ms: float
     timestamp: datetime
+    metadata: dict[str, str | int | float | bool] = Field(default_factory=dict)
 
 
 class AgentRunView(BaseModel):
@@ -99,6 +191,27 @@ class AgentRunView(BaseModel):
     rag_documents: list[UIRagDocument] = Field(default_factory=list)
     retrieval_metadata: UIRetrievalMetadata = Field(default_factory=UIRetrievalMetadata)
     trace: list[UITraceEvent] = Field(default_factory=list)
+    decision_reason: str | None = None
+    evidence: UIDecisionEvidence = Field(default_factory=UIDecisionEvidence)
+    execution_mode: str = "recorded_replay"
+    provider: str = "recorded_evidence"
+    model: str | None = None
+    fallback_message: str | None = None
+    proposal: AgentProposal | None = None
+    provider_metadata: ProviderRunMetadata | None = None
+
+
+class DemoScenarioView(BaseModel):
+    """A non-executable, recorded scenario projection for public demonstrations."""
+
+    scenario_id: str
+    title: str
+    purpose: str
+    expected: str
+    run: AgentRunView
+    messages: list[DemoConversationMessage] = Field(default_factory=list)
+    memory_evidence: list[DemoMemoryEvidence] = Field(default_factory=list)
+    proposal_confidence: float | None = Field(default=None, ge=0.0, le=1.0)
 
 
 class ConversationView(BaseModel):
@@ -130,3 +243,12 @@ class SystemComponentHealth(BaseModel):
 class SystemHealthView(BaseModel):
     status: Literal["ready", "not_ready"]
     components: list[SystemComponentHealth]
+
+
+class RuntimeConfigView(BaseModel):
+    """Safe server configuration projection; credential values are never returned."""
+
+    provider: str
+    model: str
+    environment: str
+    live_proposal_available: bool

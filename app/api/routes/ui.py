@@ -2,16 +2,19 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.auth.dependencies import require_support_operator
-from app.core.config import get_settings
+from app.core.config import LLMProvider, get_settings
 from app.core.database import get_db
 from app.health import RuntimeHealthService
 from app.memory.service import MemoryService
 from app.policies.repository import SqlAlchemyPolicyAuditRepository
+from app.ui.demo import demo_scenarios
 from app.ui.repository import AgentRunProjectionRepository, build_agent_run_projection_repository
 from app.ui.schemas import (
     AgentRunView,
     ConversationView,
+    DemoScenarioView,
     MemoryView,
+    RuntimeConfigView,
     SystemComponentHealth,
     SystemHealthView,
     UIPolicyEvent,
@@ -25,6 +28,18 @@ router = APIRouter(
     tags=["operator-console"],
     dependencies=[Depends(require_support_operator)],
 )
+
+
+@router.get("/demo-scenarios", response_model=list[DemoScenarioView])
+def demo_scenario_projections() -> list[DemoScenarioView]:
+    """Return read-only, explicitly recorded showcase projections.
+
+    These fixtures never enter the agent runtime, policy store, or execution
+    path. They exist so the operator console can demonstrate bounded evidence
+    when a local database has no corresponding run yet.
+    """
+
+    return demo_scenarios()
 
 
 def _run_or_404(run_id: str, repository: AgentRunProjectionRepository) -> AgentRunView:
@@ -192,4 +207,21 @@ def system_health(request: Request, session: Session = Depends(get_db)) -> Syste
             )
             for component in snapshot.components
         ],
+    )
+
+
+@router.get("/runtime-config", response_model=RuntimeConfigView)
+def runtime_config() -> RuntimeConfigView:
+    settings = get_settings()
+    live_available = bool(
+        settings.llm_provider == LLMProvider.OPENAI_COMPATIBLE
+        and settings.llm_api_key
+        and settings.llm_base_url.rstrip("/").casefold() == "https://api.openai.com/v1"
+    )
+    provider = "OpenAI" if live_available else "Configured provider"
+    return RuntimeConfigView(
+        provider=provider,
+        model=settings.llm_model,
+        environment=settings.app_env,
+        live_proposal_available=live_available,
     )

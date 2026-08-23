@@ -15,6 +15,11 @@ from app.ui.schemas import AgentRunView
 DEFAULT_PROJECTION_QUERY_LIMIT = 50
 MAX_PROJECTION_QUERY_LIMIT = 100
 DEFAULT_PROJECTION_MEMORY_LIMIT = 500
+_DECISION_EVIDENCE_KEY = "_operator_decision_evidence"
+_DECISION_REASON_KEY = "_operator_decision_reason"
+_MEMORY_USAGE_KEY = "_operator_memory_usage"
+_EXECUTION_METADATA_KEY = "_operator_execution_metadata"
+_PROPOSAL_KEY = "_operator_proposal"
 
 
 class AgentRunProjectionRepository(Protocol):
@@ -188,6 +193,20 @@ def build_agent_run_projection_repository(
 
 def _to_record(projection: AgentRunView) -> AgentRunProjectionRecord:
     payload = projection.model_dump(mode="json")
+    retrieval_metadata = dict(payload["retrieval_metadata"])
+    # Keep the frozen Alembic head intact. These bounded operator fields are stored
+    # in the existing JSON projection envelope for backward-compatible reconstruction.
+    retrieval_metadata[_DECISION_EVIDENCE_KEY] = payload["evidence"]
+    retrieval_metadata[_DECISION_REASON_KEY] = payload["decision_reason"]
+    retrieval_metadata[_MEMORY_USAGE_KEY] = payload["memory"]
+    retrieval_metadata[_EXECUTION_METADATA_KEY] = {
+        "execution_mode": payload["execution_mode"],
+        "provider": payload["provider"],
+        "model": payload["model"],
+        "fallback_message": payload["fallback_message"],
+        "provider_metadata": payload["provider_metadata"],
+    }
+    retrieval_metadata[_PROPOSAL_KEY] = payload["proposal"]
     return AgentRunProjectionRecord(
         run_id=projection.run_id,
         request_id=projection.request_id,
@@ -213,7 +232,7 @@ def _to_record(projection: AgentRunView) -> AgentRunProjectionRecord:
         tools=payload["tools"],
         policy=payload["policy"],
         rag_documents=payload["rag_documents"],
-        retrieval_metadata=payload["retrieval_metadata"],
+        retrieval_metadata=retrieval_metadata,
         trace=payload["trace"],
         created_at=projection.started_at,
         updated_at=datetime.now(UTC),
@@ -258,6 +277,13 @@ def _update_record(record: AgentRunProjectionRecord, projection: AgentRunView) -
 
 
 def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
+    stored_retrieval_metadata = dict(record.retrieval_metadata or {})
+    decision_evidence = stored_retrieval_metadata.pop(_DECISION_EVIDENCE_KEY, None)
+    decision_reason = stored_retrieval_metadata.pop(_DECISION_REASON_KEY, None)
+    memory_usage = stored_retrieval_metadata.pop(_MEMORY_USAGE_KEY, None)
+    raw_execution_metadata = stored_retrieval_metadata.pop(_EXECUTION_METADATA_KEY, None)
+    execution_metadata = raw_execution_metadata if isinstance(raw_execution_metadata, dict) else {}
+    proposal = stored_retrieval_metadata.pop(_PROPOSAL_KEY, None)
     return AgentRunView.model_validate(
         {
             "run_id": record.run_id,
@@ -278,7 +304,8 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
             "failure_category": record.failure_category,
             "degraded_components": record.degraded_components,
             "recovery_action": record.recovery_action,
-            "memory": {
+            "memory": memory_usage
+            or {
                 "item_count": record.memory_item_count,
                 "keys": record.memory_keys,
                 "types": record.memory_types,
@@ -286,8 +313,16 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
             "tools": record.tools,
             "policy": record.policy,
             "rag_documents": record.rag_documents,
-            "retrieval_metadata": record.retrieval_metadata,
+            "retrieval_metadata": stored_retrieval_metadata,
             "trace": record.trace,
+            "decision_reason": decision_reason,
+            "evidence": decision_evidence,
+            "execution_mode": execution_metadata.get("execution_mode", "recorded_replay"),
+            "provider": execution_metadata.get("provider", "recorded_evidence"),
+            "model": execution_metadata.get("model"),
+            "fallback_message": execution_metadata.get("fallback_message"),
+            "provider_metadata": execution_metadata.get("provider_metadata"),
+            "proposal": proposal,
         }
     )
 
