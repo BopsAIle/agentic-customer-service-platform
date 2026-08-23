@@ -44,12 +44,11 @@ available. When the API key is absent, the existing backend path falls back to
 bounded recorded evidence replay; the generated run metadata records which mode
 actually ran.
 
-The script writes only bounded metadata to
-`screenshots/demo-final/demo-run-index.json`: run identifiers, provider/model
-labels, intent/request type, proposal validation state, decision reason,
-confirmation state, tool status, and authority result. It does not write the
-request text, API key, authorization header, raw model response, or hidden
-reasoning.
+The script writes only bounded run metadata to its configured demo output
+location: run identifiers, provider/model labels, intent/request type, proposal
+validation state, decision reason, confirmation state, tool status, and
+authority result. It does not write the request text, API key, authorization
+header, raw model response, or hidden reasoning.
 
 The current seeded local deployment uses customer `#1` and order `#1`. The
 public scenario narrative refers to a damaged-headphones refund, while the
@@ -204,10 +203,10 @@ current screenshot set for the public repository:
 | Screenshot | What it explains |
 | --- | --- |
 | `01-control-plane-overview.png` | Context, proposal, decision, and authority in one view |
-| `02-refund-confirmation-boundary.png` | Grounded evidence held at confirmation |
-| `03-prompt-injection-policy-deny.png` | Untrusted scope expansion prevented by policy |
-| `04-idempotency-protection.png` | Duplicate side effects prevented by existing state |
-| `05-missing-information-clarification.png` | Clarification without a mutation attempt |
+| `02-refund-confirmation-boundary-v2.png` | Customer request, bounded response, and grounded evidence held at confirmation |
+| `03-prompt-injection-policy-deny-v2.png` | Untrusted scope expansion, bounded response, and policy prevention |
+| `04-idempotency-protection-v2.png` | Duplicate request, bounded response, and existing-state protection |
+| `05-missing-information-clarification-v2.png` | Incomplete request, clarification response, and no mutation attempt |
 | `06-operational-run-registry.png` | Evidence snapshots organized for investigation |
 | `07-authority-flow.png` | Context and proposal separated from execution authority |
 | `08-investigation-report.png` | Bounded report with evidence, decision, authority, and outcome |
@@ -222,36 +221,7 @@ bash scripts/capture_demo_final_release_v3.sh
 The capture uses local deterministic projections and fixed viewports. It does
 not call a provider or create a runtime mutation.
 
-## Screenshot packages
-
-### Final production investigation package
-
-An earlier package lives under `screenshots/demo-final-release/` and is intended
-to be read as an engineering narrative rather than a generic dashboard:
-
-| Screenshot | Purpose | Engineering capability demonstrated |
-| --- | --- | --- |
-| `01-overview-control-plane.png` | First impression | System guarantees and the proposal/decision/authority model |
-| `07-evidence-relationship-graph.png` | Architecture proof | Context, proposal, decision, policy, and authority ownership are distinct |
-| `08-investigation-report-modal.png` | Evidence report | Bounded checks and decisions are reviewable without hidden reasoning |
-| `06-runs-registry.png` | Operational observability | Multiple deterministic scenarios are inspectable from one registry |
-| `02-refund-investigation.png` | Primary investigation | Memory, RAG, proposal, policy, confirmation, and authority evidence |
-| `03-prompt-injection-defense.png` | Safety boundary | Untrusted scope expansion is denied before execution |
-| `04-idempotency-protection.png` | Reliability boundary | Existing operation state blocks a duplicate business effect |
-| `05-clarification-flow.png` | Controlled uncertainty | Missing target information leads to clarification, not guessing |
-| `09-mobile-investigation.png` | Responsive operator view | The same investigation remains usable on a narrow viewport |
-
-Capture with:
-
-```bash
-bash scripts/capture_demo_final_release.sh
-```
-
-The script uses only local deterministic projections, fixed viewport sizes, and
-stable scenario IDs. It does not call a provider, submit a confirmation, or
-create a business mutation.
-
-### How to read the showcase
+## How to read the showcase
 
 The presentation follows one control-plane rule:
 
@@ -265,53 +235,9 @@ decision compiler, policy/confirmation boundary, and runtime layer make the
 observable decision. The UI intentionally exposes operational evidence and
 decisions, not hidden model reasoning.
 
-An earlier operator workflow package is captured under
-`screenshots/demo-final-v7/`. It contains a filtered fixture registry, the
-investigation timeline, decision lifecycle summary, evidence flow, report
-preview, and a mobile timeline capture. These are bounded presentation
-artifacts, not live telemetry.
-
-An earlier control-plane package is captured under
-`screenshots/demo-final-release-v2/`. It adds the architecture-at-a-glance
-flow, status semantics, operational timeline, and a fixture-only registry view
-to the same evidence story. Generate it with:
-
-```bash
-bash scripts/capture_demo_final_release_v2.sh
-```
-
-An earlier investigation package is captured under
-`screenshots/demo-final-v6/`. It contains the Runs & traces index, a selected
-investigation, the evidence relationship flow, a report preview, and mobile
-captures. The package uses the deterministic recorded refund fixture by
-default; set `DEMO_RUN_ID` when a different existing run projection is needed.
-
-An earlier presentation package is captured under
-`screenshots/demo-final-v5/`. The `/showcase` route is read-only and hides
-developer configuration while keeping the conversation, context evidence,
-proposal boundary, deterministic decision, authority outcome, and optional
-run-investigation capture visible. Set `DEMO_RUN_ID` to an existing run id to
-include the `/runs/:runId` desktop and mobile captures.
-
-The original fixture showcase is captured under
-`screenshots/demo-final-v3/`. It contains the overview, four production-style
-scenario views, architecture and safety views, plus mobile overview and
-playground captures. These images are generated from the read-only
-`/ui/demo-scenarios` projection and do not represent additional runtime
-executions.
-
-The earlier live/replay package in `screenshots/demo-final/` remains organized
-for runtime-run documentation:
-
-- `overview/` — overview dashboard and system guarantees;
-- `scenarios/` — the five scenario investigation views;
-- `architecture/` — authority boundary visualization;
-- `investigation/` — successful/rejected trace and safety evidence;
-- `mobile/` — compact overview and playground views.
-
-Screenshots are generated from the local UI after the demo runner produces run
-IDs. They are presentation evidence only; they do not add metrics or change
-evaluation artifacts.
+The current screenshot package under `screenshots/demo-final-release-v3/` is the
+single public visual reference. It is generated from bounded deterministic
+projections and does not add metrics or change evaluation artifacts.
 
 ## Boundaries and limitations
 
