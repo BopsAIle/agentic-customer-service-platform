@@ -21,6 +21,7 @@ def make_create_pending_node(clock: Clock) -> Callable[[AgentState], AgentState]
         action = PendingAction(
             action_id=action_id,
             conversation_id=context.conversation_id,
+            tenant_id=context.tenant_id,
             actor_id=context.principal.actor_id,
             actor_type=context.principal.actor_type,
             effective_customer_id=context.effective_customer_id,

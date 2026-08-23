@@ -11,6 +11,7 @@ from app.agent.tool_catalog import get_agent_tool_definition
 from app.policies.confirmation import Clock
 from app.policies.repository import PolicyAuditRepository
 from app.resilience.config import ResilienceConfig
+from app.resilience.control import ReliabilityController
 from app.resilience.errors import ResilienceError, RetryExhaustedError, UnknownWriteOutcomeError
 from app.resilience.retry import run_with_retry
 from app.services.idempotency import IdempotencyScope, commit_business_write
@@ -23,6 +24,7 @@ def make_execute_tool_node(
     resilience_config: ResilienceConfig | None = None,
     audit_repository: PolicyAuditRepository | None = None,
     clock: Clock | None = None,
+    reliability_controller: ReliabilityController | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def execute_tool(state: AgentState) -> AgentState:
         tool_name = state["selected_tool"]
@@ -69,6 +71,7 @@ def make_execute_tool_node(
                 idempotency = IdempotencyScope(
                     actor_id=context.principal.actor_id,
                     key=action_id,
+                    tenant_id=context.tenant_id,
                 )
                 if audit_repository is not None and clock is not None:
                     record_execution_event(
@@ -95,6 +98,8 @@ def make_execute_tool_node(
                     dependency="tool",
                     operation_type=operation_type,
                     config=resilience_config,
+                    controller=reliability_controller,
+                    service_identity=f"tool:{tool_name}",
                 )
             except UnknownWriteOutcomeError:
                 if execution_started and audit_repository is not None and clock is not None:

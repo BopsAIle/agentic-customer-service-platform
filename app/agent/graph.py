@@ -31,9 +31,10 @@ from app.policies.confirmation import Clock
 from app.policies.engine import PolicyEngine
 from app.policies.models import PolicyOutcome
 from app.policies.repository import PolicyAuditRepository
-from app.rag.generation.grounded import GroundedAnswerGenerator
+from app.rag.answer_generator import GroundedAnswerGenerator
 from app.rag.interfaces import KnowledgeRetriever
 from app.resilience.config import ResilienceConfig
+from app.resilience.control import ReliabilityController
 from app.tools import registry
 from app.ui.projection import record_node
 
@@ -122,11 +123,13 @@ def _load_context(state: AgentState) -> AgentState:
             "tool_result": None,
         }
     existing_customer = state.get("conversation_customer_id")
+    existing_tenant = state.get("conversation_tenant_id")
     existing_actor_id = state.get("conversation_actor_id")
     existing_actor_type = state.get("conversation_actor_type")
     principal = context.principal
     if (
         (existing_customer is not None and existing_customer != context.effective_customer_id)
+        or (existing_tenant is not None and existing_tenant != context.tenant_id)
         or (existing_actor_id is not None and existing_actor_id != principal.actor_id)
         or (existing_actor_type is not None and existing_actor_type != principal.actor_type.value)
     ):
@@ -141,6 +144,7 @@ def _load_context(state: AgentState) -> AgentState:
         }
     return {
         "conversation_customer_id": context.effective_customer_id,
+        "conversation_tenant_id": context.tenant_id,
         "conversation_actor_id": principal.actor_id,
         "conversation_actor_type": principal.actor_type.value,
         "agent_run_id": state["agent_run_id"],
@@ -158,6 +162,7 @@ def _load_context(state: AgentState) -> AgentState:
         "tool_result": None,
         "retrieved_chunks": [],
         "retrieval_metadata": {},
+        "answer_grounding": {},
         "knowledge_answer": None,
         "citations": [],
         "requires_retrieval": False,
@@ -279,6 +284,7 @@ def build_graph(
     grounded_generator: GroundedAnswerGenerator,
     memory_service: MemoryService,
     resilience_config: ResilienceConfig,
+    reliability_controller: ReliabilityController,
     decision_contract_version: str = "semantic_decision_v3",
 ) -> CompiledStateGraph[AgentState, None, AgentState, AgentState]:
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
@@ -299,7 +305,9 @@ def build_graph(
             Any,
             _instrument_node(
                 "retrieve_memory",
-                make_retrieve_memory_node(memory_service, session, resilience_config),
+                make_retrieve_memory_node(
+                    memory_service, session, resilience_config, reliability_controller
+                ),
             ),
         ),
     )
@@ -310,7 +318,10 @@ def build_graph(
             _instrument_node(
                 "understand_request",
                 make_understand_request_node(
-                    provider, resilience_config, decision_contract_version
+                    provider,
+                    resilience_config,
+                    decision_contract_version,
+                    reliability_controller,
                 ),
             ),
         ),
@@ -368,7 +379,13 @@ def build_graph(
             Any,
             _instrument_node(
                 "execute_tool",
-                make_confirmed_execution_node(session, resilience_config, audit_repository, clock),
+                make_confirmed_execution_node(
+                    session,
+                    resilience_config,
+                    audit_repository,
+                    clock,
+                    reliability_controller,
+                ),
             ),
         ),
     )
@@ -378,7 +395,13 @@ def build_graph(
             Any,
             _instrument_node(
                 "execute_tool",
-                make_confirmed_execution_node(session, resilience_config, audit_repository, clock),
+                make_confirmed_execution_node(
+                    session,
+                    resilience_config,
+                    audit_repository,
+                    clock,
+                    reliability_controller,
+                ),
             ),
         ),
     )
@@ -387,7 +410,14 @@ def build_graph(
         cast(
             Any,
             _instrument_node(
-                "escalate", make_human_escalation_node(session, audit_repository, clock)
+                "escalate",
+                make_human_escalation_node(
+                    session,
+                    audit_repository,
+                    clock,
+                    resilience_config,
+                    reliability_controller,
+                ),
             ),
         ),
     )
@@ -397,7 +427,12 @@ def build_graph(
             Any,
             _instrument_node(
                 "retrieve_knowledge",
-                make_retrieve_node(knowledge_retriever, grounded_generator, resilience_config),
+                make_retrieve_node(
+                    knowledge_retriever,
+                    grounded_generator,
+                    resilience_config,
+                    reliability_controller,
+                ),
             ),
         ),
     )

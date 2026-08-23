@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 
 from sqlalchemy.orm import Session
@@ -11,6 +12,7 @@ from app.agent.schemas import AgentErrorCategory, SemanticDecision
 from app.agent.semantic_grounding import validate_semantic_grounding
 from app.agent.state import AgentState
 from app.agent.target_admissibility import assess_target_admissibility
+from app.observability.metrics import get_metrics
 from app.observability.tracing import span
 
 
@@ -20,8 +22,13 @@ def make_compile_decision_node(
     compiler = DecisionCompiler(BusinessTargetResolver(session))
 
     def compile_decision(state: AgentState) -> AgentState:
+        started = time.perf_counter()
+        status = "skipped"
         decision = state.get("semantic_decision")
         if decision is None:
+            get_metrics().decision_compile_duration_seconds.record(
+                time.perf_counter() - started, {"status": status}
+            )
             return {}
         assert isinstance(decision, SemanticDecision)
         user_message = _latest_user_message(state)
@@ -46,6 +53,10 @@ def make_compile_decision_node(
             },
         ):
             pass
+        status = "rejected" if result.status == CompileStatus.COMPILE_REJECTED else "accepted"
+        get_metrics().decision_compile_duration_seconds.record(
+            time.perf_counter() - started, {"status": status}
+        )
         if result.status == CompileStatus.COMPILE_REJECTED:
             return {
                 "intent": result.intent,

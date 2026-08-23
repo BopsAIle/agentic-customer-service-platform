@@ -72,6 +72,7 @@ def _record_revalidation_event(
             agent_run_id=state["agent_run_id"],
             request_id=context.request_id,
             conversation_id=context.conversation_id,
+            tenant_id=context.tenant_id,
             actor_id=context.principal.actor_id,
             actor_type=context.principal.actor_type,
             roles=list(context.principal.roles),
@@ -115,9 +116,17 @@ def _revalidate_action(
                 "Pending action customer scope failed.",
             )
         if action.tool_name == "cancel_order":
-            validate_cancel_order(session, CancelOrderInput.model_validate(arguments))
+            validate_cancel_order(
+                session,
+                CancelOrderInput.model_validate(arguments),
+                tenant_id=context.tenant_id,
+            )
         elif action.tool_name == "request_refund":
-            validate_refund_request(session, RequestRefundInput.model_validate(arguments))
+            validate_refund_request(
+                session,
+                RequestRefundInput.model_validate(arguments),
+                tenant_id=context.tenant_id,
+            )
         else:
             policy_span.set_attribute("policy.outcome", "deny")
             return _failed(

@@ -61,6 +61,7 @@ def belongs_to_context(action: PendingAction, context: ExecutionContext) -> bool
     principal = context.principal
     return (
         action.conversation_id == context.conversation_id
+        and action.tenant_id == context.tenant_id
         and action.actor_id == principal.actor_id
         and action.actor_type == principal.actor_type
         and action.effective_customer_id == context.effective_customer_id

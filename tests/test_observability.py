@@ -1,4 +1,5 @@
 from collections.abc import Iterator
+from dataclasses import fields
 from datetime import datetime
 
 import pytest
@@ -14,12 +15,21 @@ from sqlalchemy.orm import Session
 from app.agent.llm.fake import FakeDecisionProvider
 from app.agent.runtime import AgentRuntime
 from app.agent.schemas import AgentRequestType, Intent, StructuredDecision
-from app.memory.schemas import MemoryCandidate, MemoryOperationResult, MemorySource
+from app.auth.models import ActorType, Principal
+from app.core.context import ExecutionContext
+from app.memory.schemas import (
+    MemoryCandidate,
+    MemoryOperationResult,
+    MemoryRetentionPolicy,
+    MemorySource,
+)
 from app.memory.service import MemoryService
 from app.observability import tracing
-from app.observability.metrics import configure_metrics
+from app.observability.metrics import build_metrics, configure_metrics
 from app.observability.tracing import shutdown_observability
 from app.resilience.config import ResilienceConfig
+from app.resilience.control import ReliabilityController
+from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
 
 _SPAN_EXPORTER = InMemorySpanExporter()
@@ -42,10 +52,20 @@ class FailingMemoryService(MemoryService):
         *,
         source: MemorySource = MemorySource.USER_EXPLICIT,
         now: datetime | None = None,
+        retention_policy: MemoryRetentionPolicy = MemoryRetentionPolicy.STANDARD,
+        tenant_id: str = "default",
     ) -> MemoryOperationResult:
         if self.operation == "remember":
             raise self.error
-        return super().remember(session, customer_id, candidate, source=source, now=now)
+        return super().remember(
+            session,
+            customer_id,
+            candidate,
+            source=source,
+            now=now,
+            retention_policy=retention_policy,
+            tenant_id=tenant_id,
+        )
 
     def forget(
         self,
@@ -53,10 +73,11 @@ class FailingMemoryService(MemoryService):
         customer_id: int,
         normalized_key: str,
         now: datetime | None = None,
+        tenant_id: str = "default",
     ) -> MemoryOperationResult:
         if self.operation == "forget":
             raise self.error
-        return super().forget(session, customer_id, normalized_key, now=now)
+        return super().forget(session, customer_id, normalized_key, now=now, tenant_id=tenant_id)
 
 
 @pytest.fixture
@@ -191,8 +212,18 @@ def test_knowledge_request_emits_rag_spans_without_chunk_content(
         "rag.fusion",
         "rag.rerank",
         "rag.context_build",
+        "rag.answer_generate",
     } <= names
     assert content not in span_attributes(exporter)
+    answer_span = next(
+        span for span in exporter.get_finished_spans() if span.name == "rag.answer_generate"
+    )
+    assert answer_span.attributes is not None
+    assert answer_span.attributes["rag.grounding.citation_coverage"] == 1.0
+    assert answer_span.attributes["rag.grounding.unsupported_claim_count"] == 0
+    retrieval_count = answer_span.attributes["rag.grounding.retrieval_count"]
+    assert isinstance(retrieval_count, int)
+    assert retrieval_count >= 1
 
 
 def test_confirmation_and_failure_spans_record_bounded_outcomes(
@@ -265,6 +296,89 @@ def test_metrics_reader_observes_tool_and_policy_counters(
     }
     assert {"agent_runs_total", "tool_calls_total", "policy_decisions_total"} <= names
     assert span_names(exporter)
+
+
+def test_capacity_metric_catalog_is_bounded() -> None:
+    reader = InMemoryMetricReader()
+    metric_set = build_metrics(MeterProvider(metric_readers=[reader]).get_meter("capacity-test"))
+    instruments = (getattr(metric_set, field.name) for field in fields(metric_set))
+    names = {item.name for item in instruments}
+    assert {
+        "agent_run_duration_seconds",
+        "decision_compile_duration_seconds",
+        "policy_evaluation_duration_seconds",
+        "confirmation_validation_duration_seconds",
+        "checkpoint_write_duration_seconds",
+        "idempotency_lookup_duration_seconds",
+        "rag_retrieval_duration_seconds",
+        "grounding_validation_duration_seconds",
+    } <= names
+
+
+def test_circuit_and_rate_limit_emit_only_bounded_metric_dimensions(
+    telemetry: tuple[InMemorySpanExporter, InMemoryMetricReader],
+) -> None:
+    _, metric_reader = telemetry
+    now = 0.0
+    config = ResilienceConfig(
+        max_retries=0,
+        circuit_failure_threshold=1,
+        circuit_recovery_seconds=1,
+        principal_rate_limit=1,
+        customer_rate_limit=1,
+    )
+    controller = ReliabilityController(config, clock=lambda: now)
+    with pytest.raises(RetryExhaustedError):
+        run_with_retry(
+            lambda: (_ for _ in ()).throw(TimeoutError("private provider detail")),
+            dependency="retrieval",
+            config=config,
+            controller=controller,
+            service_identity="retrieval:test",
+        )
+    now = 2.0
+    assert (
+        run_with_retry(
+            lambda: "ok",
+            dependency="retrieval",
+            config=config,
+            controller=controller,
+            service_identity="retrieval:test",
+        )
+        == "ok"
+    )
+    context = ExecutionContext(
+        request_id="bounded-metric-request",
+        conversation_id="bounded-metric-conversation",
+        principal=Principal(
+            actor_id="private-actor-identifier",
+            actor_type=ActorType.SUPPORT_OPERATOR,
+            roles=["support_operator"],
+        ),
+        effective_customer_id=999,
+    )
+    controller.enforce_request_limits(context)
+    with pytest.raises(ResilienceError):
+        controller.enforce_request_limits(context)
+
+    data = metric_reader.get_metrics_data()
+    assert data is not None
+    metrics = [
+        metric
+        for resource in data.resource_metrics
+        for scope in resource.scope_metrics
+        for metric in scope.metrics
+    ]
+    names = {metric.name for metric in metrics}
+    assert {"circuit_open", "circuit_recovered", "rate_limit_rejected"} <= names
+    values = {
+        value
+        for metric in metrics
+        for point in metric.data.data_points
+        for value in (point.attributes or {}).values()
+    }
+    assert "private-actor-identifier" not in values
+    assert "private provider detail" not in values
 
 
 def test_failed_tool_records_error_category_without_arguments(
@@ -457,3 +571,10 @@ def test_resilience_retry_emits_bounded_trace_and_metric(
     assert "resilience.retry" in span_names(exporter)
     data = metric_reader.get_metrics_data()
     assert data is not None
+    names = {
+        metric.name
+        for resource in data.resource_metrics
+        for scope in resource.scope_metrics
+        for metric in scope.metrics
+    }
+    assert {"retry_attempt_count", "retry_attempts_total"} <= names

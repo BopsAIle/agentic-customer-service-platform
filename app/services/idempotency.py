@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import time
 from collections.abc import Callable, Mapping
 from typing import Any
 
@@ -11,6 +12,7 @@ from sqlalchemy.exc import DBAPIError, IntegrityError, OperationalError
 from sqlalchemy.orm import Session
 
 from app.models import BusinessActionReceipt
+from app.observability.metrics import get_metrics
 from app.resilience.errors import UnknownWriteOutcomeError
 from app.tools.base import DuplicateActionError
 
@@ -22,6 +24,7 @@ class IdempotencyScope(BaseModel):
 
     actor_id: str = Field(min_length=1, max_length=200)
     key: str = Field(min_length=8, max_length=200)
+    tenant_id: str = Field(default="default", min_length=1, max_length=200)
 
 
 def execute_idempotent[T](
@@ -46,6 +49,7 @@ def execute_idempotent[T](
             result, result_id = perform()
             session.add(
                 BusinessActionReceipt(
+                    tenant_id=scope.tenant_id,
                     actor_id=scope.actor_id,
                     operation=operation,
                     idempotency_key=scope.key,
@@ -80,13 +84,23 @@ def commit_business_write(session: Session, operation: str) -> None:
 def _get_receipt(
     session: Session, scope: IdempotencyScope, operation: str
 ) -> BusinessActionReceipt | None:
-    return session.scalar(
-        select(BusinessActionReceipt).where(
-            BusinessActionReceipt.actor_id == scope.actor_id,
-            BusinessActionReceipt.operation == operation,
-            BusinessActionReceipt.idempotency_key == scope.key,
+    started = time.perf_counter()
+    status = "error"
+    try:
+        receipt = session.scalar(
+            select(BusinessActionReceipt).where(
+                BusinessActionReceipt.actor_id == scope.actor_id,
+                BusinessActionReceipt.tenant_id == scope.tenant_id,
+                BusinessActionReceipt.operation == operation,
+                BusinessActionReceipt.idempotency_key == scope.key,
+            )
         )
-    )
+        status = "hit" if receipt is not None else "miss"
+        return receipt
+    finally:
+        get_metrics().idempotency_lookup_duration_seconds.record(
+            time.perf_counter() - started, {"status": status}
+        )
 
 
 def _validate_receipt(receipt: BusinessActionReceipt, customer_id: int, fingerprint: str) -> None:

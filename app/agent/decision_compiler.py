@@ -63,14 +63,16 @@ class BusinessTargetResolver:
     def __init__(self, session: Session) -> None:
         self.session = session
 
-    def resolve_order_id(self, target: SemanticTarget, customer_id: int) -> int | None:
+    def resolve_order_id(
+        self, target: SemanticTarget, customer_id: int, tenant_id: str = "default"
+    ) -> int | None:
         if target.type == "explicit_order":
             return target.order_id
         if target.type != "latest_order":
             return None
         order = self.session.scalar(
             select(Order)
-            .where(Order.customer_id == customer_id)
+            .where(Order.customer_id == customer_id, Order.tenant_id == tenant_id)
             .order_by(Order.created_at.desc(), Order.id.desc())
             .limit(1)
         )
@@ -266,7 +268,9 @@ class DecisionCompiler:
         if decision.intent in {Intent.ORDER_CANCEL, Intent.REFUND_REQUEST}:
             if self._wrong_order_target(decision.target):
                 return self._rejected(decision, "Order action received a ticket target.")
-            order_id = self._order_target(decision.target, context.effective_customer_id)
+            order_id = self._order_target(
+                decision.target, context.effective_customer_id, context.tenant_id
+            )
             if order_id is None:
                 return self._clarification(decision, "A specific order is required.")
             if decision.intent == Intent.ORDER_CANCEL:
@@ -307,7 +311,9 @@ class DecisionCompiler:
             if decision.target is not None:
                 if self._wrong_order_target(decision.target):
                     return self._rejected(decision, "Ticket creation received a ticket target.")
-                order_id = self._order_target(decision.target, context.effective_customer_id)
+                order_id = self._order_target(
+                    decision.target, context.effective_customer_id, context.tenant_id
+                )
                 if order_id is None:
                     return self._clarification(
                         decision, "The referenced order could not be resolved."
@@ -334,7 +340,7 @@ class DecisionCompiler:
             if decision.target is not None:
                 if decision.target.type in {"explicit_order", "latest_order"}:
                     escalated_order_id = self._order_target(
-                        decision.target, context.effective_customer_id
+                        decision.target, context.effective_customer_id, context.tenant_id
                     )
                     if escalated_order_id is None:
                         return self._clarification(
@@ -380,7 +386,9 @@ class DecisionCompiler:
                     return self._clarification(
                         decision, "A latest-order reference is not grounded in the current request."
                     )
-            order_id = self._order_target(decision.target, context.effective_customer_id)
+            order_id = self._order_target(
+                decision.target, context.effective_customer_id, context.tenant_id
+            )
             if order_id is None:
                 return self._clarification(decision, "A specific order is required.")
             return self._action(decision, context, tool, {"order_id": order_id})
@@ -411,7 +419,9 @@ class DecisionCompiler:
             return self._rejected(
                 decision, "Knowledge-and-action request received a ticket target."
             )
-        order_id = self._order_target(decision.target, context.effective_customer_id)
+        order_id = self._order_target(
+            decision.target, context.effective_customer_id, context.tenant_id
+        )
         if order_id is None:
             return self._clarification(decision, "A specific order is required.")
         if not decision.requires_retrieval or not decision.knowledge_query:
@@ -480,10 +490,12 @@ class DecisionCompiler:
             reason=decision.reason,
         )
 
-    def _order_target(self, target: SemanticTarget | None, customer_id: int) -> int | None:
+    def _order_target(
+        self, target: SemanticTarget | None, customer_id: int, tenant_id: str = "default"
+    ) -> int | None:
         if target is None or target.type == "explicit_ticket":
             return None
-        return self.resolver.resolve_order_id(target, customer_id)
+        return self.resolver.resolve_order_id(target, customer_id, tenant_id)
 
     @staticmethod
     def _wrong_order_target(target: SemanticTarget | None) -> bool:

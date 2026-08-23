@@ -8,6 +8,7 @@ from app.memory.service import MemoryService
 from app.observability.metrics import get_metrics
 from app.observability.tracing import span
 from app.resilience.config import ResilienceConfig
+from app.resilience.control import ReliabilityController
 from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
 
@@ -16,6 +17,7 @@ def make_retrieve_memory_node(
     service: MemoryService,
     session: Session,
     resilience_config: ResilienceConfig | None = None,
+    reliability_controller: ReliabilityController | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def retrieve_memory(state: AgentState) -> AgentState:
         context = state.get("execution_context")
@@ -29,9 +31,16 @@ def make_retrieve_memory_node(
         with span("memory.retrieve") as memory_span:
             try:
                 records = run_with_retry(
-                    lambda: service.retrieve(session, context.effective_customer_id, query),
+                    lambda: service.retrieve(
+                        session,
+                        context.effective_customer_id,
+                        query,
+                        principal=context.principal,
+                    ),
                     dependency="memory",
                     config=resilience_config,
+                    controller=reliability_controller,
+                    service_identity="memory:postgres",
                 )
             except (RetryExhaustedError, ResilienceError) as error:
                 memory_span.set_attribute("memory.status", "degraded")

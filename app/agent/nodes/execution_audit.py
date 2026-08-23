@@ -60,6 +60,7 @@ def record_execution_event(
             agent_run_id=state["agent_run_id"],
             request_id=context.request_id,
             conversation_id=context.conversation_id,
+            tenant_id=context.tenant_id,
             actor_id=context.principal.actor_id,
             actor_type=context.principal.actor_type,
             roles=list(context.principal.roles),

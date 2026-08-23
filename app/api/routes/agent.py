@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.agent.runtime import AgentRuntime
@@ -7,6 +7,7 @@ from app.api.dependencies import get_execution_context
 from app.api.errors import raise_http_for_tool_error
 from app.core.context import ExecutionContext
 from app.core.database import get_db
+from app.resilience.errors import RateLimitExceededError
 from app.tools.base import ToolError
 
 router = APIRouter(prefix="/agent", tags=["agent"])
@@ -37,5 +38,11 @@ def chat(
             session=session,
             execution_mode=request.execution_mode,
         )
+    except RateLimitExceededError as error:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Request rate limit exceeded.",
+            headers={"Retry-After": str(max(1, int(error.retry_after_seconds)))},
+        ) from None
     except ToolError as error:
         raise_http_for_tool_error(error)

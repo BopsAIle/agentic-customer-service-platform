@@ -10,7 +10,10 @@ from app.agent.state import AgentState
 from app.agent.tool_catalog import get_agent_tool_definition
 from app.policies.confirmation import Clock
 from app.policies.repository import PolicyAuditRepository
+from app.resilience.config import ResilienceConfig
+from app.resilience.control import ReliabilityController
 from app.resilience.errors import UnknownWriteOutcomeError
+from app.resilience.retry import run_with_retry
 from app.services.idempotency import IdempotencyScope, commit_business_write
 from app.tools.base import ToolError
 
@@ -19,6 +22,8 @@ def make_human_escalation_node(
     session: Session,
     audit_repository: PolicyAuditRepository | None = None,
     clock: Clock | None = None,
+    resilience_config: ResilienceConfig | None = None,
+    reliability_controller: ReliabilityController | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def execute_human_escalation(state: AgentState) -> AgentState:
         if state.get("selected_tool") != "escalate_to_human":
@@ -61,13 +66,33 @@ def make_human_escalation_node(
             if audit_repository is not None and clock is not None:
                 record_execution_event(state, audit_repository, clock, status="attempted")
                 execution_started = True
-            result = definition.execute(
-                session,
-                context,
-                arguments,
-                IdempotencyScope(actor_id=context.principal.actor_id, key=action_id),
+
+            def attempt() -> object:
+                try:
+                    result = definition.execute(
+                        session,
+                        context,
+                        arguments,
+                        IdempotencyScope(
+                            actor_id=context.principal.actor_id,
+                            key=action_id,
+                            tenant_id=context.tenant_id,
+                        ),
+                    )
+                    commit_business_write(session, "escalate_to_human")
+                    return result
+                except Exception:
+                    session.rollback()
+                    raise
+
+            result = run_with_retry(
+                attempt,
+                dependency="tool",
+                operation_type="write",
+                config=resilience_config,
+                controller=reliability_controller,
+                service_identity="tool:escalate_to_human",
             )
-            commit_business_write(session, "escalate_to_human")
         except UnknownWriteOutcomeError:
             session.rollback()
             if execution_started and audit_repository is not None and clock is not None:

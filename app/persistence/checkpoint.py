@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+import time
 from enum import StrEnum
 from math import ceil
 from typing import Protocol
@@ -19,6 +20,7 @@ from psycopg_pool import ConnectionPool
 
 from app.core.config import Settings
 from app.core.context import ExecutionContext
+from app.observability.metrics import get_metrics
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +39,7 @@ CHECKPOINT_ALLOWED_MSGPACK_TYPES: tuple[tuple[str, str], ...] = (
     # ExecutionContext persists the authenticated principal and its actor enum.
     ("app.auth.models", "ActorType"),
     ("app.auth.models", "Principal"),
+    ("app.auth.models", "PrincipalType"),
     ("app.core.context", "ExecutionContext"),
     # Explicit memory requests persist the candidate and memory classification.
     ("app.memory.schemas", "MemoryCandidate"),
@@ -166,11 +169,18 @@ class PostgresCheckpointProvider:
     def initialize(self) -> None:
         if self._initialized:
             return
+        started = time.perf_counter()
+        status = "error"
         try:
             self._pool.open(wait=True)
             self._checkpointer.setup()
+            status = "ok"
         except Exception as error:
             self._pool.close()
+            get_metrics().checkpoint_write_duration_seconds.record(
+                time.perf_counter() - started,
+                {"status": status, "backend": self.backend.value},
+            )
             logger.error(
                 "Checkpoint persistence initialization failed.",
                 extra={
@@ -180,6 +190,9 @@ class PostgresCheckpointProvider:
             )
             raise RuntimeError("Checkpoint persistence initialization failed.") from None
         self._initialized = True
+        get_metrics().checkpoint_write_duration_seconds.record(
+            time.perf_counter() - started, {"status": status, "backend": self.backend.value}
+        )
 
     def is_ready(self) -> bool:
         if not self._initialized:
@@ -223,8 +236,11 @@ def checkpoint_thread_id(context: ExecutionContext) -> str:
     principal = context.principal
     actor_id = quote(principal.actor_id, safe="")
     conversation_id = quote(context.conversation_id, safe="")
+    tenant_prefix = (
+        "v1" if context.tenant_id == "default" else f"v2:tenant-{quote(context.tenant_id, safe='')}"
+    )
     return (
-        f"v1:{principal.actor_type.value}:{actor_id}:"
+        f"{tenant_prefix}:{principal.actor_type.value}:{actor_id}:"
         f"customer-{context.effective_customer_id}:{conversation_id}"
     )
 

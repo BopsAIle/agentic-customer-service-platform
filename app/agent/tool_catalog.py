@@ -46,7 +46,9 @@ def _get_customer(
     idempotency: IdempotencyScope | None,
 ) -> CustomerResponse:
     del idempotency
-    return get_customer(session, cast(GetCustomerInput, _scoped(context, request)))
+    return get_customer(
+        session, cast(GetCustomerInput, _scoped(context, request)), tenant_id=context.tenant_id
+    )
 
 
 def _get_customer_orders(
@@ -56,7 +58,9 @@ def _get_customer_orders(
     idempotency: IdempotencyScope | None,
 ) -> list[OrderResponse]:
     del idempotency
-    return get_customer_orders(session, cast(GetCustomerInput, _scoped(context, request)))
+    return get_customer_orders(
+        session, cast(GetCustomerInput, _scoped(context, request)), tenant_id=context.tenant_id
+    )
 
 
 def _get_customer_tickets(
@@ -66,7 +70,9 @@ def _get_customer_tickets(
     idempotency: IdempotencyScope | None,
 ) -> list[TicketResponse]:
     del idempotency
-    return get_customer_tickets(session, cast(GetCustomerInput, _scoped(context, request)))
+    return get_customer_tickets(
+        session, cast(GetCustomerInput, _scoped(context, request)), tenant_id=context.tenant_id
+    )
 
 
 def _get_order(
@@ -76,7 +82,9 @@ def _get_order(
     idempotency: IdempotencyScope | None,
 ) -> OrderResponse:
     del idempotency
-    return get_order(session, cast(GetOrderInput, _scoped(context, request)))
+    return get_order(
+        session, cast(GetOrderInput, _scoped(context, request)), tenant_id=context.tenant_id
+    )
 
 
 def _get_ticket(
@@ -86,7 +94,9 @@ def _get_ticket(
     idempotency: IdempotencyScope | None,
 ) -> TicketResponse:
     del idempotency
-    return get_ticket(session, cast(GetTicketInput, _scoped(context, request)))
+    return get_ticket(
+        session, cast(GetTicketInput, _scoped(context, request)), tenant_id=context.tenant_id
+    )
 
 
 def _create_ticket(
@@ -99,6 +109,7 @@ def _create_ticket(
         session,
         cast(CreateSupportTicketInput, _scoped(context, request)),
         idempotency=_require_idempotency(idempotency),
+        tenant_id=context.tenant_id,
     )
 
 
@@ -112,6 +123,7 @@ def _cancel_order(
         session,
         cast(CancelOrderInput, _scoped(context, request)),
         idempotency=_require_idempotency(idempotency),
+        tenant_id=context.tenant_id,
     )
 
 
@@ -125,6 +137,7 @@ def _request_refund(
         session,
         cast(RequestRefundInput, _scoped(context, request)),
         idempotency=_require_idempotency(idempotency),
+        tenant_id=context.tenant_id,
     )
 
 
@@ -138,6 +151,7 @@ def _escalate_to_human(
         session,
         cast(EscalateToHumanInput, _scoped(context, request)),
         idempotency=_require_idempotency(idempotency),
+        tenant_id=context.tenant_id,
     )
 
 

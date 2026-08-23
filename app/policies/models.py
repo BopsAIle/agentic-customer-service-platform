@@ -28,6 +28,7 @@ class PendingActionStatus(StrEnum):
 class PendingAction(BaseModel):
     action_id: str
     conversation_id: str
+    tenant_id: str = "default"
     actor_id: str
     actor_type: ActorType
     effective_customer_id: int
@@ -51,6 +52,7 @@ class PolicyAuditEvent(BaseModel):
     agent_run_id: str
     request_id: str
     conversation_id: str
+    tenant_id: str = "default"
     actor_id: str
     actor_type: ActorType
     roles: list[str] = Field(max_length=20)

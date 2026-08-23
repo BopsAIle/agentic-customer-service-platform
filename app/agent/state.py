@@ -24,6 +24,7 @@ class ConversationMessage(TypedDict):
 class AgentState(TypedDict, total=False):
     execution_context: ExecutionContext
     conversation_id: str
+    conversation_tenant_id: str
     conversation_customer_id: int
     conversation_actor_id: str
     conversation_actor_type: str
@@ -47,6 +48,7 @@ class AgentState(TypedDict, total=False):
     knowledge_query: str | None
     retrieved_chunks: list[dict[str, object]]
     retrieval_metadata: dict[str, object]
+    answer_grounding: dict[str, object]
     knowledge_answer: str | None
     citations: list[dict[str, object]]
     retry_count: int

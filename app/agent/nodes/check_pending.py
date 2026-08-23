@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 
 from app.agent.schemas import AgentErrorCategory
@@ -24,17 +25,25 @@ def make_check_pending_node(
     clock: Clock, ttl_seconds: int, audit_repository: PolicyAuditRepository
 ) -> Callable[[AgentState], AgentState]:
     def check_pending(state: AgentState) -> AgentState:
-        with span("confirmation.evaluate") as confirmation_span:
-            result = _check_pending(state, clock, ttl_seconds)
-            _record_confirmation_event(state, result, clock, audit_repository)
-            status = result.get("confirmation_status") or "none"
-            confirmation_span.set_attribute("confirmation.result", status)
-            action = result.get("pending_action") or state.get("pending_action")
-            if action is not None:
-                confirmation_span.set_attribute("action.status", action.status.value)
-            confirmation_span.set_attribute("action.expired", status == "expired")
-            get_metrics().confirmation_results_total.add(1, {"result": status})
-            return result
+        started = time.perf_counter()
+        status = "error"
+        try:
+            with span("confirmation.evaluate") as confirmation_span:
+                result = _check_pending(state, clock, ttl_seconds)
+                _record_confirmation_event(state, result, clock, audit_repository)
+                status = str(result.get("confirmation_status") or "none")
+                confirmation_span.set_attribute("confirmation.result", status)
+                action = result.get("pending_action") or state.get("pending_action")
+                if action is not None:
+                    confirmation_span.set_attribute("action.status", action.status.value)
+                confirmation_span.set_attribute("action.expired", status == "expired")
+                get_metrics().confirmation_results_total.add(1, {"result": status})
+                return result
+        finally:
+            get_metrics().confirmation_validation_duration_seconds.record(
+                time.perf_counter() - started,
+                {"status": status},
+            )
 
     return check_pending
 
@@ -59,6 +68,7 @@ def _record_confirmation_event(
             agent_run_id=state["agent_run_id"],
             request_id=context.request_id,
             conversation_id=context.conversation_id,
+            tenant_id=context.tenant_id,
             actor_id=context.principal.actor_id,
             actor_type=context.principal.actor_type,
             roles=list(context.principal.roles),

@@ -30,7 +30,7 @@ from app.auth.models import ActorType, Principal
 from app.core.config import DecisionContractVersion, LLMProvider, Settings, get_settings
 from app.core.context import ExecutionContext
 from app.memory.service import MemoryService
-from app.observability.metrics import get_metrics
+from app.observability.metrics import get_metrics, record_agent_run_summary
 from app.observability.tracing import span
 from app.persistence.checkpoint import (
     CheckpointBackend,
@@ -44,7 +44,7 @@ from app.policies.repository import (
     PolicyAuditRepository,
     build_policy_audit_repository,
 )
-from app.rag.generation.grounded import GroundedAnswerGenerator
+from app.rag.answer_generator import GroundedAnswerGenerator
 from app.rag.interfaces import (
     KnowledgeRetriever,
     ManagedKnowledgeRetriever,
@@ -52,6 +52,7 @@ from app.rag.interfaces import (
 )
 from app.rag.retrieval.service import build_default_knowledge_service
 from app.resilience.config import ResilienceConfig
+from app.resilience.control import ReliabilityController
 from app.ui.projection import get_projection_store
 from app.ui.repository import AgentRunProjectionRepository, build_agent_run_projection_repository
 
@@ -74,6 +75,7 @@ class AgentRuntime:
         resilience_config: ResilienceConfig | None = None,
         projection_repository: AgentRunProjectionRepository | None = None,
         decision_contract_version: DecisionContractVersion | None = None,
+        reliability_controller: ReliabilityController | None = None,
     ) -> None:
         settings = get_settings()
         self.settings = settings
@@ -106,6 +108,9 @@ class AgentRuntime:
             support_context_ttl_days=settings.memory_support_context_ttl_days,
         )
         self.resilience_config = resilience_config or ResilienceConfig.from_settings(settings)
+        self.reliability_controller = reliability_controller or ReliabilityController(
+            self.resilience_config
+        )
         self.projection_repository_override = projection_repository
 
     def close(self) -> None:
@@ -136,6 +141,7 @@ class AgentRuntime:
         execution_mode: AgentExecutionMode = AgentExecutionMode.RECORDED_REPLAY,
     ) -> AgentResponse:
         execution_context = context or _legacy_execution_context(conversation_id, customer_id)
+        self.reliability_controller.enforce_request_limits(execution_context)
         conversation_id = execution_context.conversation_id
         customer_id = execution_context.effective_customer_id
         thread_id = checkpoint_thread_id(execution_context)
@@ -189,6 +195,7 @@ class AgentRuntime:
                     grounded_generator=self.grounded_generator,
                     memory_service=self.memory_service,
                     resilience_config=self.resilience_config,
+                    reliability_controller=self.reliability_controller,
                     decision_contract_version=decision_contract_version,
                 )
                 with projection_store.capture(
@@ -235,7 +242,9 @@ class AgentRuntime:
                             projection,
                             response=response,
                             state=state,
-                            policy_events=audit_repository.list_for_agent_run(agent_run_id),
+                            policy_events=audit_repository.list_for_agent_run(
+                                agent_run_id, tenant_id=execution_context.tenant_id
+                            ),
                             duration_ms=(time.perf_counter() - started) * 1000,
                         )
                         projection.view = view
@@ -279,7 +288,12 @@ class AgentRuntime:
                 )
                 raise
             finally:
-                metric.agent_run_duration_seconds.record(time.perf_counter() - started, labels)
+                duration_seconds = time.perf_counter() - started
+                metric.agent_run_duration_seconds.record(duration_seconds, labels)
+                record_agent_run_summary(
+                    duration_seconds=duration_seconds,
+                    error=labels["status"] == "error",
+                )
                 if labels["status"] == "error":
                     metric.agent_errors_total.add(1, labels)
 
@@ -331,6 +345,7 @@ def _legacy_execution_context(
             actor_type=ActorType.SUPPORT_OPERATOR,
             roles=["support_operator"],
         ),
+        tenant_id="default",
         effective_customer_id=customer_id,
     )
 

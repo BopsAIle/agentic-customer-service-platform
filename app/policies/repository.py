@@ -33,15 +33,27 @@ class PolicyAuditRepository(Protocol):
     def append(self, event: PolicyAuditEvent) -> None: ...
 
     def list_for_agent_run(
-        self, agent_run_id: str, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        agent_run_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]: ...
 
     def list_for_conversation(
-        self, conversation_id: str, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]: ...
 
     def list_for_customer(
-        self, customer_id: int, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        customer_id: int,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]: ...
 
 
@@ -59,24 +71,51 @@ class InMemoryPolicyAuditLog:
         self._events.append(event)
 
     def list_for_agent_run(
-        self, agent_run_id: str, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        agent_run_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]:
         return _bounded(
-            [event for event in self._events if event.agent_run_id == agent_run_id], limit
+            [
+                event
+                for event in self._events
+                if event.agent_run_id == agent_run_id and event.tenant_id == tenant_id
+            ],
+            limit,
         )
 
     def list_for_conversation(
-        self, conversation_id: str, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]:
         return _bounded(
-            [event for event in self._events if event.conversation_id == conversation_id], limit
+            [
+                event
+                for event in self._events
+                if event.conversation_id == conversation_id and event.tenant_id == tenant_id
+            ],
+            limit,
         )
 
     def list_for_customer(
-        self, customer_id: int, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        customer_id: int,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]:
         return _bounded(
-            [event for event in self._events if event.effective_customer_id == customer_id], limit
+            [
+                event
+                for event in self._events
+                if event.effective_customer_id == customer_id and event.tenant_id == tenant_id
+            ],
+            limit,
         )
 
 
@@ -88,7 +127,10 @@ class SqlAlchemyPolicyAuditRepository:
 
     def append(self, event: PolicyAuditEvent) -> None:
         existing = self.session.scalar(
-            select(PolicyAuditRecord).where(PolicyAuditRecord.event_id == event.event_id)
+            select(PolicyAuditRecord).where(
+                PolicyAuditRecord.event_id == event.event_id,
+                PolicyAuditRecord.tenant_id == event.tenant_id,
+            )
         )
         if existing is not None:
             return
@@ -102,32 +144,57 @@ class SqlAlchemyPolicyAuditRepository:
             self.session.rollback()
             if (
                 self.session.scalar(
-                    select(PolicyAuditRecord).where(PolicyAuditRecord.event_id == event.event_id)
+                    select(PolicyAuditRecord).where(
+                        PolicyAuditRecord.event_id == event.event_id,
+                        PolicyAuditRecord.tenant_id == event.tenant_id,
+                    )
                 )
                 is None
             ):
                 raise
 
     def list_for_agent_run(
-        self, agent_run_id: str, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        agent_run_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]:
         return self._list(
-            select(PolicyAuditRecord).where(PolicyAuditRecord.agent_run_id == agent_run_id), limit
+            select(PolicyAuditRecord).where(
+                PolicyAuditRecord.agent_run_id == agent_run_id,
+                PolicyAuditRecord.tenant_id == tenant_id,
+            ),
+            limit,
         )
 
     def list_for_conversation(
-        self, conversation_id: str, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        conversation_id: str,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]:
         return self._list(
-            select(PolicyAuditRecord).where(PolicyAuditRecord.conversation_id == conversation_id),
+            select(PolicyAuditRecord).where(
+                PolicyAuditRecord.conversation_id == conversation_id,
+                PolicyAuditRecord.tenant_id == tenant_id,
+            ),
             limit,
         )
 
     def list_for_customer(
-        self, customer_id: int, *, limit: int = DEFAULT_AUDIT_QUERY_LIMIT
+        self,
+        customer_id: int,
+        *,
+        tenant_id: str = "default",
+        limit: int = DEFAULT_AUDIT_QUERY_LIMIT,
     ) -> list[PolicyAuditEvent]:
         return self._list(
-            select(PolicyAuditRecord).where(PolicyAuditRecord.effective_customer_id == customer_id),
+            select(PolicyAuditRecord).where(
+                PolicyAuditRecord.effective_customer_id == customer_id,
+                PolicyAuditRecord.tenant_id == tenant_id,
+            ),
             limit,
         )
 
@@ -158,6 +225,7 @@ def build_policy_audit_repository(settings: object, session: Session) -> PolicyA
 def _to_record(event: PolicyAuditEvent) -> PolicyAuditRecord:
     return PolicyAuditRecord(
         event_id=event.event_id,
+        tenant_id=event.tenant_id,
         agent_run_id=event.agent_run_id,
         request_id=event.request_id,
         conversation_id=event.conversation_id,
@@ -185,6 +253,7 @@ def _from_record(record: PolicyAuditRecord) -> PolicyAuditEvent:
 
     return PolicyAuditEvent(
         event_id=record.event_id,
+        tenant_id=record.tenant_id,
         agent_run_id=record.agent_run_id,
         request_id=record.request_id,
         conversation_id=record.conversation_id,

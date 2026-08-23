@@ -44,6 +44,7 @@ def make_memory_action_node(
                         context.effective_customer_id,
                         candidate,
                         source=MemorySource.USER_EXPLICIT,
+                        tenant_id=context.tenant_id,
                     )
                 except Exception as error:
                     classification = classify_runtime_error(
@@ -88,7 +89,12 @@ def make_memory_action_node(
                 attributes={"memory.operation": "forget", "memory.key": key},
             ) as memory_span:
                 try:
-                    result = service.forget(session, context.effective_customer_id, key)
+                    result = service.forget(
+                        session,
+                        context.effective_customer_id,
+                        key,
+                        tenant_id=context.tenant_id,
+                    )
                 except Exception as error:
                     classification = classify_runtime_error(
                         error, source=RuntimeFailureSource.MEMORY

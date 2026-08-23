@@ -16,7 +16,8 @@ from app.agent.state import AgentState
 from app.memory.extraction import extract_memory_request
 from app.observability.tracing import span
 from app.resilience.config import ResilienceConfig
-from app.resilience.errors import RetryExhaustedError
+from app.resilience.control import ReliabilityController
+from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
 
 
@@ -24,6 +25,7 @@ def make_understand_request_node(
     provider: DecisionProposalProvider,
     resilience_config: ResilienceConfig | None = None,
     decision_contract_version: str = "semantic_decision_v3",
+    reliability_controller: ReliabilityController | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def understand_request(state: AgentState) -> AgentState:
         context = state["execution_context"]
@@ -44,9 +46,12 @@ def make_understand_request_node(
                     ),
                     dependency="llm",
                     config=resilience_config,
+                    controller=reliability_controller,
+                    service_identity=f"llm:{type(provider).__name__}",
+                    provider_rate_limit=True,
                     timeout_seconds=timeout_seconds,
                 )
-            except RetryExhaustedError as error:
+            except (RetryExhaustedError, ResilienceError) as error:
                 llm_span.set_attribute("llm.status", "error")
                 return {
                     "intent": Intent.UNKNOWN,

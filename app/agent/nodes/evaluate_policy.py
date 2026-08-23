@@ -1,3 +1,4 @@
+import time
 from collections.abc import Callable
 from uuid import uuid4
 
@@ -17,14 +18,22 @@ def make_evaluate_policy_node(
     engine: PolicyEngine, audit_repository: PolicyAuditRepository, clock: Clock
 ) -> Callable[[AgentState], AgentState]:
     def evaluate_policy(state: AgentState) -> AgentState:
+        started = time.perf_counter()
+        outcome = "not_evaluated"
         tool_name = state.get("selected_tool")
         if not tool_name:
+            get_metrics().policy_evaluation_duration_seconds.record(
+                time.perf_counter() - started, {"status": outcome}
+            )
             return {
                 "error_category": AgentErrorCategory.POLICY_DENIED,
                 "last_error": "Policy evaluation requires a selected tool.",
             }
         context = state.get("execution_context")
         if context is None:
+            get_metrics().policy_evaluation_duration_seconds.record(
+                time.perf_counter() - started, {"status": outcome}
+            )
             return {
                 "error_category": AgentErrorCategory.POLICY_DENIED,
                 "last_error": "Authenticated execution context is required.",
@@ -40,7 +49,11 @@ def make_evaluate_policy_node(
                     arguments=state.get("tool_arguments", {}),
                 )
             except Exception as error:
+                outcome = "fail_closed"
                 policy_span.set_attribute("policy.outcome", "fail_closed")
+                get_metrics().policy_evaluation_duration_seconds.record(
+                    time.perf_counter() - started, {"status": outcome}
+                )
                 classification = classify_runtime_error(error, source=RuntimeFailureSource.POLICY)
                 return {
                     "error_category": classification.category,
@@ -51,6 +64,10 @@ def make_evaluate_policy_node(
             policy_span.set_attribute("policy.outcome", decision.outcome.value)
             policy_span.set_attribute("tool.risk_level", decision.risk_level)
             policy_span.set_attribute("policy.reason_codes", decision.reasons[:10])
+        outcome = decision.outcome.value
+        get_metrics().policy_evaluation_duration_seconds.record(
+            time.perf_counter() - started, {"status": outcome}
+        )
         get_metrics().policy_decisions_total.add(
             1,
             {"policy_outcome": decision.outcome.value, "risk_level": str(decision.risk_level)},
@@ -65,6 +82,7 @@ def make_evaluate_policy_node(
                 agent_run_id=state["agent_run_id"],
                 request_id=context.request_id,
                 conversation_id=context.conversation_id,
+                tenant_id=context.tenant_id,
                 actor_id=context.principal.actor_id,
                 actor_type=context.principal.actor_type,
                 roles=list(context.principal.roles),

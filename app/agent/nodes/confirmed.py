@@ -8,6 +8,7 @@ from app.policies.confirmation import Clock
 from app.policies.models import PendingActionStatus
 from app.policies.repository import PolicyAuditRepository
 from app.resilience.config import ResilienceConfig
+from app.resilience.control import ReliabilityController
 
 
 def make_confirmed_execution_node(
@@ -15,8 +16,15 @@ def make_confirmed_execution_node(
     resilience_config: ResilienceConfig | None = None,
     audit_repository: PolicyAuditRepository | None = None,
     clock: Clock | None = None,
+    reliability_controller: ReliabilityController | None = None,
 ) -> Callable[[AgentState], AgentState]:
-    execute = make_execute_tool_node(session, resilience_config, audit_repository, clock)
+    execute = make_execute_tool_node(
+        session,
+        resilience_config,
+        audit_repository,
+        clock,
+        reliability_controller,
+    )
 
     def execute_confirmed(state: AgentState) -> AgentState:
         result = execute(state)
