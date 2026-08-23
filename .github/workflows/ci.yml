@@ -177,6 +177,9 @@ jobs:
           DATABASE_URL: postgresql+psycopg://app:validation-only@db:5432/customer_service
           OIDC_ISSUER: https://identity.validation.invalid
           OIDC_AUDIENCE: agent-control-plane
+          DEPLOYMENT_ID: github-actions-${{ github.run_id }}
+          EVIDENCE_STORE_BACKEND: s3
+          EVIDENCE_STORE_BUCKET: validation-evidence
         run: |
           docker compose -f docker-compose.yml -f docker-compose.prod.yml config > /tmp/production-compose.yml
           if grep -q deterministic_integration /tmp/production-compose.yml; then
