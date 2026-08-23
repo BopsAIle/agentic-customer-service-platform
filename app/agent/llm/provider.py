@@ -67,8 +67,7 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             structured_output = model.with_structured_output
             parameters = inspect.signature(structured_output).parameters
             supports_method = "method" in parameters or any(
-                parameter.kind is inspect.Parameter.VAR_KEYWORD
-                for parameter in parameters.values()
+                parameter.kind is inspect.Parameter.VAR_KEYWORD for parameter in parameters.values()
             )
             self._model = (
                 structured_output(self._decision_schema, method="function_calling")

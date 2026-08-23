@@ -607,7 +607,8 @@ def test_agent_api_validates_request_schema(client: TestClient) -> None:
 
 
 def test_live_proposal_mode_falls_back_without_openai_configuration(
-    client: TestClient, monkeypatch: pytest.MonkeyPatch,
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     runtime = AgentRuntime(
         provider=FakeDecisionProvider(
