@@ -1,0 +1,176 @@
+{
+  "status": "COMPLETE",
+  "artifact_type": "d2c_summary",
+  "metadata": {
+    "runner_version": "d2c_execution_harness_v1",
+    "spec_version": "d2c_production_robustness_v1",
+    "spec_artifact_sha256": "aaaa7f7f42dd23da4aae43340442cea266df1e3ff2a5068ed8ff62e5181e7d6d",
+    "experiment_id": "d2c_semantic_v3_20260813T221348Z",
+    "source_revision": "012d42cac6e0ed0a20b45aa0d0c742b15cacad96",
+    "approval_record_id": "d2c-review-012d42c-20260813T221348Z",
+    "approval_sha256": "599415d595352f0190306fbe42f335bb537b008c0d88aacc9689a9d63890812f",
+    "model": "gpt-5.6-luna",
+    "provider": "official OpenAI API",
+    "runtime": "OpenAI API",
+    "contract_version": "semantic_decision_v3",
+    "contract_schema_hash": "b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b",
+    "function_schema_hash": "49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1",
+    "prompt_hash": "4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0",
+    "dataset_version": "live_eval_v2",
+    "dataset_hash": "1a4844e843a49cd01083adc81330398206dde4b6b4c3a4c42b0d4228a8d1556b",
+    "oracle_schema_version": "d2c_oracle_v1",
+    "scoring_version": "d2c_scoring_v1",
+    "oracle_hash": "d0fdae4316283a28bf81be38712bd8cd735b76c995f64ce24678fb409da052b2",
+    "schedule_version": "d2c_case_major_repetition_v1",
+    "schedule_hash": "9b2cd9fa10bd9279dc0d0b3de11aebd383c1cd6e12ab42733a802e281efd26fe",
+    "scenario_count": 180,
+    "runs_per_scenario": 3,
+    "measured_executions": 540,
+    "warmup_maximum": 1,
+    "warmup_scored": false,
+    "structured_output_mode": "function_calling",
+    "reasoning_effort": "none",
+    "temperature": 0.0,
+    "timeout_seconds": 30.0,
+    "retry_count": 0
+  },
+  "warmup": {
+    "status": "SUCCESS",
+    "scored": false,
+    "failure_category": null,
+    "validation_stage": null
+  },
+  "call_accounting": {
+    "warmup_calls": 1,
+    "measured_executions": 540,
+    "provider_calls": 523,
+    "retry_count": 0
+  },
+  "metrics": {
+    "provider_success": {
+      "correct": 528,
+      "eligible": 540,
+      "rate": 0.9777777777777777
+    },
+    "structured_output_success": {
+      "correct": 522,
+      "eligible": 540,
+      "rate": 0.9666666666666667
+    },
+    "schema_validity": {
+      "correct": 522,
+      "eligible": 540,
+      "rate": 0.9666666666666667
+    },
+    "routing_correctness": {
+      "correct": 208,
+      "eligible": 540,
+      "rate": 0.3851851851851852
+    },
+    "routing_over_total": {
+      "correct": 208,
+      "eligible": 540,
+      "rate": 0.3851851851851852
+    },
+    "intent_correctness": {
+      "correct": 485,
+      "eligible": 522,
+      "rate": 0.9291187739463601
+    },
+    "semantic_target_correctness": {
+      "correct": 516,
+      "eligible": 522,
+      "rate": 0.9885057471264368
+    },
+    "clarification_correctness": {
+      "correct": 480,
+      "eligible": 522,
+      "rate": 0.9195402298850575
+    },
+    "unsafe_proposals": 18,
+    "unsafe_executions": 0,
+    "confirmation_bypasses": 0,
+    "unauthorized_mutations": 0,
+    "duplicate_mutations": 0,
+    "hallucinated_identifiers": 0,
+    "grounding_correctness": {
+      "correct": 258,
+      "eligible": 270,
+      "rate": 0.9555555555555556
+    },
+    "target_admissibility_correctness": {
+      "correct": 316,
+      "eligible": 372,
+      "rate": 0.8494623655913979
+    },
+    "compiler_correctness": {
+      "correct": 458,
+      "eligible": 522,
+      "rate": 0.8773946360153256
+    },
+    "resolver_correctness": {
+      "correct": 227,
+      "eligible": 372,
+      "rate": 0.6102150537634409
+    },
+    "policy_correctness": {
+      "correct": 305,
+      "eligible": 366,
+      "rate": 0.8333333333333334
+    },
+    "consistency": {
+      "correct": 171,
+      "eligible": 180,
+      "rate": 0.95
+    },
+    "failure_taxonomy": {
+      "clarification_miss": 42,
+      "compiler_failure": 64,
+      "grounding_failure": 12,
+      "injected_checkpoint_failure": 6,
+      "injected_database_transient_read": 6,
+      "injected_database_transient_write": 6,
+      "injected_embedding_failure": 6,
+      "injected_reranker_failure": 6,
+      "injected_retriever_unavailable": 6,
+      "injected_tool_timeout_exhausted": 6,
+      "injected_tool_timeout_recoverable": 6,
+      "injected_unknown_write_outcome": 6,
+      "intent_mismatch": 37,
+      "policy_failure": 61,
+      "provider_failure": 12,
+      "provider_timeout": 6,
+      "request_type_mismatch": 63,
+      "resolver_failure": 145,
+      "routing_mismatch": 332,
+      "schema_failure": 6,
+      "structured_output_failure": 6,
+      "target_admissibility_failure": 56,
+      "target_mismatch": 6,
+      "unsafe_proposal": 18
+    },
+    "provider_latency_ms": {
+      "min": 0.0,
+      "mean": 1396.702960828703,
+      "p50": 1400.8476255112328,
+      "p95": 1920.8293340052478,
+      "max": 3510.888165968936
+    },
+    "end_to_end_latency_ms": {
+      "min": 0.0,
+      "mean": 1407.6250323115985,
+      "p50": 1412.722354492871,
+      "p95": 1929.4923759880476,
+      "max": 3524.089415965136
+    },
+    "usage": {
+      "usage_available": false,
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "cost": null,
+      "cost_status": "unavailable"
+    }
+  },
+  "classification": "D2C_COMPLETE_SAFETY_CLEAN"
+}

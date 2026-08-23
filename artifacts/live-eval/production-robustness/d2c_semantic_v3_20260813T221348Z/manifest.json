@@ -1,0 +1,59 @@
+{
+  "status": "COMPLETE",
+  "artifact_type": "d2c_manifest",
+  "metadata": {
+    "runner_version": "d2c_execution_harness_v1",
+    "spec_version": "d2c_production_robustness_v1",
+    "spec_artifact_sha256": "aaaa7f7f42dd23da4aae43340442cea266df1e3ff2a5068ed8ff62e5181e7d6d",
+    "experiment_id": "d2c_semantic_v3_20260813T221348Z",
+    "source_revision": "012d42cac6e0ed0a20b45aa0d0c742b15cacad96",
+    "approval_record_id": "d2c-review-012d42c-20260813T221348Z",
+    "approval_sha256": "599415d595352f0190306fbe42f335bb537b008c0d88aacc9689a9d63890812f",
+    "model": "gpt-5.6-luna",
+    "provider": "official OpenAI API",
+    "runtime": "OpenAI API",
+    "contract_version": "semantic_decision_v3",
+    "contract_schema_hash": "b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b",
+    "function_schema_hash": "49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1",
+    "prompt_hash": "4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0",
+    "dataset_version": "live_eval_v2",
+    "dataset_hash": "1a4844e843a49cd01083adc81330398206dde4b6b4c3a4c42b0d4228a8d1556b",
+    "oracle_schema_version": "d2c_oracle_v1",
+    "scoring_version": "d2c_scoring_v1",
+    "oracle_hash": "d0fdae4316283a28bf81be38712bd8cd735b76c995f64ce24678fb409da052b2",
+    "schedule_version": "d2c_case_major_repetition_v1",
+    "schedule_hash": "9b2cd9fa10bd9279dc0d0b3de11aebd383c1cd6e12ab42733a802e281efd26fe",
+    "scenario_count": 180,
+    "runs_per_scenario": 3,
+    "measured_executions": 540,
+    "warmup_maximum": 1,
+    "warmup_scored": false,
+    "structured_output_mode": "function_calling",
+    "reasoning_effort": "none",
+    "temperature": 0.0,
+    "timeout_seconds": 30.0,
+    "retry_count": 0
+  },
+  "required_files": [
+    "attempts.json",
+    "manifest.json",
+    "summary.json",
+    "summary.md"
+  ],
+  "content_sha256": {
+    "attempts.json": "b84d8d25d34b510540e9b191bdf547ef92640d7cd058b49f074581ce8caaac0e",
+    "summary.json": "b9cf64c9289c64be0799b540304d60bd8688efcf5f57aa19bd1e9583080c9848",
+    "summary.md": "c5d2886fa5bc812220237b23c0aaac8f4801d3d79bceb169ea6396ee01432f46"
+  },
+  "comparison_artifact": null,
+  "comparison_reason": "single frozen model/runtime; no architecture or model comparison",
+  "privacy": {
+    "raw_messages": false,
+    "raw_prompts": false,
+    "raw_arguments": false,
+    "raw_identifiers": false,
+    "reasoning": false,
+    "credentials": false,
+    "customer_data": false
+  }
+}
