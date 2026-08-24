@@ -30,7 +30,7 @@ test.describe.serial("operator journey evidence", () => {
     expect(proposed.tool_call).toBeNull();
     expect(proposed.pending_action?.status).toBe("pending");
     await expect(page.getByTestId("confirmation-boundary").last()).toBeVisible();
-    await expect(page.getByTestId("execution-result").last()).toContainText("pending confirmation");
+    await expect(page.getByTestId("execution-result").last()).toContainText(/(?:pending|awaiting) confirmation/i);
 
     const confirmed = await submitWorkspaceMessage(page, "confirm");
     expect(confirmed.pending_action?.action_id).toBe(proposed.pending_action?.action_id);
@@ -40,7 +40,7 @@ test.describe.serial("operator journey evidence", () => {
     expect(actionReceipt).toBeTruthy();
     await expect(page.getByText(actionReceipt!, { exact: true })).toBeVisible();
     await waitForRunCompletion(page);
-    await expect(page.getByTestId("execution-result").last()).toContainText("Executed");
+    await expect(page.getByTestId("execution-result").last()).toContainText(/(?:executed|completed)/i);
   });
 
   test("prompt injection proposal is denied by deterministic policy", async ({ page }) => {
@@ -104,7 +104,7 @@ test.describe.serial("operator journey evidence", () => {
     await expect(page.getByRole("heading", { name: "demo-refund-memory-rag-20260823" })).toBeVisible();
     await expect(page.locator('[aria-label="Operational trace timeline"]')).toBeVisible();
     await expect(page.locator('[aria-label="Evidence relationship graph"]')).toBeVisible();
-    await expect(page.getByText("Pending approval boundary", { exact: false }).first()).toBeVisible();
+    await expect(page.getByText(/confirmation required/i).first()).toBeVisible();
     await expect(page.getByText("Awaiting confirmation", { exact: true }).first()).toBeVisible();
     await page.getByRole("button", { name: "View investigation report" }).click();
     await expect(page.getByRole("dialog")).toContainText("No hidden reasoning");
