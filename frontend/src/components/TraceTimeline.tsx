@@ -38,6 +38,7 @@ const stageDefinitions: StageDefinition[] = [
   } },
   { id: "context", layer: "context", stage: "context_retrieval", label: "Context retrieval", absent: "No context retrieval stage recorded.", explanation: (run, events) => events.length || run.memory.item_count > 0 || run.rag_documents.length > 0 ? "Context sources are available to the bounded proposal projection." : "No context retrieval event was recorded for this run." },
   { id: "rag", layer: "context", contextRole: "knowledge_retrieval", stage: "context_retrieval", label: "RAG evidence", absent: "No retrieval stage recorded.", explanation: (run, events) => run.rag_documents.length ? `${run.rag_documents.length} retrieved document record(s) are available.` : events.length ? "Retrieval ran, but document metadata is unavailable from the projection." : "No retrieval stage was recorded for this run." },
+  { id: "workflow", layer: "decision", stage: "routing", label: "Workflow transition", absent: "No workflow transition was recorded.", explanation: (_run, events) => events.length ? `Workflow ${String(events[events.length - 1].metadata?.workflow_state ?? "transition").replace(/_/g, " ")} recorded by the routing layer.` : "No suspend, resume, or replacement transition was recorded for this run." },
   { id: "grounding", layer: "decision", stage: "grounding", label: "Semantic grounding", absent: "No semantic grounding stage recorded.", explanation: (run, events) => events.length || run.evidence.grounding.status !== "not_recorded" ? "Deterministic grounding and compilation stage recorded." : "No semantic grounding event was recorded for this run." },
   { id: "target", layer: "decision", stage: "target_validation", label: "Target validation", absent: "No target validation stage recorded.", explanation: (run, events) => events.length || run.evidence.target_validation.status !== "not_recorded" ? "Tool target passed through the runtime validation node." : "No target validation event was recorded for this run." },
   { id: "policy", layer: "decision", stage: "policy_evaluation", label: "Policy evaluation", absent: "No policy evaluation emitted.", explanation: (run, events) => run.policy.length ? `Decision: ${run.policy[run.policy.length - 1].outcome.replace(/_/g, " ")}.` : events.length ? "Policy node recorded without an audit event." : "No policy evaluation was emitted for this run." },
@@ -62,11 +63,17 @@ function statusForStage(stage: StageDefinition, run: AgentRun, events: TraceEven
 }
 
 function matchingEvents(definition: StageDefinition, events: TraceEvent[]): TraceEvent[] {
+  if (definition.id === "workflow") {
+    return events.filter((event) => event.event_key?.startsWith("workflow."));
+  }
   return events.filter((event) => event.stage === definition.stage);
 }
 
 export function buildTraceStages(run: AgentRun): TraceStage[] {
-  return stageDefinitions.map((definition) => {
+  const definitions = run.security_signal === "instruction_override_attempt"
+    ? stageDefinitions.filter((definition) => definition.id !== "intent")
+    : stageDefinitions;
+  return definitions.map((definition) => {
     const matched = matchingEvents(definition, run.trace);
     const status = statusForStage(definition, run, matched);
     const evidence = definition.id === "policy" && run.policy.length ? run.policy[run.policy.length - 1].reason_codes.join(" · ") : definition.id === "rag" && run.rag_documents.length ? run.rag_documents.map((document) => document.citation_id).join(" · ") : undefined;
@@ -102,6 +109,8 @@ const eventLabels: Record<string, string> = {
   validate_tool: "Target validation",
   evaluate_policy: "Policy evaluation",
   create_pending_action: "Confirmation gate",
+  handle_workflow_interruption: "Workflow transition",
+  restore_suspended_workflow: "Workflow resumed",
   execute_tool: "Execution authority",
   respond: "Response returned",
 };

@@ -55,6 +55,7 @@ class CompiledDecision(BaseModel):
     refund_reason_support_status: str = RefundReasonSupportStatus.NOT_APPLICABLE.value
     refund_reason_validation_invoked: bool = False
     compiler_clarification_cause: str | None = None
+    missing_required_fields: list[str] = Field(default_factory=list)
 
 
 class BusinessTargetResolver:
@@ -230,6 +231,7 @@ class DecisionCompiler:
         *,
         grounding: SemanticGrounding | None = None,
         user_message: str = "",
+        restored_action: bool = False,
     ) -> CompiledDecision:
         admissibility = assess_target_admissibility(decision.intent, decision.target, grounding)
         if admissibility in {
@@ -250,7 +252,9 @@ class DecisionCompiler:
                 return self._clarification(
                     decision, "The cancellation request is contradictory and needs clarification."
                 )
-            return self._compile_action(decision, context, user_message)
+            return self._compile_action(
+                decision, context, user_message, restored_action=restored_action
+            )
         if route == "read":
             return self._compile_read(decision, context, user_message)
         if route == "knowledge":
@@ -262,7 +266,12 @@ class DecisionCompiler:
         return self._clarification(decision, "The request needs clarification.")
 
     def _compile_action(
-        self, decision: SemanticDecision, context: ExecutionContext, user_message: str
+        self,
+        decision: SemanticDecision,
+        context: ExecutionContext,
+        user_message: str,
+        *,
+        restored_action: bool = False,
     ) -> CompiledDecision:
         tool = ACTION_TOOLS[decision.intent]
         if decision.intent in {Intent.ORDER_CANCEL, Intent.REFUND_REQUEST}:
@@ -282,7 +291,9 @@ class DecisionCompiler:
                     refund_reason_support_status=RefundReasonSupportStatus.MISSING,
                     compiler_clarification_cause=CompilerClarificationCause.MISSING_REFUND_REASON,
                 )
-            if not self._reason_is_user_supported(decision.reason, user_message):
+            if not restored_action and not self._reason_is_user_supported(
+                decision.reason, user_message
+            ):
                 return self._clarification(
                     decision,
                     "The refund reason must come from the customer request.",
@@ -550,6 +561,7 @@ class DecisionCompiler:
             refund_reason_support_status=(refund_reason_support_status or status).value,
             refund_reason_validation_invoked=refund_reason_validation_invoked,
             compiler_clarification_cause=compiler_clarification_cause.value,
+            missing_required_fields=_missing_required_fields(decision.intent, reason),
         )
 
     @staticmethod
@@ -571,3 +583,22 @@ class DecisionCompiler:
 
 def all_semantic_intents_are_routed() -> bool:
     return set(SEMANTIC_INTENT_ROUTES) == set(Intent)
+
+
+def _missing_required_fields(intent: Intent, reason: str) -> list[str]:
+    """Map bounded compiler clarification reasons to resumable input fields."""
+
+    normalized = reason.casefold()
+    if intent in {Intent.ORDER_CANCEL, Intent.REFUND_REQUEST, Intent.ORDER_LOOKUP} and (
+        "specific" in normalized or "authorized target" in normalized
+    ):
+        return ["order_id"]
+    if intent is Intent.REFUND_REQUEST and "refund reason" in normalized:
+        return ["reason"]
+    if intent is Intent.HUMAN_ESCALATION and "escalation details" in normalized:
+        return ["reason", "priority", "summary"]
+    if intent is Intent.TICKET_CREATE and "category and description" in normalized:
+        return ["category", "description"]
+    if intent is Intent.TICKET_LOOKUP and "specific ticket" in normalized:
+        return ["ticket_id"]
+    return []

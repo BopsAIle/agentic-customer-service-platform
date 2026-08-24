@@ -99,4 +99,44 @@ describe("agent trace projection", () => {
     expect(html).toContain("understand_request");
     expect(html.indexOf("Intent detection")).toBeLessThan(html.indexOf("understand_request"));
   });
+
+  it("renders bounded workflow transition metadata", () => {
+    const transitionRun = {
+      ...run,
+      trace: [
+        ...run.trace,
+        {
+          name: "handle_workflow_interruption",
+          event_key: "workflow.superseded",
+          stage: "routing" as const,
+          status: "ok",
+          duration_ms: 0.4,
+          timestamp: "2026-08-23T00:00:02Z",
+          metadata: {
+            workflow_state: "superseded",
+            workflow_transition: "waiting_confirmation_to_superseded",
+            previous_workflow_intent: "refund_request",
+            interruption_intent: "order_cancel",
+            interruption_type: "explicit_replacement",
+          },
+        },
+      ],
+    };
+
+    const html = renderToStaticMarkup(
+      <TraceTimeline events={transitionRun.trace} run={transitionRun} embedded />,
+    );
+    expect(html).toContain("Workflow transition");
+    expect(html).toContain("Workflow Superseded");
+    expect(html).toContain("explicit replacement");
+  });
+
+  it("does not present a business intent stage for a security boundary", () => {
+    const securityRun = {
+      ...run,
+      security_signal: "instruction_override_attempt",
+    };
+    const html = renderToStaticMarkup(<TraceTimeline events={securityRun.trace} run={securityRun} embedded />);
+    expect(html).not.toContain("Intent detection");
+  });
 });

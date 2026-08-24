@@ -1,6 +1,7 @@
 from collections.abc import Callable
 from uuid import uuid4
 
+from app.agent.nodes.pending_payload import build_policy_inputs, hash_policy_inputs
 from app.agent.state import AgentState
 from app.policies.confirmation import Clock
 from app.policies.models import PendingAction, PolicyOutcome
@@ -18,6 +19,23 @@ def make_create_pending_node(clock: Clock) -> Callable[[AgentState], AgentState]
             return {}
         action_id = state.get("action_id") or f"act_{uuid4().hex}"
         context = state["execution_context"]
+        raw_intent = state.get("intent")
+        intent = getattr(raw_intent, "value", raw_intent)
+        arguments = dict(state.get("tool_arguments", {}))
+        collected_entities = dict(state.get("collected_entities", {}))
+        for key in ("order_id", "ticket_id", "reason", "category", "description"):
+            value = arguments.get(key)
+            if isinstance(value, (str, int, bool)):
+                collected_entities.setdefault(key, value)
+        policy_inputs = build_policy_inputs(
+            context=context,
+            tool_name=tool_name,
+            arguments=arguments,
+            outcome=decision.outcome.value,
+            risk_level=decision.risk_level,
+            reasons=list(decision.reasons),
+            required_conditions=list(decision.required_conditions),
+        )
         action = PendingAction(
             action_id=action_id,
             conversation_id=context.conversation_id,
@@ -26,14 +44,27 @@ def make_create_pending_node(clock: Clock) -> Callable[[AgentState], AgentState]
             actor_type=context.principal.actor_type,
             effective_customer_id=context.effective_customer_id,
             tool_name=tool_name,
-            arguments=state.get("tool_arguments", {}),
+            arguments=arguments,
             risk_level=decision.risk_level,
+            intent=str(intent) if intent is not None else None,
+            collected_entities=collected_entities,
+            validation_context={
+                "grounding_status": state.get("grounding_status", "not_recorded"),
+                "grounding_reference_type": state.get("grounding_reference_type"),
+                "grounding_trusted_source": state.get("grounding_trusted_source"),
+                "target_validation_status": state.get("target_validation_status", "not_recorded"),
+                "decision_reason": state.get("decision_reason"),
+            },
+            policy_inputs=policy_inputs,
+            policy_inputs_hash=hash_policy_inputs(policy_inputs),
             created_at=clock.now(),
         )
         return {
             "pending_action": action,
             "action_id": action_id,
             "tool_execution_status": "pending",
+            "workflow_state": "waiting_confirmation",
+            "workflow_id": state.get("workflow_id") or f"workflow:{state['agent_run_id']}",
         }
 
     return create_pending

@@ -1,6 +1,10 @@
 import time
 from collections.abc import Callable
 
+from app.agent.nodes.workflow_lifecycle import (
+    is_interruption_candidate,
+    is_resume_request,
+)
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.observability.metrics import get_metrics
@@ -90,6 +94,16 @@ def _check_pending(state: AgentState, clock: Clock, ttl_seconds: int) -> AgentSt
     current_message = _latest_user_message(state)
     parsed = parse_confirmation(current_message)
     if action is None:
+        if is_resume_request(current_message):
+            if state.get("suspended_workflow") is None:
+                return {
+                    "confirmation_status": "resume_unavailable",
+                    "workflow_resume_source": "explicit_user_resume",
+                }
+            return {
+                "confirmation_status": "resume_suspended",
+                "workflow_resume_source": "explicit_user_resume",
+            }
         return {"confirmation_status": "no_pending" if parsed != "ambiguous" else "normal"}
     context = state.get("execution_context")
     if context is None or not belongs_to_context(action, context):
@@ -113,6 +127,12 @@ def _check_pending(state: AgentState, clock: Clock, ttl_seconds: int) -> AgentSt
             return {
                 "pending_action": transition(action, PendingActionStatus.REJECTED),
                 "confirmation_status": "rejected",
+                "workflow_state": "cancelled",
+            }
+        if is_interruption_candidate(current_message):
+            return {
+                "confirmation_status": "inspect_interruption",
+                "workflow_interruption_pending": True,
             }
         return {"confirmation_status": "ambiguous"}
     if parsed == "confirmed":

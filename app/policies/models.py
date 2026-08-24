@@ -35,6 +35,13 @@ class PendingAction(BaseModel):
     tool_name: str
     arguments: dict[str, Any]
     risk_level: int
+    # Bounded workflow context captured at the confirmation boundary. Defaults keep
+    # older checkpoints readable while new actions retain enough data to revalidate.
+    intent: str | None = None
+    collected_entities: dict[str, Any] = Field(default_factory=dict)
+    validation_context: dict[str, Any] = Field(default_factory=dict)
+    policy_inputs: dict[str, Any] = Field(default_factory=dict)
+    policy_inputs_hash: str | None = None
     created_at: datetime
     status: PendingActionStatus = PendingActionStatus.PENDING
 

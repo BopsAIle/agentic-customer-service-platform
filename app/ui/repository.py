@@ -21,6 +21,7 @@ _MEMORY_USAGE_KEY = "_operator_memory_usage"
 _EXECUTION_METADATA_KEY = "_operator_execution_metadata"
 _PROPOSAL_KEY = "_operator_proposal"
 _ANSWER_GROUNDING_KEY = "_operator_answer_grounding"
+_SECURITY_SIGNAL_KEY = "_operator_security_signal"
 
 
 class AgentRunProjectionRepository(Protocol):
@@ -256,6 +257,7 @@ def _to_record(projection: AgentRunView) -> AgentRunProjectionRecord:
     }
     retrieval_metadata[_PROPOSAL_KEY] = payload["proposal"]
     retrieval_metadata[_ANSWER_GROUNDING_KEY] = payload["answer_grounding"]
+    retrieval_metadata[_SECURITY_SIGNAL_KEY] = payload["security_signal"]
     return AgentRunProjectionRecord(
         run_id=projection.run_id,
         request_id=projection.request_id,
@@ -336,6 +338,7 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
     execution_metadata = raw_execution_metadata if isinstance(raw_execution_metadata, dict) else {}
     proposal = stored_retrieval_metadata.pop(_PROPOSAL_KEY, None)
     answer_grounding = stored_retrieval_metadata.pop(_ANSWER_GROUNDING_KEY, None)
+    security_signal = stored_retrieval_metadata.pop(_SECURITY_SIGNAL_KEY, None)
     return AgentRunView.model_validate(
         {
             "run_id": record.run_id,
@@ -377,6 +380,7 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
             "fallback_message": execution_metadata.get("fallback_message"),
             "provider_metadata": execution_metadata.get("provider_metadata"),
             "proposal": proposal,
+            "security_signal": security_signal,
         }
     )
 

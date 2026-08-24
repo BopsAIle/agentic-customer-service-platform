@@ -16,12 +16,21 @@ from app.agent.nodes.evaluate_policy import make_evaluate_policy_node
 from app.agent.nodes.human import make_human_escalation_node
 from app.agent.nodes.memory_action import make_memory_action_node
 from app.agent.nodes.respond import respond
+from app.agent.nodes.restore_pending import make_restore_pending_node
+from app.agent.nodes.resume_workflow import make_resume_workflow_node
 from app.agent.nodes.retrieve_knowledge import make_retrieve_node
 from app.agent.nodes.retrieve_memory import make_retrieve_memory_node
 from app.agent.nodes.revalidate import make_revalidate_node
 from app.agent.nodes.select_tool import select_tool
-from app.agent.nodes.understand_request import make_understand_request_node
+from app.agent.nodes.understand_request import (
+    make_security_boundary_node,
+    make_understand_request_node,
+)
 from app.agent.nodes.validate_tool import validate_tool
+from app.agent.nodes.workflow_lifecycle import (
+    make_handle_workflow_interruption_node,
+    make_restore_suspended_workflow_node,
+)
 from app.agent.schemas import AgentErrorCategory, AgentRequestType, Intent
 from app.agent.state import AgentState
 from app.memory.service import MemoryService
@@ -40,20 +49,62 @@ from app.ui.projection import record_node
 
 
 def _after_context(state: AgentState) -> str:
-    return "respond" if state.get("error_category") is not None else "retrieve_memory"
+    return "respond" if state.get("error_category") is not None else "security_boundary"
+
+
+def _after_security_boundary(state: AgentState) -> str:
+    return "respond" if state.get("security_signal") is not None else "retrieve_memory"
 
 
 def _after_pending(state: AgentState) -> str:
     confirmation_status = state.get("confirmation_status") or "normal"
+    if confirmation_status == "resume_suspended":
+        return "restore_suspended_workflow"
+    if confirmation_status == "inspect_interruption":
+        return "understand_request"
+    if confirmation_status == "normal" and state.get("workflow_active"):
+        return "resume_workflow"
     return {
         "normal": "understand_request",
-        "confirmed": "policy_revalidation",
+        "confirmed": "restore_pending_action",
         "no_pending": "respond",
+        "resume_unavailable": "respond",
         "rejected": "respond",
         "expired": "respond",
         "ambiguous": "respond",
         "ownership_error": "respond",
     }.get(confirmation_status, "respond")
+
+
+def _after_workflow_resume(state: AgentState) -> str:
+    status = state.get("workflow_resume_status")
+    if status == "resumed":
+        return "compile_decision"
+    if status == "inspect_interruption":
+        return "understand_request"
+    if status == "waiting_for_fields":
+        return "respond"
+    return "understand_request"
+
+
+def _after_understanding(state: AgentState) -> str:
+    if state.get("error_category") is not None:
+        return "respond"
+    if state.get("workflow_interruption_pending"):
+        return "handle_workflow_interruption"
+    return "compile_decision"
+
+
+def _after_workflow_interruption(state: AgentState) -> str:
+    return (
+        "compile_decision"
+        if state.get("workflow_interruption_status") in {"suspended", "superseded"}
+        else "respond"
+    )
+
+
+def _after_pending_restore(state: AgentState) -> str:
+    return "compile_decision" if state.get("compilation_resumed") else "respond"
 
 
 def _after_selection(state: AgentState) -> str:
@@ -76,7 +127,11 @@ def _after_selection(state: AgentState) -> str:
 
 
 def _after_validation(state: AgentState) -> str:
-    return "respond" if state.get("error_category") is not None else "evaluate_policy"
+    if state.get("error_category") is not None:
+        return "respond"
+    if state.get("confirmation_status") == "confirmed":
+        return "policy_revalidation"
+    return "evaluate_policy"
 
 
 def _after_policy(state: AgentState) -> str:
@@ -179,6 +234,15 @@ def _load_context(state: AgentState) -> AgentState:
         "degraded_components": [],
         "recovery_action": None,
         "write_outcome_unknown": False,
+        "pending_action_restored": False,
+        "restored_fields_count": 0,
+        "compilation_resumed": False,
+        "workflow_interruption_pending": False,
+        "workflow_interruption_status": None,
+        "interruption_intent": None,
+        "workflow_resume_source": None,
+        "workflow_transition": None,
+        "workflow_interruption_type": None,
     }
 
 
@@ -213,7 +277,121 @@ def _instrument_node(
                     active_span.set_attribute("recovery.action", recovery)
                     if recovery in {"degraded", "continue_without_memory"}:
                         get_metrics().degraded_requests_total.add(1, {"component": name})
-                record_node(name, "error" if error else "ok", started)
+                trace_metadata: dict[str, str | int | float | bool] = {}
+                if name == "check_pending_action":
+                    previous_action = state.get("pending_action")
+                    confirmation_status = result.get("confirmation_status")
+                    trace_metadata = {
+                        "previous_pending_action": (
+                            previous_action.tool_name if previous_action is not None else "none"
+                        ),
+                        "confirmation_detected": confirmation_status in {"confirmed", "rejected"},
+                        "confirmation_result": (
+                            "approved"
+                            if confirmation_status == "confirmed"
+                            else str(confirmation_status or "not_recorded")
+                        ),
+                    }
+                elif name == "execute_tool":
+                    execution_status = result.get("tool_execution_status") or state.get(
+                        "tool_execution_status"
+                    )
+                    trace_metadata = {
+                        "tool_execution": str(execution_status or "not_recorded"),
+                    }
+                elif name in {"security_boundary", "understand_request"} and result.get(
+                    "security_signal"
+                ):
+                    trace_metadata = {
+                        "security_signal": str(result["security_signal"]),
+                        "decision": "deny",
+                        "reason": "instruction_override_attempt",
+                        "execution": "not_attempted",
+                        "authority": "not_granted",
+                    }
+                elif name == "restore_pending_action":
+                    trace_metadata = {
+                        "pending_action_restored": bool(
+                            result.get("pending_action_restored", False)
+                        ),
+                        "restored_fields_count": int(result.get("restored_fields_count", 0)),
+                        "compilation_resumed": bool(result.get("compilation_resumed", False)),
+                    }
+                elif name == "handle_workflow_interruption":
+                    previous_intent = result.get("previous_workflow_intent") or state.get(
+                        "previous_workflow_intent"
+                    )
+                    interruption_intent = result.get("interruption_intent") or state.get(
+                        "interruption_intent"
+                    )
+                    trace_metadata = {
+                        "workflow_state": str(
+                            result.get("workflow_interruption_status") or "not_changed"
+                        ),
+                        "workflow_transition": str(
+                            result.get("workflow_transition") or "not_recorded"
+                        ),
+                        "previous_workflow": str(
+                            result.get("previous_workflow_id") or "not_recorded"
+                        ),
+                        "new_workflow": str(result.get("workflow_id") or "not_recorded"),
+                        "previous_workflow_intent": str(
+                            getattr(previous_intent, "value", previous_intent or "not_recorded")
+                        ),
+                        "interruption_intent": str(
+                            getattr(
+                                interruption_intent,
+                                "value",
+                                interruption_intent or "not_recorded",
+                            )
+                        ),
+                        "interruption_type": str(
+                            result.get("workflow_interruption_type") or "not_recorded"
+                        ),
+                        "superseded_by": str(result.get("superseded_by") or "not_applicable"),
+                    }
+                elif name == "restore_suspended_workflow":
+                    snapshot = state.get("suspended_workflow")
+                    previous_intent = snapshot.get("intent") if snapshot is not None else None
+                    trace_metadata = {
+                        "workflow_state": "resumed",
+                        "workflow_transition": str(
+                            result.get("workflow_transition") or "suspended_to_resumed"
+                        ),
+                        "previous_workflow": str(
+                            result.get("previous_workflow_id") or "not_recorded"
+                        ),
+                        "new_workflow": str(result.get("workflow_id") or "not_recorded"),
+                        "previous_workflow_intent": str(
+                            getattr(previous_intent, "value", previous_intent or "not_recorded")
+                        ),
+                        "resume_source": str(
+                            result.get("workflow_resume_source") or "not_recorded"
+                        ),
+                        "interruption_type": str(
+                            result.get("workflow_interruption_type") or "explicit_resume"
+                        ),
+                        "superseded_by": "not_applicable",
+                        "restored_fields_count": int(result.get("restored_fields_count", 0)),
+                    }
+                elif name == "compile_decision" and state.get("compilation_resumed"):
+                    trace_metadata = {"compilation_resumed": True}
+                elif name == "policy_revalidate":
+                    for key in (
+                        "original_policy_inputs_hash",
+                        "restored_policy_inputs_hash",
+                        "policy_input_diff",
+                        "original_pending_policy_inputs",
+                        "restored_policy_inputs",
+                        "original_policy_inputs_normalized",
+                        "restored_policy_inputs_normalized",
+                        "policy_revalidation_stage",
+                        "policy_revalidation_result",
+                    ):
+                        value = result.get(key)
+                        if isinstance(value, (str, int, float, bool)):
+                            trace_metadata[key] = value
+                record_node(name, "error" if error else "ok", started, trace_metadata)
                 return result
             except Exception:
                 record_node(name, "error", started)
@@ -290,12 +468,44 @@ def build_graph(
     graph: StateGraph[AgentState, None, AgentState, AgentState] = StateGraph(AgentState)
     graph.add_node("load_context", cast(Any, _instrument_node("load_context", _load_context)))
     graph.add_node(
+        "security_boundary",
+        cast(Any, _instrument_node("security_boundary", make_security_boundary_node())),
+    )
+    graph.add_node(
         "check_pending_action",
         cast(
             Any,
             _instrument_node(
                 "check_pending_action",
                 make_check_pending_node(clock, ttl_seconds, audit_repository),
+            ),
+        ),
+    )
+    graph.add_node(
+        "resume_workflow",
+        cast(Any, _instrument_node("resume_workflow", make_resume_workflow_node())),
+    )
+    graph.add_node(
+        "restore_pending_action",
+        cast(Any, _instrument_node("restore_pending_action", make_restore_pending_node())),
+    )
+    graph.add_node(
+        "handle_workflow_interruption",
+        cast(
+            Any,
+            _instrument_node(
+                "handle_workflow_interruption",
+                make_handle_workflow_interruption_node(),
+            ),
+        ),
+    )
+    graph.add_node(
+        "restore_suspended_workflow",
+        cast(
+            Any,
+            _instrument_node(
+                "restore_suspended_workflow",
+                make_restore_suspended_workflow_node(),
             ),
         ),
     )
@@ -369,7 +579,8 @@ def build_graph(
         cast(
             Any,
             _instrument_node(
-                "policy_revalidate", make_revalidate_node(session, audit_repository, clock)
+                "policy_revalidate",
+                make_revalidate_node(session, audit_repository, clock, policy_engine),
             ),
         ),
     )
@@ -441,6 +652,11 @@ def build_graph(
     graph.add_conditional_edges(
         "load_context",
         _after_context,
+        {"security_boundary": "security_boundary", "respond": "respond"},
+    )
+    graph.add_conditional_edges(
+        "security_boundary",
+        _after_security_boundary,
         {"retrieve_memory": "retrieve_memory", "respond": "respond"},
     )
     graph.add_edge("retrieve_memory", "check_pending_action")
@@ -449,11 +665,41 @@ def build_graph(
         _after_pending,
         {
             "understand_request": "understand_request",
-            "policy_revalidation": "policy_revalidation",
+            "restore_pending_action": "restore_pending_action",
+            "restore_suspended_workflow": "restore_suspended_workflow",
+            "resume_workflow": "resume_workflow",
             "respond": "respond",
         },
     )
-    graph.add_edge("understand_request", "compile_decision")
+    graph.add_conditional_edges(
+        "restore_pending_action",
+        _after_pending_restore,
+        {"compile_decision": "compile_decision", "respond": "respond"},
+    )
+    graph.add_conditional_edges(
+        "resume_workflow",
+        _after_workflow_resume,
+        {
+            "compile_decision": "compile_decision",
+            "understand_request": "understand_request",
+            "respond": "respond",
+        },
+    )
+    graph.add_edge("restore_suspended_workflow", "respond")
+    graph.add_conditional_edges(
+        "understand_request",
+        _after_understanding,
+        {
+            "handle_workflow_interruption": "handle_workflow_interruption",
+            "compile_decision": "compile_decision",
+            "respond": "respond",
+        },
+    )
+    graph.add_conditional_edges(
+        "handle_workflow_interruption",
+        _after_workflow_interruption,
+        {"compile_decision": "compile_decision", "respond": "respond"},
+    )
     graph.add_edge("compile_decision", "select_tool_or_response")
     graph.add_conditional_edges(
         "select_tool_or_response",
@@ -468,7 +714,11 @@ def build_graph(
     graph.add_conditional_edges(
         "validate_tool",
         _after_validation,
-        {"evaluate_policy": "evaluate_policy", "respond": "respond"},
+        {
+            "evaluate_policy": "evaluate_policy",
+            "policy_revalidation": "policy_revalidation",
+            "respond": "respond",
+        },
     )
     graph.add_edge("evaluate_policy", "inspect_risk")
     graph.add_conditional_edges(

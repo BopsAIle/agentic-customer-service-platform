@@ -4,6 +4,7 @@ import { formatTraceDuration } from "../data/traceFixtures";
 import "../styles/report-polish.css";
 import { buildTraceStages, type TraceStage } from "./TraceTimeline";
 import { Badge, Card, SectionHeader, StatusIndicator } from "./ui";
+import { deriveRunSemantics } from "./runSemantics";
 
 type Tone = "success" | "warning" | "danger" | "neutral";
 
@@ -23,17 +24,23 @@ function clarificationRequired(run: AgentRun): boolean {
 }
 
 function executionState(run: AgentRun): string {
-  if (clarificationRequired(run)) return "Not attempted";
-  if (run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation") return "Awaiting confirmation";
-  if (run.evidence.write_outcome.status === "executed") return "Executed";
-  if (run.evidence.write_outcome.status === "blocked") return "Prevented";
+  const semantics = deriveRunSemantics(run);
+  if (semantics.status === "needs_input") return "Not attempted";
+  if (semantics.status === "waiting_confirmation") return "Awaiting confirmation";
+  if (semantics.status === "completed") return "Completed";
+  if (semantics.status === "blocked") return "Prevented";
+  if (semantics.status === "failed_validation") return "Failed validation";
+  if (semantics.status === "suspended") return "Suspended";
+  if (semantics.status === "replaced") return "Replaced";
   return "Not authorized";
 }
 
 function authorityState(run: AgentRun): string {
-  if (clarificationRequired(run)) return "Not authorized · clarification required";
-  if (run.evidence.write_outcome.status === "executed") return "Granted through controlled path";
-  if (run.status === "waiting_confirmation" || run.evidence.confirmation.required) return "Pending approval boundary";
+  const semantics = deriveRunSemantics(run);
+  if (semantics.authority === "read_access") return "Read access";
+  if (semantics.authority === "controlled_execution") return "Granted through controlled path";
+  if (semantics.authority === "confirmation_required") return "Pending approval boundary";
+  if (semantics.status === "needs_input") return "Not granted · clarification required";
   return "Not authorized";
 }
 
@@ -90,7 +97,7 @@ function operationalEvents(run: AgentRun, stages: InvestigationStage[]) {
   const clarification = clarificationRequired(run);
   const waiting = run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation";
   const prevented = run.policy[run.policy.length - 1]?.outcome === "deny" || run.evidence.write_outcome.status === "blocked";
-  return operationalEventDefinitions.map((definition) => {
+  const stageEvents = operationalEventDefinitions.map((definition) => {
     const item = stages.find((candidate) => candidate.id === definition.id);
     const stage = item?.stage;
     const timestamp = stage?.events[0]?.timestamp ?? (definition.id === "request" ? run.started_at : undefined);
@@ -105,6 +112,34 @@ function operationalEvents(run: AgentRun, stages: InvestigationStage[]) {
       timestamp: timestamp ? new Date(timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "Timestamp not recorded",
     };
   });
+  const workflowEvents = run.trace
+    .filter((event) => event.event_key?.startsWith("workflow."))
+    .map((event, index) => {
+      const metadata = event.metadata ?? {};
+      const state = String(metadata.workflow_state ?? event.event_key?.split(".")[1] ?? "transition");
+      const previousIntent = humanize(String(metadata.previous_workflow_intent ?? "workflow"));
+      const interruptionIntent = humanize(String(metadata.interruption_intent ?? "not recorded"));
+      const transition = humanize(String(metadata.workflow_transition ?? state));
+      const label = state === "resumed"
+        ? `${previousIntent} workflow resumed`
+        : state === "superseded"
+        ? `${previousIntent} workflow replaced`
+        : `${previousIntent} workflow paused`;
+      const evidence = state === "resumed"
+        ? `Resume source · ${humanize(String(metadata.resume_source ?? "not recorded"))}`
+        : `Interruption intent · ${interruptionIntent}`;
+      return {
+        id: `workflow-${index}`,
+        label,
+        stage: undefined,
+        actor: "Conversation routing layer",
+        evidence,
+        outcome: transition,
+        status: "completed" as const,
+        timestamp: event.timestamp ? new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" }) : "Timestamp not recorded",
+      };
+    });
+  return [...stageEvents.slice(0, 2), ...workflowEvents, ...stageEvents.slice(2)];
 }
 
 function decisionLabel(run: AgentRun): string {
@@ -112,26 +147,26 @@ function decisionLabel(run: AgentRun): string {
 }
 
 function investigationOutcome(run: AgentRun): string {
-  if (clarificationRequired(run)) return "Clarification required";
-  if (run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation") return "Awaiting confirmation";
-  if (run.policy[run.policy.length - 1]?.outcome === "deny") return "Prevented";
-  if (run.evidence.write_outcome.status === "blocked") return "Prevented";
+  const semantics = deriveRunSemantics(run);
+  if (semantics.status === "needs_input") return "Clarification required";
+  if (semantics.status === "waiting_confirmation") return "Awaiting confirmation";
+  if (semantics.status === "blocked") return "Prevented";
+  if (semantics.status === "failed_validation") return "Validation failed";
+  if (semantics.status === "suspended") return "Suspended";
+  if (semantics.status === "replaced") return "Replaced";
   return humanize(run.status);
 }
 
 function investigationTone(run: AgentRun): Tone {
-  if (clarificationRequired(run)) return "warning";
-  if (run.policy[run.policy.length - 1]?.outcome === "deny") return "danger";
-  if (run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation") return "warning";
-  if (run.evidence.write_outcome.status === "blocked") return "neutral";
-  return run.status === "completed" ? "success" : stageTone(run.status);
+  const status = deriveRunSemantics(run).status;
+  if (status === "needs_input" || status === "waiting_confirmation") return "warning";
+  if (status === "blocked" || status === "failed_validation") return "danger";
+  if (status === "completed") return "success";
+  return "neutral";
 }
 
 function statusLabel(run: AgentRun): string {
-  if (clarificationRequired(run)) return "Clarification required";
-  if (run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation") return "Awaiting confirmation";
-  if (run.policy[run.policy.length - 1]?.outcome === "deny" || run.evidence.write_outcome.status === "blocked") return "Prevented";
-  return humanize(run.status);
+  return investigationOutcome(run);
 }
 
 function evidenceCount(run: AgentRun): number {

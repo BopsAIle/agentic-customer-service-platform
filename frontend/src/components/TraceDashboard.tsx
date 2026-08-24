@@ -2,6 +2,7 @@ import { Activity, CheckCircle2, Clock3, Database, FlaskConical, GitBranch, Lock
 import { useMemo, useState } from "react";
 import type { AgentRun, PlaygroundHistoryItem } from "../types";
 import { Badge, Card, EmptyState, SectionHeader, StatusIndicator } from "./ui";
+import { deriveRunSemantics } from "./runSemantics";
 
 type Props = {
   runs: AgentRun[];
@@ -27,17 +28,24 @@ function policyOutcome(run: AgentRun): string {
 }
 
 function executionOutcome(run: AgentRun): string {
-  const writeStatus = run.evidence?.write_outcome?.status;
-  if (clarificationRequired(run)) return "Not attempted";
-  if (run.status === "waiting_confirmation" || writeStatus === "pending_confirmation") return "Awaiting confirmation";
-  if (writeStatus === "executed") return "Executed";
-  if (writeStatus === "blocked" || run.status === "error") return "Prevented";
+  const semantics = deriveRunSemantics(run);
+  if (semantics.status === "needs_input") return "Not attempted";
+  if (semantics.status === "waiting_confirmation") return "Awaiting confirmation";
+  if (semantics.status === "completed") return "Completed";
+  if (semantics.status === "failed_validation") return "Failed validation";
+  if (semantics.status === "blocked") return "Prevented";
+  if (semantics.status === "suspended") return "Suspended";
+  if (semantics.status === "replaced") return "Replaced";
   if (run.tools?.length > 0) return humanize(run.tools[run.tools.length - 1].status);
   return "Not authorized";
 }
 
 function authorityOutcome(run: AgentRun): string {
-  return run.evidence?.write_outcome?.status === "executed" ? "Granted · controlled path" : "Not granted";
+  const authority = deriveRunSemantics(run).authority;
+  if (authority === "read_access") return "Read access";
+  if (authority === "controlled_execution") return "Granted · controlled path";
+  if (authority === "confirmation_required") return "Confirmation required";
+  return "Not granted";
 }
 
 function statusTone(status: string): "success" | "warning" | "danger" | "neutral" {
@@ -48,12 +56,14 @@ function statusTone(status: string): "success" | "warning" | "danger" | "neutral
 }
 
 function statusPresentation(run: AgentRun): { label: string; tone: "success" | "warning" | "danger" | "neutral"; description: string } {
-  const policy = run.policy?.[run.policy.length - 1]?.outcome;
-  if (clarificationRequired(run)) return { label: "Clarification required", tone: "warning", description: "Required target information is missing" };
-  if (policy === "deny") return { label: "Prevented", tone: "danger", description: "Policy or scope controls prevented execution" };
-  if (run.status === "waiting_confirmation") return { label: "Awaiting confirmation", tone: "warning", description: "Human approval required before mutation" };
-  if (executionOutcome(run) === "Prevented") return { label: "Prevented", tone: "danger", description: "Execution was prevented by a control boundary" };
-  if (run.status === "completed") return { label: "Completed", tone: "success", description: "Evidence snapshot completed" };
+  const semantics = deriveRunSemantics(run);
+  if (semantics.status === "needs_input") return { label: "Clarification required", tone: "warning", description: "Required target information is missing" };
+  if (semantics.status === "waiting_confirmation") return { label: "Awaiting confirmation", tone: "warning", description: "Human approval required before mutation" };
+  if (semantics.status === "blocked") return { label: "Prevented", tone: "danger", description: "Policy or scope controls prevented execution" };
+  if (semantics.status === "failed_validation") return { label: "Validation failed", tone: "warning", description: "Business validation prevented an execution attempt" };
+  if (semantics.status === "suspended") return { label: "Suspended", tone: "neutral", description: "The workflow is paused while another request is handled" };
+  if (semantics.status === "replaced") return { label: "Replaced", tone: "neutral", description: "A newer workflow superseded this request" };
+  if (semantics.status === "completed") return { label: "Completed", tone: "success", description: "Evidence snapshot completed" };
   return { label: humanize(run.status), tone: statusTone(run.status), description: "Status recorded in the bounded projection" };
 }
 
@@ -88,10 +98,11 @@ function decisionKey(run: AgentRun): string {
 }
 
 function matchesFilter(run: AgentRun, value: FilterValue): boolean {
+  const semantics = deriveRunSemantics(run);
   if (value === "all") return true;
-  if (value === "completed") return run.status === "completed";
-  if (value === "waiting_confirmation") return run.status === "waiting_confirmation";
-  if (value === "blocked") return executionOutcome(run) === "Prevented";
+  if (value === "completed") return semantics.status === "completed";
+  if (value === "waiting_confirmation") return semantics.status === "waiting_confirmation";
+  if (value === "blocked") return semantics.status === "blocked" || semantics.status === "failed_validation";
   return decisionKey(run) === value;
 }
 

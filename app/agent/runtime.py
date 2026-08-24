@@ -422,6 +422,7 @@ def _response_from_state(
         failure_category=state.get("failure_category"),
         degraded_components=state.get("degraded_components", []),
         recovery_action=state.get("recovery_action"),
+        security_signal=state.get("security_signal"),
         write_outcome_unknown=state.get("write_outcome_unknown", False),
         execution_mode=execution_mode,
         provider="OpenAI"

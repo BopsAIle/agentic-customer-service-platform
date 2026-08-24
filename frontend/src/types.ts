@@ -131,6 +131,11 @@ export type ProviderMetadata = {
 };
 
 export type DecisionEvidence = {
+  decision?: string;
+  reason?: string | null;
+  validation_stage?: string;
+  execution_status?: string;
+  authority?: string;
   grounding: { status: string; reference_type: string | null; trusted_source: string | null };
   compiler: { status: string; selected_tool: string | null; requires_retrieval: boolean; reason: string | null };
   target_validation: { status: string };
@@ -162,6 +167,7 @@ export type AgentRun = {
   answer_grounding?: AnswerGrounding;
   trace: TraceEvent[];
   decision_reason: string | null;
+  security_signal?: string | null;
   evidence: DecisionEvidence;
   execution_mode?: AgentExecutionMode;
   provider?: string;
@@ -220,6 +226,7 @@ export type AgentResponse = {
   intent: string;
   request_type: string;
   decision_reason?: string | null;
+  security_signal?: string | null;
   citations?: {
     citation_id: string;
     document_id: string;

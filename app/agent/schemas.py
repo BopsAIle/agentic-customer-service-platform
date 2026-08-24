@@ -241,6 +241,7 @@ class AgentResponse(BaseModel):
     tool_call: AgentToolCall | None = None
     pending_action: PendingAction | None = None
     decision_reason: str | None = None
+    security_signal: str | None = None
     error_category: AgentErrorCategory | None = None
     citations: list[Citation] = Field(default_factory=list)
     failure_category: str | None = None

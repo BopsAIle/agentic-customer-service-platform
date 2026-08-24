@@ -178,6 +178,9 @@ def test_knowledge_only_routes_to_rag_without_a_business_tool(db_session: Sessio
     )
     assert result.tool_call is None
     assert result.citations[0].citation_id == "refund-policy#eligibility"
+    assert not result.message.startswith("Based on the retrieved evidence:")
+    assert "[refund-policy#eligibility]" not in result.message
+    assert "Delivered orders may qualify for review" in result.message
     assert retriever.queries == ["refund eligibility policy"]
 
 
@@ -245,7 +248,8 @@ def test_knowledge_and_action_combines_policy_with_authoritative_order_state(
     assert result.tool_call is not None
     assert result.tool_call.name == "get_order"
     assert "shipped" in result.message
-    assert "cancellation-policy#after-shipping" in result.message
+    assert "cancellation-policy#after-shipping" not in result.message
+    assert result.citations[0].citation_id == "cancellation-policy#after-shipping"
     order = db_session.get(Order, 1)
     assert order is not None
     assert order.status == OrderStatus.SHIPPED

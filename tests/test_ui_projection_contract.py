@@ -4,7 +4,7 @@ from typing import Any
 from sqlalchemy.orm import Session
 
 from app.agent.decision_compiler import CompiledDecision, CompileStatus
-from app.agent.schemas import AgentRequestType, AgentResponse, Intent
+from app.agent.schemas import AgentErrorCategory, AgentRequestType, AgentResponse, Intent
 from app.auth.models import ActorType, Principal
 from app.core.context import ExecutionContext
 from app.ui.projection import get_projection_store
@@ -98,6 +98,130 @@ def test_projection_exposes_bounded_decision_evidence_without_provider_text() ->
     assert view.answer_grounding.status == "pass"
     assert view.answer_grounding.citation_coverage == 1.0
     assert "provider text" not in view.model_dump_json()
+
+
+def test_projection_redacts_filesystem_paths_from_rag_metadata() -> None:
+    store = get_projection_store()
+    response = AgentResponse(
+        conversation_id="projection-contract-conversation",
+        agent_run_id="rag-safe-source-run",
+        message="Refund policy answer.",
+        intent=Intent.REFUND_POLICY,
+        request_type=AgentRequestType.KNOWLEDGE_ONLY,
+    )
+    state: dict[str, Any] = {
+        "retrieved_chunks": [
+            {
+                "chunk_id": "refund-policy#eligibility",
+                "title": "Refund Policy",
+                "section": "Eligibility",
+                "source": "/app/.venv/lib/python3.12/site-packages/app/knowledge/refund-policy.md",
+                "score": 0.9,
+            }
+        ],
+        "memory_context": [],
+    }
+    with store.capture(
+        run_id=response.agent_run_id,
+        context=_context(),
+        trace_id="trace-safe-source",
+    ) as projection:
+        view = store.build_view(
+            projection,
+            response=response,
+            state=state,  # type: ignore[arg-type]
+            policy_events=[],
+            duration_ms=1.0,
+        )
+
+    assert view.rag_documents[0].source == "Refund Policy"
+    assert view.rag_documents[0].section == "Eligibility"
+    assert "/" not in view.rag_documents[0].source
+    assert "site-packages" not in view.model_dump_json()
+
+
+def test_projection_separates_business_validation_from_policy_and_tool_execution() -> None:
+    store = get_projection_store()
+    response = AgentResponse(
+        conversation_id="projection-contract-conversation",
+        agent_run_id="business-validation-run",
+        message="The order was not found.",
+        intent=Intent.REFUND_REQUEST,
+        request_type=AgentRequestType.WRITE_ACTION,
+        error_category=AgentErrorCategory.RESOURCE_NOT_FOUND,
+    )
+    state: dict[str, Any] = {
+        "compile_result": None,
+        "selected_tool": "request_refund",
+        "tool_arguments": {"customer_id": 1, "order_id": 999, "reason": "damaged"},
+        "tool_execution_status": "failed",
+        "pending_action": None,
+        "policy_decision": None,
+        "write_outcome_unknown": False,
+        "retrieved_chunks": [],
+        "retrieval_metadata": {},
+        "memory_context": [],
+    }
+    with store.capture(
+        run_id=response.agent_run_id,
+        context=_context(),
+        trace_id="trace-business-validation",
+    ) as projection:
+        store.record_node("execute_tool", "error", 1.0)
+        view = store.build_view(
+            projection,
+            response=response,
+            state=state,  # type: ignore[arg-type]
+            policy_events=[],
+            duration_ms=1.0,
+        )
+
+    assert view.evidence.decision == "validation_failed"
+    assert view.evidence.reason == "Referenced business resource was not found."
+    assert view.evidence.validation_stage == "business_validation"
+    assert view.evidence.execution_status == "failed"
+    assert view.tools[0].status == "failed_during_execution"
+    assert "Policy outcome" not in (view.decision_reason or "")
+
+
+def test_projection_marks_unexecuted_tool_as_blocked_before_execution() -> None:
+    store = get_projection_store()
+    response = AgentResponse(
+        conversation_id="projection-contract-conversation",
+        agent_run_id="policy-denial-run",
+        message="The request did not pass verification.",
+        intent=Intent.REFUND_REQUEST,
+        request_type=AgentRequestType.WRITE_ACTION,
+        error_category=AgentErrorCategory.POLICY_DENIED,
+    )
+    state: dict[str, Any] = {
+        "compile_result": None,
+        "selected_tool": "request_refund",
+        "tool_arguments": {"customer_id": 1, "order_id": 2, "reason": "damaged"},
+        "tool_execution_status": None,
+        "pending_action": None,
+        "policy_decision": None,
+        "write_outcome_unknown": False,
+        "retrieved_chunks": [],
+        "retrieval_metadata": {},
+        "memory_context": [],
+    }
+    with store.capture(
+        run_id=response.agent_run_id,
+        context=_context(),
+        trace_id="trace-policy-denial",
+    ) as projection:
+        view = store.build_view(
+            projection,
+            response=response,
+            state=state,  # type: ignore[arg-type]
+            policy_events=[],
+            duration_ms=1.0,
+        )
+
+    assert view.evidence.decision == "deny"
+    assert view.evidence.validation_stage == "policy_evaluation"
+    assert view.tools[0].status == "blocked_before_execution"
 
 
 def test_memory_usage_is_bounded_and_annotates_memory_trace() -> None:

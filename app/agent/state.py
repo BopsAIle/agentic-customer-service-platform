@@ -21,6 +21,32 @@ class ConversationMessage(TypedDict):
     content: str
 
 
+WorkflowLifecycleState = Literal[
+    "active",
+    "waiting_confirmation",
+    "suspended",
+    "superseded",
+    "completed",
+    "cancelled",
+]
+
+
+class SuspendedWorkflowState(TypedDict, total=False):
+    """Bounded workflow snapshot; it contains no prompts or hidden reasoning."""
+
+    intent: Intent
+    pending_action: PendingAction | None
+    pending_workflow_decision: SemanticDecision | None
+    collected_entities: dict[str, str | int | bool]
+    tool_arguments: dict[str, object]
+    missing_required_fields: list[str]
+    validation_context: dict[str, object]
+    policy_inputs: dict[str, object]
+    source_state: WorkflowLifecycleState
+    workflow_id: str
+    superseded_by: str | None
+
+
 class AgentState(TypedDict, total=False):
     execution_context: ExecutionContext
     conversation_id: str
@@ -73,3 +99,38 @@ class AgentState(TypedDict, total=False):
     fallback_message: str | None
     proposal: AgentProposal | None
     provider_metadata: ProviderRunMetadata | None
+    security_signal: str | None
+    previous_intent: Intent | None
+    pending_workflow_decision: SemanticDecision | None
+    missing_required_fields: list[str]
+    collected_entities: dict[str, str | int | bool]
+    workflow_active: bool
+    workflow_resume_status: str | None
+    workflow_state: WorkflowLifecycleState
+    workflow_interruption_pending: bool
+    workflow_interruption_status: str | None
+    previous_workflow_intent: Intent | None
+    interruption_intent: Intent | None
+    workflow_resume_source: str | None
+    suspended_workflow: SuspendedWorkflowState | None
+    superseded_workflow: SuspendedWorkflowState | None
+    workflow_id: str | None
+    previous_workflow_id: str | None
+    superseded_by: str | None
+    workflow_transition: str | None
+    workflow_interruption_type: str | None
+    workflow_tool_arguments: dict[str, object]
+    workflow_validation_context: dict[str, object]
+    workflow_policy_inputs: dict[str, object]
+    pending_action_restored: bool
+    restored_fields_count: int
+    compilation_resumed: bool
+    original_policy_inputs_hash: str
+    restored_policy_inputs_hash: str
+    policy_input_diff: str
+    original_pending_policy_inputs: str
+    restored_policy_inputs: str
+    original_policy_inputs_normalized: str
+    restored_policy_inputs_normalized: str
+    policy_revalidation_stage: str
+    policy_revalidation_result: str

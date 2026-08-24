@@ -5,9 +5,10 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import PurePath
 from time import perf_counter
 
-from app.agent.schemas import AgentResponse
+from app.agent.schemas import AgentErrorCategory, AgentResponse
 from app.agent.state import AgentState
 from app.core.config import get_settings
 from app.core.context import ExecutionContext
@@ -38,6 +39,7 @@ class _NodeEvent:
     status: str
     duration_ms: float
     timestamp: datetime
+    metadata: dict[str, str | int | float | bool] = field(default_factory=dict)
 
 
 @dataclass
@@ -77,10 +79,24 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
         finally:
             _current_run.reset(token)
 
-    def record_node(self, name: str, status: str, duration_ms: float) -> None:
+    def record_node(
+        self,
+        name: str,
+        status: str,
+        duration_ms: float,
+        metadata: dict[str, str | int | float | bool] | None = None,
+    ) -> None:
         current = _current_run.get()
         if current is not None:
-            current.nodes.append(_NodeEvent(name, status, duration_ms, datetime.now(UTC)))
+            current.nodes.append(
+                _NodeEvent(
+                    name,
+                    status,
+                    duration_ms,
+                    datetime.now(UTC),
+                    metadata or {},
+                )
+            )
 
     def finish(
         self,
@@ -123,7 +139,7 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
                 UIToolEvent(
                     name=selected_tool,
                     risk_level=_risk_level(selected_tool),
-                    status=str(execution_status or "pending"),
+                    status=_tool_projection_status(execution_status, projection.nodes),
                     duration_ms=_node_duration(projection.nodes, "execute_tool"),
                     result_fields=result_fields,
                 )
@@ -158,14 +174,15 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
                 if isinstance(chunk, dict):
                     raw_score = chunk.get("rerank_score") or chunk.get("score") or 0.0
                     score = float(raw_score) if isinstance(raw_score, (int, float)) else 0.0
+                    title = _safe_text(chunk.get("title"), "Knowledge document")
                     rag_documents.append(
                         UIRagDocument(
                             citation_id=str(
                                 chunk.get("chunk_id") or chunk.get("citation_id") or "unknown"
                             ),
-                            title=str(chunk.get("title", "Knowledge document")),
-                            section=str(chunk.get("section", "unknown")),
-                            source=str(chunk.get("source", "unknown")),
+                            title=title,
+                            section=_safe_text(chunk.get("section"), "Unknown section"),
+                            source=_safe_rag_source(chunk.get("source"), title),
                             score=score,
                         )
                     )
@@ -199,7 +216,13 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
         trace = []
         for node in projection.nodes:
             stage = trace_stage_for_node(node.name)
-            trace_metadata: dict[str, str | int | float | bool] = {}
+            trace_metadata: dict[str, str | int | float | bool] = dict(node.metadata)
+            event_key = trace_event_key_for_node(node.name)
+            if (
+                node.name == "handle_workflow_interruption"
+                and node.metadata.get("workflow_state") == "superseded"
+            ):
+                event_key = "workflow.superseded"
             if stage.value == "memory_context":
                 trace_metadata = {
                     "items_used": memory_count,
@@ -228,7 +251,7 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             trace.append(
                 UITraceEvent(
                     name=node.name,
-                    event_key=trace_event_key_for_node(node.name),
+                    event_key=event_key,
                     stage=stage,
                     status=node.status,
                     duration_ms=node.duration_ms,
@@ -244,7 +267,13 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             and pending_action.status == PendingActionStatus.PENDING
         ):
             run_status = "waiting_confirmation"
-        decision_evidence = _decision_evidence(state, policy_events, response)
+        decision_reason = _decision_reason(state, policy_events, response)
+        decision_evidence = _decision_evidence(
+            state,
+            policy_events,
+            response,
+            decision_reason=decision_reason,
+        )
         view = AgentRunView(
             run_id=projection.run_id,
             request_id=projection.context.request_id,
@@ -272,7 +301,8 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             retrieval_metadata=retrieval_metadata,
             answer_grounding=answer_grounding,
             trace=trace,
-            decision_reason=_decision_reason(state, policy_events, response),
+            decision_reason=decision_reason,
+            security_signal=state.get("security_signal"),
             evidence=decision_evidence,
             execution_mode=response.execution_mode.value,
             provider=response.provider,
@@ -290,11 +320,22 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
         return self.list_for_conversation(conversation_id)
 
 
-def record_node(name: str, status: str, started: float) -> None:
+def record_node(
+    name: str,
+    status: str,
+    started: float,
+    metadata: dict[str, str | int | float | bool] | None = None,
+) -> None:
     current = _current_run.get()
     if current is not None:
         current.nodes.append(
-            _NodeEvent(name, status, (perf_counter() - started) * 1000, datetime.now(UTC))
+            _NodeEvent(
+                name,
+                status,
+                (perf_counter() - started) * 1000,
+                datetime.now(UTC),
+                metadata or {},
+            )
         )
 
 
@@ -317,6 +358,8 @@ def _decision_evidence(
     state: AgentState,
     policy_events: list[PolicyAuditEvent],
     response: AgentResponse,
+    *,
+    decision_reason: str | None,
 ) -> UIDecisionEvidence:
     compile_result = state.get("compile_result")
     compiler_status = getattr(getattr(compile_result, "status", None), "value", None)
@@ -348,7 +391,13 @@ def _decision_evidence(
         confirmation_risk = getattr(policy_decision, "risk_level", None)
     selected_tool = state.get("selected_tool")
     write_status = _write_outcome_status(state, response, selected_tool)
+    authority = _authority_status(selected_tool, write_status, confirmation_required)
     return UIDecisionEvidence(
+        decision=_decision_status(state, policy_events, response),
+        reason=decision_reason,
+        validation_stage=_validation_stage(state, policy_events, response),
+        execution_status=write_status,
+        authority=authority,
         grounding=UIGroundingEvidence(
             status=state.get("grounding_status", "not_recorded"),
             reference_type=state.get("grounding_reference_type"),
@@ -388,6 +437,8 @@ def _decision_reason(
 ) -> str | None:
     """Return a deterministic explanation, never the provider's free-form reason."""
 
+    if state.get("security_signal") == "instruction_override_attempt":
+        return "instruction_override_attempt"
     compile_result = state.get("compile_result")
     compiler_status = getattr(getattr(compile_result, "status", None), "value", None)
     if compiler_status in {"clarification_required", "compile_rejected"}:
@@ -395,6 +446,20 @@ def _decision_reason(
             getattr(compile_result, "rejection_reason", None)
             or getattr(compile_result, "reason", None)
         )
+    if response.error_category in _BUSINESS_VALIDATION_ERRORS:
+        return _bounded_text(
+            {
+                AgentErrorCategory.RESOURCE_NOT_FOUND: (
+                    "Referenced business resource was not found."
+                ),
+                AgentErrorCategory.DUPLICATE_ACTION: ("Duplicate business action was prevented."),
+                AgentErrorCategory.INVALID_STATE: (
+                    "Current business state does not permit the requested action."
+                ),
+            }[response.error_category]
+        )
+    if response.error_category == AgentErrorCategory.POLICY_DENIED:
+        return "Policy verification denied execution authority."
     if policy_events:
         event = policy_events[-1]
         outcome = event.policy_outcome.value
@@ -404,11 +469,73 @@ def _decision_reason(
     return None
 
 
+_BUSINESS_VALIDATION_ERRORS = {
+    AgentErrorCategory.RESOURCE_NOT_FOUND,
+    AgentErrorCategory.DUPLICATE_ACTION,
+    AgentErrorCategory.INVALID_STATE,
+}
+
+
+def _decision_status(
+    state: AgentState,
+    policy_events: list[PolicyAuditEvent],
+    response: AgentResponse,
+) -> str:
+    if state.get("security_signal") == "instruction_override_attempt":
+        return "deny"
+    if response.error_category in _BUSINESS_VALIDATION_ERRORS:
+        return "validation_failed"
+    if response.error_category == AgentErrorCategory.POLICY_DENIED:
+        return "deny"
+    compile_result = state.get("compile_result")
+    compiler_status = getattr(getattr(compile_result, "status", None), "value", None)
+    if compiler_status in {"clarification_required", "compile_rejected"}:
+        return str(compiler_status)
+    if policy_events:
+        return policy_events[-1].policy_outcome.value
+    if compiler_status:
+        return str(compiler_status)
+    return "not_recorded"
+
+
+def _validation_stage(
+    state: AgentState,
+    policy_events: list[PolicyAuditEvent],
+    response: AgentResponse,
+) -> str:
+    explicit_stage = state.get("policy_revalidation_stage")
+    if isinstance(explicit_stage, str) and explicit_stage:
+        return explicit_stage
+    if response.error_category in _BUSINESS_VALIDATION_ERRORS:
+        return "business_validation"
+    if response.error_category == AgentErrorCategory.POLICY_DENIED or policy_events:
+        return "policy_evaluation"
+    compile_result = state.get("compile_result")
+    if compile_result is not None:
+        return "decision_compiler"
+    if state.get("target_validation_status") not in {None, "not_recorded"}:
+        return "target_validation"
+    return "not_recorded"
+
+
+def _tool_projection_status(
+    execution_status: object,
+    nodes: list[_NodeEvent],
+) -> str:
+    if execution_status == "executed":
+        return "completed"
+    if execution_status == "failed" and any(node.name == "execute_tool" for node in nodes):
+        return "failed_during_execution"
+    return "blocked_before_execution"
+
+
 def _write_outcome_status(
     state: AgentState,
     response: AgentResponse,
     selected_tool: str | None,
 ) -> str:
+    if state.get("security_signal") == "instruction_override_attempt":
+        return "not_attempted"
     if response.write_outcome_unknown or state.get("write_outcome_unknown"):
         return "unknown"
     if selected_tool is None or not _is_write_tool(selected_tool):
@@ -436,10 +563,49 @@ def _is_write_tool(tool_name: str) -> bool:
     return bool(metadata and metadata.operation_type.value == "write")
 
 
+def _authority_status(
+    selected_tool: str | None,
+    execution_status: str,
+    confirmation_required: bool,
+) -> str:
+    if execution_status == "executed":
+        return (
+            "controlled_execution"
+            if selected_tool and _is_write_tool(selected_tool)
+            else "read_access"
+        )
+    if confirmation_required or execution_status == "pending_confirmation":
+        return "confirmation_required"
+    return "not_granted"
+
+
 def _bounded_text(value: object, limit: int = 300) -> str | None:
     if not isinstance(value, str) or not value:
         return None
     return value[:limit]
+
+
+def _safe_text(value: object, fallback: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return fallback
+    return " ".join(value.split())[:200]
+
+
+def _safe_rag_source(value: object, title: str) -> str:
+    """Project a document label, never an absolute/container filesystem path."""
+
+    if not isinstance(value, str) or not value.strip():
+        return title
+    candidate = value.replace("\\", "/")
+    if "/" in candidate:
+        return title
+    basename = PurePath(candidate).name
+    if basename in {"", ".", ".."} or "/" in basename:
+        return title
+    stem = basename.rsplit(".", 1)[0] if "." in basename else basename
+    if stem.startswith(".venv") or stem in {"site-packages", "app"}:
+        return title
+    return " ".join(stem.replace("_", " ").replace("-", " ").split())[:200] or title
 
 
 def _action_id(state: AgentState) -> str | None:

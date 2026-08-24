@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Protocol
 
@@ -18,14 +19,27 @@ def parse_confirmation(message: str) -> str:
     # Python's locale-independent casefold maps ASCII I to i. Normalize the two
     # Turkish uppercase forms first so exact, bounded phrase matching remains
     # stable without introducing substring or fuzzy approval behavior.
-    normalized = " ".join(message.translate(str.maketrans("Iİ", "ıi")).casefold().split())
+    normalized = message.translate(str.maketrans("Iİ", "ıi")).casefold()
+    normalized = re.sub(r"[,.!?;:]+", " ", normalized)
+    normalized = " ".join(normalized.split())
     if normalized in {
         "yes",
         "confirm",
         "confirmed",
         "proceed",
         "do it",
-        "yes, proceed",
+        "yes proceed",
+        "yes please",
+        "yes please proceed",
+        "yes please proceed with the refund",
+        "yes please proceed with the refund request",
+        "i confirm",
+        "ı confirm",
+        "proceed with the refund",
+        "proceed with the refund request",
+        "go ahead",
+        "please continue",
+        "approved",
         "evet",
         "onaylıyorum",
         "onayla",
@@ -39,6 +53,10 @@ def parse_confirmation(message: str) -> str:
         "never mind",
         "don't do it",
         "do not do it",
+        "don't proceed",
+        "do not proceed",
+        "no cancel it",
+        "stop",
         "hayır",
         "iptal",
         "iptal et",

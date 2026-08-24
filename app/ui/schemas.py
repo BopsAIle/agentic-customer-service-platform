@@ -161,6 +161,11 @@ class UIWriteOutcome(BaseModel):
 class UIDecisionEvidence(BaseModel):
     """Bounded, privacy-safe evidence for one projected agent run."""
 
+    decision: str = "not_recorded"
+    reason: str | None = None
+    validation_stage: str = "not_recorded"
+    execution_status: str = "not_attempted"
+    authority: str = "not_granted"
     grounding: UIGroundingEvidence = Field(default_factory=UIGroundingEvidence)
     compiler: UICompilerDecision = Field(default_factory=UICompilerDecision)
     target_validation: UITargetValidation = Field(default_factory=UITargetValidation)
@@ -206,6 +211,7 @@ class AgentRunView(BaseModel):
     answer_grounding: UIAnswerGrounding = Field(default_factory=UIAnswerGrounding)
     trace: list[UITraceEvent] = Field(default_factory=list)
     decision_reason: str | None = None
+    security_signal: str | None = None
     evidence: UIDecisionEvidence = Field(default_factory=UIDecisionEvidence)
     execution_mode: str = "recorded_replay"
     provider: str = "recorded_evidence"

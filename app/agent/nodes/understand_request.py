@@ -2,6 +2,7 @@ from collections.abc import Callable
 from typing import TypeGuard
 
 from app.agent.llm.base import DecisionProposalProvider
+from app.agent.nodes.workflow_lifecycle import is_instruction_override_attempt
 from app.agent.schemas import (
     AgentErrorCategory,
     AgentRequestType,
@@ -15,10 +16,57 @@ from app.agent.schemas import (
 from app.agent.state import AgentState
 from app.memory.extraction import extract_memory_request
 from app.observability.tracing import span
+from app.policies.models import PendingActionStatus
 from app.resilience.config import ResilienceConfig
 from app.resilience.control import ReliabilityController
 from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
+
+
+def _security_block(state: AgentState) -> AgentState:
+    request_type = AgentRequestType.UNCLEAR
+    existing_action = state.get("pending_action")
+    rejected_action = (
+        existing_action.model_copy(update={"status": PendingActionStatus.REJECTED})
+        if existing_action is not None and existing_action.status == PendingActionStatus.PENDING
+        else existing_action
+    )
+    return {
+        "semantic_decision": SemanticDecision(
+            intent=Intent.UNKNOWN,
+            request_type=request_type,
+            reason="instruction_override_attempt",
+        ),
+        "intent": Intent.UNKNOWN,
+        "request_type": request_type,
+        "selected_tool": None,
+        "tool_arguments": {},
+        "pending_action": rejected_action,
+        "pending_workflow_decision": None,
+        "missing_required_fields": [],
+        "workflow_active": False,
+        "workflow_interruption_pending": False,
+        "workflow_interruption_status": "security_blocked",
+        "workflow_state": "cancelled",
+        "suspended_workflow": None,
+        "superseded_workflow": None,
+        "confirmation_status": "rejected" if rejected_action is not None else "blocked",
+        "security_signal": "instruction_override_attempt",
+        "decision_reason": "instruction_override_attempt",
+        "error_category": AgentErrorCategory.POLICY_DENIED,
+        "last_error": "The request attempted to bypass deterministic authority controls.",
+    }
+
+
+def make_security_boundary_node() -> Callable[[AgentState], AgentState]:
+    """Reject bounded authority-override language before workflow processing."""
+
+    def detect_security_boundary(state: AgentState) -> AgentState:
+        if is_instruction_override_attempt(_latest_user_message(state)):
+            return _security_block(state)
+        return {"security_signal": None}
+
+    return detect_security_boundary
 
 
 def make_understand_request_node(
@@ -61,6 +109,7 @@ def make_understand_request_node(
                     "failure_category": error.category.value,
                     "recovery_action": "clarify",
                     "provider_metadata": _provider_metadata(provider),
+                    "security_signal": None,
                 }
             except (TypeError, ValueError):
                 llm_span.set_attribute("llm.status", "error")
@@ -72,6 +121,7 @@ def make_understand_request_node(
                     "failure_category": "llm_malformed_output",
                     "recovery_action": "clarify",
                     "provider_metadata": _provider_metadata(provider),
+                    "security_signal": None,
                 }
             llm_span.set_attribute("llm.status", "ok")
         if not _matches_contract(decision, decision_contract_version):
@@ -84,6 +134,7 @@ def make_understand_request_node(
                 "failure_category": "llm_contract_mismatch",
                 "recovery_action": "clarify",
                 "provider_metadata": _provider_metadata(provider),
+                "security_signal": None,
             }
         if isinstance(decision, (SemanticDecision, SemanticDecisionV3)):
             return {
@@ -106,6 +157,7 @@ def make_understand_request_node(
             "last_error": None,
             "error_category": None,
             "provider_metadata": _provider_metadata(provider),
+            "security_signal": None,
         }
 
     return understand_request

@@ -88,6 +88,19 @@ def test_sql_projection_upsert_is_durable_and_preserves_created_at(
     assert db_session.query(AgentRunProjectionRecord).count() == 1
 
 
+def test_sql_projection_preserves_security_signal(db_session: Session) -> None:
+    repository = SqlAlchemyAgentRunProjectionRepository(db_session)
+    security_blocked = projection("run-security-blocked").model_copy(
+        update={"security_signal": "instruction_override_attempt"}
+    )
+
+    repository.upsert(security_blocked)
+    loaded = repository.get_by_run_id(security_blocked.run_id)
+
+    assert loaded is not None
+    assert loaded.security_signal == "instruction_override_attempt"
+
+
 def test_sql_projection_is_visible_to_an_independent_repository_instance(
     db_session: Session,
 ) -> None:

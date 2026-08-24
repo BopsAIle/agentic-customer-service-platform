@@ -30,6 +30,15 @@ def context(customer_id: int = 1) -> ExecutionContext:
         " confirm ",
         "proceed",
         "do it",
+        "yes please",
+        "yes please proceed",
+        "yes, please proceed with the refund",
+        "yes, please proceed with the refund request",
+        "I confirm",
+        "proceed with the refund",
+        "go ahead",
+        "please continue",
+        "approved",
         "evet",
         " EVET ",
         "onaylıyorum",
@@ -50,6 +59,9 @@ def test_confirmation_parser_accepts_bounded_confirmations(value: str) -> None:
         "cancel",
         "never mind",
         "don't do it",
+        "don't proceed",
+        "stop",
+        "No, cancel it",
         "hayır",
         " HAYIR ",
         "iptal",
@@ -65,6 +77,8 @@ def test_confirmation_parser_accepts_bounded_rejections(value: str) -> None:
 def test_confirmation_parser_rejects_ambiguous_substitution_text() -> None:
     assert parse_confirmation("yes, and refund order 999") == "ambiguous"
     assert parse_confirmation("evet ama başka siparişi de iptal et") == "ambiguous"
+    assert parse_confirmation("Yes, but first what is your refund policy?") == "ambiguous"
+    assert parse_confirmation("Yes, however, cancel my other order instead.") == "ambiguous"
 
 
 def test_policy_engine_applies_registry_risk_deterministically() -> None:

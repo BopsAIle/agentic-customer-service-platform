@@ -10,6 +10,7 @@ import { PolicyDecisionCard } from "./PolicyDecisionCard";
 import { RetrievalCard } from "./RetrievalCard";
 import { ToolExecutionCard } from "./ToolExecutionCard";
 import { TracePanel } from "./TracePanel";
+import { responseState } from "../../components/runSemantics";
 
 function newConversationId(): string {
   const id = globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36);
@@ -17,10 +18,7 @@ function newConversationId(): string {
 }
 
 export function agentState(response: AgentResponse): string {
-  if (response.pending_action) return "waiting confirmation";
-  if (response.tool_call?.status === "executed") return "completed";
-  if (response.error_category) return "contained";
-  return "decision recorded";
+  return responseState(response);
 }
 
 export function ChatWindow() {

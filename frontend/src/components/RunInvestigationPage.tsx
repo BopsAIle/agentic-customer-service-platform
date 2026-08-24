@@ -5,6 +5,7 @@ import { AgentLifecyclePanel, ConversationEvidence, DecisionCompilerCard, Memory
 import { DecisionExplanationCard, DecisionLifecycleSummary, EvidenceRelationshipGraph, InvestigationReportModal, OperationalTraceTimeline, TraceInvestigationHeader } from "./TraceInvestigation";
 import { Badge, Card, DataRow, EmptyState, SectionHeader, StatusIndicator } from "./ui";
 import { buildTraceStages, TraceStageTimeline } from "./TraceTimeline";
+import { deriveRunSemantics } from "./runSemantics";
 
 type Props = { run: AgentRun | null; memoryRecords: MemoryRecord[]; availableRuns: AgentRun[]; loading: boolean; error: string | null; onBack: () => void };
 
@@ -20,17 +21,17 @@ function humanize(value: string | null | undefined): string {
 }
 
 function operatorStatus(run: AgentRun): string {
-  if (run.evidence.compiler.status === "clarification_required" || run.evidence.target_validation.status === "missing_required_information" || run.request_type === "unclear") return "Clarification required";
-  if (run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation") return "Awaiting confirmation";
-  if (run.policy[run.policy.length - 1]?.outcome === "deny" || run.evidence.write_outcome.status === "blocked") return "Prevented";
-  return humanize(run.status);
+  const status = deriveRunSemantics(run).status;
+  return status === "needs_input" ? "Clarification required" : status === "waiting_confirmation" ? "Awaiting confirmation" : status === "blocked" ? "Prevented" : status === "failed_validation" ? "Validation failed" : status === "suspended" ? "Suspended" : status === "replaced" ? "Replaced" : status === "completed" ? "Completed" : humanize(run.status);
 }
 
 function operatorExecution(run: AgentRun): string {
-  if (run.evidence.compiler.status === "clarification_required" || run.evidence.target_validation.status === "missing_required_information" || run.request_type === "unclear") return "Not attempted";
-  if (run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation") return "Awaiting confirmation";
-  if (run.evidence.write_outcome.status === "blocked") return "Prevented";
-  if (run.evidence.write_outcome.status === "executed") return "Executed";
+  const semantics = deriveRunSemantics(run);
+  if (semantics.status === "needs_input") return "Not attempted";
+  if (semantics.status === "waiting_confirmation") return "Awaiting confirmation";
+  if (semantics.status === "completed") return "Completed";
+  if (semantics.status === "blocked") return "Prevented";
+  if (semantics.status === "failed_validation") return "Failed validation";
   return "Not authorized";
 }
 
