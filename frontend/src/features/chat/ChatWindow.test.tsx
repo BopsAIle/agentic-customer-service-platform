@@ -38,7 +38,7 @@ describe("unified chat experience", () => {
   });
 
   it("maps bounded agent response states without exposing reasoning", () => {
-    expect(agentState(response())).toBe("waiting confirmation");
+    expect(agentState(response())).toBe("awaiting confirmation");
     expect(agentState(response({ pending_action: null, tool_call: { name: "refund", status: "executed", result: null } }))).toBe("completed");
     expect(agentState(response({ pending_action: { action_id: "act_test", status: "rejected" }, error_category: null }))).toBe("blocked");
     expect(agentState(response({ pending_action: null, error_category: "policy_denied" as AgentResponse["error_category"] }))).toBe("blocked");

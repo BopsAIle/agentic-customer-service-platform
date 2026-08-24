@@ -59,7 +59,7 @@ inventing a customer name or order number that is not in the seed.
 | --- | --- | --- | --- |
 | Successful refund request | Refund intent and target are captured when the provider returns them | Grounding, target, and policy checks precede confirmation | Awaiting confirmation; no automatic mutation |
 | Missing information | Refund intent may be understood without an order target | Clarification is required before the request can become a mutation | Not attempted |
-| Prompt injection | Untrusted instructions are treated as input, not authority | Scope, target, and policy checks contain the request | No tool call / not executed |
+| Prompt injection | Untrusted instructions are treated as input, not authority | Scope, target, and policy checks contain the request | No tool call / execution not attempted |
 | Unauthorized action | A proposed target is checked against the authenticated customer scope | Ownership validation can deny the action | No unauthorized mutation |
 | Duplicate operation | Existing state and idempotency evidence are inspected when available | Duplicate effects remain bounded by deterministic controls | No duplicate mutation |
 
@@ -202,7 +202,8 @@ and showcase-only safety scenarios are read from the existing backend demo
 projection rather than fabricated in the browser. No external provider call or
 secret is required.
 
-Screenshots are generated under `screenshots/operator-e2e/` at `1440x900`.
+The public presentation captures are maintained under `docs/demo/`; the
+browser suite validates the journeys independently of the screenshot package.
 
 ## Runs & traces investigation
 
@@ -241,31 +242,25 @@ the row is a deterministic evidence snapshot. The view does not expose raw
 prompts, provider responses, chain-of-thought, secrets, or direct execution
 controls.
 
-## Final release package
+## Current showcase package
 
-The current final package lives under `screenshots/demo-final-release-v3/`. It is the
-current screenshot set for the public repository:
+The current public screenshot package lives under `docs/demo/`. It is the
+presentation reference for the production-oriented control plane:
 
-| Screenshot | What it explains |
+| Screenshot | Capability demonstrated |
 | --- | --- |
-| `01-control-plane-overview.png` | Context, proposal, decision, and authority in one view |
-| `02-refund-confirmation-boundary-v2.png` | Customer request, bounded response, and grounded evidence held at confirmation |
-| `03-prompt-injection-policy-deny-v2.png` | Untrusted scope expansion, bounded response, and policy prevention |
-| `04-idempotency-protection-v2.png` | Duplicate request, bounded response, and existing-state protection |
-| `05-missing-information-clarification-v2.png` | Incomplete request, clarification response, and no mutation attempt |
-| `06-operational-run-registry.png` | Evidence snapshots organized for investigation |
-| `07-authority-flow.png` | Context and proposal separated from execution authority |
-| `08-investigation-report.png` | Bounded report with evidence, decision, authority, and outcome |
-| `09-mobile-view.png` | Narrow-screen investigation layout |
+| `human-escalation.png` | Policy-governed human handoff with separated decision, action, and execution |
+| `security-boundary.png` | Instruction-override containment and no authority before model invocation |
+| `rag-grounded-faq-conversation.png` | Grounded response beside source, chunk, citation, and authority boundary |
+| `refund-happy-path.png` | Proposal and confirmation boundary before a sensitive mutation |
+| `workflow-interruption.png` | Suspended workflow, knowledge interruption, and bounded resume |
+| `policy-revalidation-failure.png` | Business-state revalidation preventing an unsafe effect |
+| `memory-aware-conversation.png` | Context-only memory enrichment without authorization |
+| `operator-observability.png` | Gateway, context, retrieval, policy, and tool ownership in an investigation timeline |
 
-The package is generated with:
-
-```bash
-bash scripts/capture_demo_final_release_v3.sh
-```
-
-The capture uses local deterministic projections and fixed viewports. It does
-not call a provider or create a runtime mutation.
+Captures use deterministic projections and fixed desktop framing. They are
+presentation evidence only: no external provider call, hidden reasoning, or
+runtime mutation is added by the screenshot package.
 
 ## How to read the showcase
 
@@ -281,9 +276,9 @@ decision compiler, policy/confirmation boundary, and runtime layer make the
 observable decision. The UI intentionally exposes operational evidence and
 decisions, not hidden model reasoning.
 
-The current screenshot package under `screenshots/demo-final-release-v3/` is the
-single public visual reference. It is generated from bounded deterministic
-projections and does not add metrics or change evaluation artifacts.
+The `docs/demo/` package is the single public visual reference. It is generated
+from bounded deterministic projections and does not add metrics or change
+evaluation artifacts.
 
 ## Boundaries and limitations
 

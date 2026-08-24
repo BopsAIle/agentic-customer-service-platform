@@ -30,7 +30,7 @@ const run = (overrides: Partial<AgentRun> = {}): AgentRun => ({
 });
 
 describe("run semantic projection", () => {
-  it("derives waiting confirmation from the final decision", () => {
+  it("derives awaiting confirmation from the final decision", () => {
     expect(deriveRunSemantics(run()).status).toBe("waiting_confirmation");
     expect(deriveRunSemantics(run()).authority).toBe("confirmation_required");
   });

@@ -8,6 +8,13 @@ function humanize(value: string | null | undefined): string {
   return value ? value.replace(/_/g, " ") : "Not recorded";
 }
 
+function displayStatus(value: string | null | undefined): string {
+  if (value === "waiting_confirmation" || value === "waiting" || value === "pending_confirmation") return "Awaiting confirmation";
+  if (value === "blocked") return "Blocked before execution";
+  if (value === "not_attempted") return "Not attempted";
+  return humanize(value);
+}
+
 function memoryCount(usage: MemoryUsage): number {
   return usage.items_used ?? usage.retrieved_count ?? usage.item_count;
 }
@@ -47,7 +54,7 @@ export function ConversationEvidence({ run, request, response, messages = [] }: 
       ]
     : [
         { role: "customer" as const, label: "Customer", body: "Message content is not provided by the run projection." },
-        { role: "agent" as const, label: "Agent", body: `Bounded response state: ${humanize(run.status)}.` },
+        { role: "agent" as const, label: "Agent", body: `Bounded response state: ${displayStatus(run.status)}.` },
       ];
 
   return (
@@ -60,13 +67,13 @@ export function ConversationEvidence({ run, request, response, messages = [] }: 
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2"><span className="text-xs font-semibold text-main">{row.label}</span><Badge tone={row.role === "customer" ? "neutral" : "info"}>{row.role === "customer" ? "request" : "bounded response"}</Badge>{"evidence_tags" in row && row.evidence_tags?.map((tag) => <Badge tone="neutral" key={tag}>{tag}</Badge>)}</div>
               <p className="mt-2 text-sm leading-6 text-main">{row.body}</p>
-              {"state" in row && row.state && <small className="mt-2 block text-[11px] text-muted">State: {row.state}</small>}
+              {"state" in row && row.state && <small className="mt-2 block text-[11px] text-muted">State: {displayStatus(row.state)}</small>}
               {"timestamp" in row && row.timestamp && <small className="mt-1 block font-mono text-[10px] text-muted">{new Date(row.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>}
             </div>
           </div>
         ))}
       </div>
-      <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-muted"><span>State</span><Badge tone={toneFor(run.status)}>{humanize(run.status)}</Badge><span>·</span><span>Intent {humanize(run.intent)}</span></div>
+      <div className="mt-4 flex flex-wrap items-center gap-2 text-[11px] text-muted"><span>State</span><Badge tone={toneFor(run.status)}>{displayStatus(run.status)}</Badge><span>·</span><span>Intent {humanize(run.intent)}</span></div>
     </section>
   );
 }
@@ -111,7 +118,7 @@ function buildLifecycle(run: AgentRun): LifecycleStage[] {
 
 export function AgentLifecyclePanel({ run }: { run: AgentRun }) {
   const stages = buildLifecycle(run);
-  return <section className="surface p-5" aria-label="Agent lifecycle" data-testid="lifecycle-panel"><SectionHeader eyebrow="Agent lifecycle" title="From request to authority" description="Each stage is derived from the existing run projection. Missing stages remain explicit." /><div className="agent-lifecycle mt-4">{stages.map((stage, index) => <div className="agent-lifecycle-item" key={stage.id}><div className="agent-lifecycle-marker"><StateIcon status={stage.status} /></div><div className="min-w-0 flex-1"><details open={stage.status === "waiting" || stage.status === "blocked" || index === 0}><summary className="agent-lifecycle-summary"><span><strong>{stage.label}</strong><small>{stage.explanation}</small></span><StatusIndicator label={humanize(stage.status)} tone={toneFor(stage.status)} compact /></summary><div className="agent-lifecycle-detail"><div><span className="field-label">Evidence</span><p className="mt-1 text-xs text-info">{stage.evidence}</p></div><div className="mt-2"><span className="field-label">Boundary</span><p className="mt-1 text-xs leading-5 text-muted">{stage.detail}</p></div></div></details></div>{index < stages.length - 1 && <ArrowDown className="agent-lifecycle-arrow" size={14} aria-hidden="true" />}</div>)}</div></section>;
+  return <section className="surface p-5" aria-label="Agent lifecycle" data-testid="lifecycle-panel"><SectionHeader eyebrow="Agent lifecycle" title="From request to authority" description="Each stage is derived from the existing run projection. Missing stages remain explicit." /><div className="agent-lifecycle mt-4">{stages.map((stage, index) => <div className="agent-lifecycle-item" key={stage.id}><div className="agent-lifecycle-marker"><StateIcon status={stage.status} /></div><div className="min-w-0 flex-1"><details open={stage.status === "waiting" || stage.status === "blocked" || index === 0}><summary className="agent-lifecycle-summary"><span><strong>{stage.label}</strong><small>{stage.explanation}</small></span><StatusIndicator label={displayStatus(stage.status)} tone={toneFor(stage.status)} compact /></summary><div className="agent-lifecycle-detail"><div><span className="field-label">Evidence</span><p className="mt-1 text-xs text-info">{stage.evidence}</p></div><div className="mt-2"><span className="field-label">Boundary</span><p className="mt-1 text-xs leading-5 text-muted">{stage.detail}</p></div></div></details></div>{index < stages.length - 1 && <ArrowDown className="agent-lifecycle-arrow" size={14} aria-hidden="true" />}</div>)}</div></section>;
 }
 
 export function MemoryEvidenceCard({ run, records = [], demoItems = [] }: { run: AgentRun; records?: MemoryRecord[]; demoItems?: DemoMemoryEvidence[] }) {
@@ -148,7 +155,7 @@ export function ScenarioSummaryHeader({ run }: { run: AgentRun }) {
   const memory = memoryRetrieved(run.memory);
   const rag = run.rag_documents.length > 0 || run.trace.some((event) => event.stage === "context_retrieval");
   const policy = run.policy[run.policy.length - 1]?.outcome;
-  const execution = run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation" ? "Blocked" : run.evidence.write_outcome.status === "executed" ? "Executed" : "Not executed";
+  const execution = run.status === "waiting_confirmation" || run.evidence.write_outcome.status === "pending_confirmation" ? "Blocked before execution" : run.evidence.write_outcome.status === "executed" ? "Completed" : "Not attempted";
   return <section className="scenario-summary-header" aria-label="Scenario summary"><div><div className="eyebrow">Scenario</div><h2>{humanize(run.intent)} with policy validation</h2><p>Human-readable summary of the current bounded run projection.</p></div><div className="scenario-summary-grid"><div><span className="field-label">Intent</span><strong>{humanize(run.intent)}</strong></div><div><span className="field-label">Memory</span><strong>{memory ? "Used" : "Not recorded"}</strong></div><div><span className="field-label">RAG</span><strong>{rag ? "Available" : "Not recorded"}</strong></div><div><span className="field-label">Decision</span><strong>{policy ? humanize(policy) : "Not recorded"}</strong></div><div><span className="field-label">Execution</span><strong>{execution}</strong></div></div></section>;
 }
 

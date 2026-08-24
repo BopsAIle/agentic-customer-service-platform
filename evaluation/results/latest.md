@@ -1,9 +1,9 @@
 # Agent Evaluation Report
 
-- Run: `eval-8e24edd009bc`
+- Run: `eval-9fc295817532`
 - Dataset: `evaluation/datasets`
 - Seed: `0`
-- Scenarios: 110
+- Scenarios: 28
 - Overall pass rate: 100.0%
 
 ## Metrics
@@ -32,20 +32,9 @@
 
 | Category | Scenarios | Pass rate |
 | --- | ---: | ---: |
-| ambiguity | 2 | 100.0% |
-| confirmation | 17 | 100.0% |
 | degraded_mode | 7 | 100.0% |
 | failure_recovery | 20 | 100.0% |
-| human_escalation | 10 | 100.0% |
-| knowledge | 11 | 100.0% |
-| knowledge_and_action | 1 | 100.0% |
-| memory | 11 | 100.0% |
-| multi_turn | 2 | 100.0% |
-| ownership | 4 | 100.0% |
 | policy | 1 | 100.0% |
-| prompt_injection | 4 | 100.0% |
-| read_action | 10 | 100.0% |
-| write_action | 10 | 100.0% |
 
 ## Failed scenarios
 
@@ -53,5 +42,5 @@ No failed scenarios.
 
 ## Latency
 
-- Mean: 32.94 ms
-- Max: 77.64 ms
+- Mean: 28.88 ms
+- Max: 48.43 ms

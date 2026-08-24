@@ -6,9 +6,15 @@ from sqlalchemy import delete
 from app.core.database import SessionLocal
 from app.memory.schemas import MemorySource, MemoryStatus, MemoryType
 from app.models import Customer, Escalation, MemoryRecord, Order, RefundRequest, SupportTicket
-from app.models.entities import OrderStatus, TicketStatus
+from app.models.entities import OrderStatus, RefundStatus, TicketStatus
 
 DEMO_MEMORY_PRIVATE_CONTENT = "PRIVATE_MEMORY_SENTINEL_DO_NOT_EXPOSE"
+
+# Stable local QA identities.  These records intentionally make the showcase
+# scenarios reproducible without changing runtime or policy behavior:
+# order 1 is a fresh delivered refund candidate, order 2 is shipped, and order
+# 3 has an existing refund operation for duplicate-protection demonstrations.
+QA_FIXTURE_ORDER_IDS = {"refund_candidate": 1, "shipped_order": 2, "duplicate_refund": 3}
 
 
 def seed() -> None:
@@ -100,6 +106,15 @@ def seed() -> None:
                 updated_at=datetime(2026, 1, 20),
                 expires_at=datetime(2027, 1, 20),
                 status=MemoryStatus.ACTIVE,
+            )
+        )
+        session.add(
+            RefundRequest(
+                customer_id=2,
+                order_id=3,
+                reason="Existing refund operation for deterministic duplicate protection QA.",
+                status=RefundStatus.PROCESSING,
+                created_at=datetime(2026, 1, 21),
             )
         )
         session.add_all(

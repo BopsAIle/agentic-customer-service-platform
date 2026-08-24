@@ -89,7 +89,7 @@ export function deriveRunSemantics(run: AgentRun): RunSemantics {
 
 export function responseState(response: AgentResponse): string {
   const pendingStatus = response.pending_action?.status;
-  if (pendingStatus === "pending" || pendingStatus === "confirmed") return "waiting confirmation";
+  if (pendingStatus === "pending" || pendingStatus === "confirmed") return "awaiting confirmation";
   if (pendingStatus === "rejected" || pendingStatus === "expired" || pendingStatus === "failed") return "blocked";
   if (response.tool_call?.status === "executed" || response.tool_call?.status === "completed") return "completed";
   if (response.error_category === "invalid_tool_arguments") return "needs input";

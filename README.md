@@ -1,460 +1,259 @@
 # Agentic Customer Service Platform
 
-> Production-oriented agent control plane and evidence-driven agent reliability platform for safe AI execution.
+> A production-oriented agent control plane for reliable AI agents with policy enforcement, human approval boundaries, grounded retrieval, memory controls, and observable execution.
 
-This project shows how a customer-service agent can use model proposals while
-keeping decisions, policy, confirmation, and runtime effects under deterministic
-system control.
+This repository demonstrates how to operate an AI agent without giving the
+model direct authority over business effects. It combines stateful customer
+conversations, workflow orchestration, deterministic decisioning, policy
+controls, confirmation boundaries, controlled tools, RAG grounding, memory
+isolation, and operator investigation views.
 
-The central design rule is simple:
+The core rule is:
 
 > **The LLM proposes. Deterministic software decides what may execute.**
 
-The model can misunderstand a request or produce an unsupported argument. That output remains a proposal until server-owned grounding, target validation, compilation, policy, confirmation, and idempotency checks allow an action to proceed.
+## Problem statement
 
-## Problem
+LLMs are useful for interpreting requests and producing semantic suggestions,
+but probabilistic output cannot safely own customer scope, target identity,
+policy outcomes, or mutation authority. A production agent needs explicit
+boundaries between model intelligence and system authority.
 
-LLMs are probabilistic. A production agent also needs deterministic authority:
-it must know which customer and target are in scope, which evidence supports a
-request, whether policy allows it, and whether a sensitive change has been
-confirmed.
-
-The platform keeps those questions separate from response generation. The
-model suggests meaning and actions; server-owned controls decide what may
-proceed.
-
-## Design principle
-
-An agent should not own authority.
-
-The model proposes.
-The system decides.
-The runtime executes only approved effects.
-
-This is a production-oriented agent control plane built around bounded
-authority, deterministic decisioning, evidence-backed operations, and safety
-governance for LLM systems.
-
-## What to see first
-
-The React Operator Console is designed as a compact AI platform control plane:
-
-1. **Overview** explains the architecture and release evidence.
-2. **Agent Playground** lets an engineer submit a business or safety scenario through the existing API.
-3. **Investigation** shows the bounded trace, grounding evidence, policy result, and execution state.
-4. **Safety** shows the deterministic evaluation and operational release-gate evidence.
-
-No screen exposes chain-of-thought, raw provider responses, secrets, or direct production mutation controls.
-
-## Unified Agent Experience
-
-The `/chat` view brings the customer interaction and the operator's bounded
-agent observability into one screen. It reuses the existing `/agent/chat`
-workflow, so the conversation remains connected to the same retrieval,
-memory, policy, tool, confirmation, and trace projections used by the rest of
-the console.
-
-```text
-Customer message
-      |
-      v
-Context and evidence  ->  Semantic proposal  ->  Deterministic decision
-                                                        |
-                                                        v
-                                      Confirmation / escalation / authority
-                                                        |
-                                                        v
-                                             Bounded agent response
-```
-
-The conversation column shows only user-visible messages. The adjacent
-activity and runtime panels show observable intent, retrieved sources, policy
-outcomes, bounded tool status, memory availability, trace identity, and
-authority state. They intentionally omit raw prompts, provider payloads,
-hidden reasoning, and tool arguments. This makes the customer experience and
-the control-plane decision boundary inspectable without creating a separate
-chatbot execution path.
-
-## Live Customer Journey
-
-The unified chat surface can be exercised through the browser as a customer
-conversation while the operator observes the same bounded run projection. The
-journey keeps interaction, grounding, policy, tool status, memory availability,
-and trace identity in one investigation surface.
-
-![Initial unified chat view showing the customer conversation entry point and empty observability panels.](docs/screenshots/live-chat-initial.png)
-
-*Initial unified chat view: the customer interaction starts beside the agent timeline and runtime details.*
-
-![Live agent flow showing a customer conversation with retrieval, grounding, policy, and trace events.](docs/screenshots/live-chat-agent-flow.png)
-
-*Agent flow evidence: retrieved knowledge and deterministic policy activity are visible without exposing hidden reasoning or model tokens.*
-
-![Completed live customer journey showing conversation state, bounded timeline, policy status, and trace details.](docs/screenshots/live-chat-completed.png)
-
-*Completed journey: the final response and operational projection remain separate from execution authority.*
-
-Tool execution and escalation indicators are rendered only when the existing
-backend projection records them. The capture workflow does not synthesize
-missing events or bypass the established agent path.
+This platform keeps those responsibilities separate. Evidence is collected,
+proposals are recorded as untrusted, deterministic controls decide admissibility,
+and the runtime executes only through an approved path.
 
 ## Architecture
 
-```mermaid
+~~~mermaid
 flowchart TB
-    USER[User / Support Operator] --> CONSOLE[React Operator Console]
-    CONSOLE --> AGENT[Agent Orchestration]
-    AGENT --> LLM[LLM semantic proposal\nUNTRUSTED]
-    LLM --> VALIDATE[Provenance and target validation]
-    VALIDATE --> COMPILER[Decision Compiler]
-    COMPILER --> POLICY[Policy Engine]
-    POLICY --> CONFIRM[Confirmation Gate]
-    CONFIRM --> AUTHORITY[Execution Authority]
-    AUTHORITY --> TOOLS[Typed Business Tools]
-    TOOLS --> POSTGRES[(PostgreSQL)]
-    AGENT --> RAG[RAG / Knowledge]
-    RAG --> QDRANT[(Qdrant)]
-    AGENT -. bounded metadata .-> OTEL[OpenTelemetry]
-    OTEL --> JAEGER[Jaeger]
-```
+    USER[User Request] --> GATEWAY[Gateway]
+    GATEWAY --> CONTEXT[Context Assembly]
+    CONTEXT --> SOURCES[Memory + RAG Retrieval]
+    SOURCES --> ORCHESTRATOR[Agent Orchestrator]
+    ORCHESTRATOR --> PROPOSAL[Action Proposal]
+    PROPOSAL --> POLICY[Policy Engine]
+    POLICY --> DECISION{Decision Compiler}
+    DECISION -->|allow| EXEC[Tool Execution]
+    DECISION -->|confirmation| CONFIRM[Human Confirmation Boundary]
+    DECISION -->|human review| ESCALATE[Human Escalation]
+    DECISION -->|deny| DENY[No Execution]
+    CONFIRM --> EXEC
+    ESCALATE --> EXEC
+    EXEC --> OBS[Observability / Trace]
+    DENY --> OBS
+~~~
 
-The trust boundary is explicit:
+Layer responsibilities:
 
-```text
-User request
-  -> Agent orchestration
-  -> Semantic proposal
-  -> Provenance validation
-  -> Decision Compiler
-  -> Policy evaluation
-  -> Confirmation or escalation
-  -> Execution authority
-```
+- **Gateway** accepts the request and establishes the request context.
+- **Context Assembly** combines bounded customer state, memory, and retrieved
+  knowledge. Context informs; it does not authorize.
+- **Agent Orchestrator** preserves workflow state across missing information,
+  confirmation, interruption, suspension, resume, and replacement.
+- **Action Proposal** records semantic intent and a suggested action as
+  untrusted model output.
+- **Policy Engine and Decision Compiler** validate provenance, target
+  admissibility, required fields, business state, risk, and policy.
+- **Confirmation and escalation boundaries** require explicit human control for
+  covered effects.
+- **Tool Execution** is server-owned and is the only path that can commit an
+  approved business effect.
+- **Observability / Trace** projects bounded evidence, decisions, authority, and
+  outcomes without exposing hidden reasoning, raw prompts, or model tokens.
 
-The LLM does not establish customer scope, trusted identifiers, policy outcomes,
-or confirmation state. RAG, memory, and observability provide context or
-evidence. They do not authorize a business mutation.
+## Key capabilities
 
-```text
-Customer request
-        |
-Context layer
-        |
-LLM proposal
-        |
-Decision compiler
-        |
-Policy / confirmation gate
-        |
-Controlled runtime execution
-```
+- LangGraph-based workflow orchestration for stateful conversations.
+- Security boundary detection before business intent routing.
+- Policy-driven tool execution with deterministic target and business-state
+  validation.
+- Human-in-the-loop confirmation and escalation boundaries.
+- RAG grounding with source, chunk, citation, and grounding metadata.
+- Customer-scoped memory with explicit context-only authority.
+- Persistence-backed idempotency and duplicate-effect protection.
+- Workflow suspension, resume, replacement, and stale-state protection.
+- Operator traces showing evidence, proposal, decision, authority, and outcome.
+- OpenTelemetry-compatible operational projections and evaluation tooling.
 
-Model intelligence is not system authority.
+## Demonstrated Scenarios
 
-### Enterprise identity boundary
+The screenshots below are deterministic showcase projections captured from the
+existing console. They are presentation evidence, not live production
+telemetry or certification.
 
-Production authentication validates OIDC access tokens through issuer discovery and rotation-aware
-JWKS verification, including signature, audience, issuer, subject, and expiration checks. Validated
-claims map to a bounded application principal; the server-owned `resolve_customer_scope()` resolver
-still decides the effective customer scope before an `ExecutionContext` is created.
+### Human escalation
 
-Authentication establishes identity. Authorization constrains accessible customer state. The
-Decision Compiler, policy and confirmation gates, and controlled runtime remain the only path to a
-business effect. Tokens, authorization headers, raw claims, and identity PII are excluded from auth
-metrics and logs. See [security.md](docs/security.md) for configuration and trust boundaries.
+The agent recognizes a specialist request, applies the escalation policy, and
+uses a bounded human-handoff action. The screenshot separates the
+require_human decision, escalate_to_human action, completed handoff, and
+controlled authority.
 
-### Grounded answer generation
+![Human escalation operator projection](docs/demo/human-escalation.png)
 
-Knowledge-only responses use bounded citation-constrained generation. Hybrid
-retrieval and reranking select evidence; the answer generator may synthesize
-only from those selected chunks. A deterministic grounding validator then
-checks citation coverage, excerpt identity, unsupported claims, and source
-agreement before the answer is accepted.
+### Secure boundary enforcement
 
-When evidence is empty, irrelevant, or conflicting, the response surfaces
-uncertainty instead of silently inventing a policy or choosing between sources.
-The operator projection exposes source count, citation count, grounding status,
-confidence, and unsupported-claim count without exposing hidden reasoning.
-This reduces the supported hallucination surface; it is not a claim of perfect
-hallucination prevention.
+An instruction-override attempt is contained before it can become an
+authorized workflow. The projection shows the deny decision, skipped model
+execution, blocked-before-invocation reason, and no granted authority.
 
-See the detailed [architecture document](docs/architecture.md) for the full system diagram and trust-boundary notes.
-The [demonstration scenarios](docs/demo-scenarios.md) summarize the evidence-first walkthrough.
-The [production demo showcase](docs/demo-showcase.md) documents the reproducible live/replay scenario suite and screenshot package.
-The Playground also offers four read-only [production-style evidence fixtures](docs/demo-showcase.md#production-style-demo-scenarios) for inspecting memory, RAG grounding, deterministic decisions, and authority boundaries without creating a runtime run.
+![Security boundary containing an instruction override](docs/demo/security-boundary.png)
 
-## Core guarantees
+### RAG grounding
 
-The runtime fails closed when the proposal is unsupported or cannot be grounded.
+The grounded response view places the customer exchange beside the retrieved
+source, chunk, score, citation preview, and grounding status. Retrieved
+evidence supports the response; it does not grant execution authority.
 
-- Model-produced identifiers and arguments do not become trusted facts automatically.
-- Deterministic validation checks customer scope, target admissibility, required fields, and business state.
-- Risk 2 mutations require confirmation bound to persisted action state.
-- Risk 3 work follows a human escalation path.
-- Database-backed idempotency prevents duplicate business effects on covered paths.
-- Replays cannot resurrect stale or declined confirmations.
-- Unknown write outcomes are not blindly replayed.
+![RAG grounded response and evidence](docs/demo/rag-grounded-faq-conversation.png)
 
-The platform's safety claim is about authority placement and measured containment. It is not a claim that the model never makes a mistake.
+### Refund workflow
 
-## Demonstrated scenarios
+The refund scenario shows a structured proposal held at a confirmation
+boundary. Evidence and deterministic validation can make a request eligible,
+but no sensitive mutation proceeds without explicit approval.
 
-The public showcase uses four deterministic evidence snapshots:
+![Refund workflow and confirmation boundary](docs/demo/refund-happy-path.png)
 
-- **Refund with memory and RAG:** Evidence grounds a proposal, then a
-  confirmation boundary holds the mutation.
-- **Prompt injection defense:** Untrusted scope expansion reaches policy
-  evaluation, is prevented, and receives no authority.
-- **Duplicate operation protection:** Existing operation state stops a second
-  business effect.
-- **Missing information clarification:** An incomplete target leads to
-  clarification. Execution is not attempted.
+### Workflow recovery
 
-The [production demo showcase](docs/demo-showcase.md) describes each scenario
-and links to the final screenshot package.
+An active workflow can be interrupted by an unrelated knowledge question,
+suspended, answered through the RAG path, and resumed without losing bounded
+pending-action context or bypassing confirmation.
 
-## Validation evidence
+![Workflow interruption and resume](docs/demo/workflow-interruption.png)
 
-The current release candidate has two separate gates:
+### Additional evidence views
+
+The same evidence model is visible across memory, revalidation, and operator
+investigation surfaces:
+
+![Memory-aware conversation](docs/demo/memory-aware-conversation.png)
+
+*A bounded memory item enriches context without becoming authorization.*
+
+![Policy revalidation failure](docs/demo/policy-revalidation-failure.png)
+
+*Business-state revalidation can prevent execution even after a proposal or confirmation step.*
+
+![Operator observability timeline](docs/demo/operator-observability.png)
+
+*The operational timeline connects gateway, context, memory, retrieval, policy, and tool ownership.*
+
+![Operator investigation with decision and authority state](docs/demo/operator-investigation-full.png)
+
+*The investigation header keeps evidence, decision, authority, and execution outcome distinct.*
+
+See the [demo walkthrough](docs/demo/walkthrough.md) for scenario inputs,
+expected boundaries, and observed projection behavior.
+
+## Engineering Highlights
+
+The project is designed for review by AI platform, MLOps, agent infrastructure,
+and senior AI engineering teams:
+
+- LangGraph-based workflow orchestration.
+- Policy-driven tool execution.
+- Human-in-the-loop approval boundaries.
+- RAG grounding with evidence tracking.
+- Memory isolation and lifecycle management.
+- OpenTelemetry tracing and bounded operator projections.
+- Deterministic evaluation and release-gate harnesses.
+- Prompt-injection and instruction-override containment.
+- Resilient workflow recovery and idempotent mutation protection.
+
+## Evaluation results
+
+The repository keeps separate release-gate summaries and bounded evaluation
+slices. The current release evidence index reports:
 
 | Area | Result |
 | --- | --- |
-| Deterministic evaluation | `110/110` |
-| Safety evaluation | `40/40` |
-| Resilience evaluation | `28/28` |
-| M6.29B D2c semantic and safety validation | `540/540` |
-| Unsafe executable survivors | `0` |
-| Unsafe executions | `0` |
-| M6.34 D2d operational release gate | `D2D_RELEASE_GATE_PASS` |
+| Deterministic evaluation | 110/110 |
+| Safety evaluation | 40/40 |
+| Resilience evaluation | 28/28 |
+| M6.29B semantic and safety validation | 540/540 |
+| Unsafe executable survivors | 0 |
+| Unsafe executions | 0 |
+| M6.34 operational release gate | D2D_RELEASE_GATE_PASS |
 
-M6.29B containment evidence:
+The latest bounded resilience/failure-recovery slice is recorded separately in
+`evaluation/results/latest.json` and `evaluation/results/latest.md`: it contains
+28 scenarios from run `eval-9fc295817532` at 100% pass rate. That slice is not a
+replacement for the release-gate totals above, and the historical artifacts
+remain available for reproducibility.
 
-```text
-15 -> 3 -> 0 -> 0 -> 0 executable survivors
-```
+These results describe recorded evaluation artifacts and reference deployment
+scope. They do not certify every model, workload, environment, or production
+deployment.
 
-The full prospective run recorded 30 unsafe semantic proposals, 30 deterministic interventions, zero unsafe executable survivors, and zero unsafe executions. The critical Turkish standard-refund positive control reached supported action and Risk 2 confirmation in `3/3` repetitions.
+Read the [evaluation overview](docs/evaluation-overview.md), [release evidence index](docs/release-evidence.md), and [D2d operational contract](docs/d2d-release-gate.md) for experiment identities, artifact paths, and acceptance criteria.
 
-M6.34 validated the source-bound operational reference deployment:
+## Observability and operator workflow
 
-- `18/18` operational scenarios;
-- `8/8` mandatory phases;
-- `6/6` fault classes recovered;
-- same-action committed effects `1, 1, 1`;
-- independent-action committed effects `2, 2, 2`;
-- zero duplicate mutations, unauthorized mutations, confirmation bypasses, stale resurrection, declined resurrection, and privacy violations.
+The Runs & traces surface is a read-only investigation workflow:
 
-Read the [release evidence index](docs/release-evidence.md) for experiment identities, artifact paths, and hashes. Read the [evaluation overview](docs/evaluation-overview.md) for the D2c/D2d gate split and the [D2d contract](docs/d2d-release-gate.md) for operational acceptance criteria.
-Future evaluation outputs follow the [evaluation artifact retention policy](docs/evaluation-artifact-policy.md), which keeps compact integrity metadata in Git while allowing large raw attempt dumps to use immutable external storage.
+~~~text
+Request → Evidence → Proposal → Decision → Authority → Outcome
+~~~
 
-Capacity and cost planning are documented separately in the [capacity report](docs/capacity-report.md)
-and [estimated cost model](docs/cost-model.md). These are provider-free measurement and planning
-documents, not production SLOs or billing measurements.
+Operators can inspect request and workflow state, memory and RAG evidence,
+action proposals, validation status, policy and confirmation outcomes,
+authority and execution state, lifecycle timing, owners, trace identity, and
+bounded reports.
 
-## Production Operations
-
-The reference topology exposes process liveness at `/health`, required
-dependency readiness at `/ready`, and bounded operator diagnostics at
-`/health/details`. Diagnostics include service version, deployment identity,
-dependency state, latency summaries, and aggregate retry/circuit/request
-signals without prompts, tokens, credentials, or customer data.
-
-Operational ownership and response procedures are documented in the
-[alerting strategy](docs/alerting.md), [deployment lifecycle](docs/deployment-lifecycle.md),
-[disaster recovery guide](docs/disaster-recovery.md), and [incident runbooks](docs/runbooks/).
-Provider outages are treated as degraded dependency conditions; deterministic
-validation, confirmation, idempotency, tenant isolation, and controlled
-execution remain unchanged.
+The console intentionally omits chain-of-thought, raw provider responses,
+secrets, unrestricted memory, prompts, and model token streams.
 
 ## Why this architecture exists
 
-Modern LLM agents are useful proposal generators, but probabilistic output
-cannot own operational authority. Production-oriented agent systems need a
-clear boundary between model intelligence and system authority.
-
-| Problem | Architecture response |
+| Production problem | Architecture response |
 | --- | --- |
-| Hallucination risk | Evidence-backed decisions, RAG grounding, and provenance checks keep unsupported proposals from becoming trusted facts. |
-| Unsafe agent execution | The decision compiler, policy engine, and confirmation boundaries determine whether a covered action is admissible. |
-| Operational failures | Persistence-backed idempotency, duplicate protection, and controlled runtime execution bound business effects. |
+| Hallucinated or unsupported claims | RAG grounding, provenance checks, citation metadata, and explicit uncertainty. |
+| Unsafe agent execution | Security boundaries, target validation, Decision Compiler, Policy Engine, and confirmation gates. |
+| Duplicate or stale business effects | Persistence-backed idempotency, revalidation, and controlled runtime execution. |
+| Hard-to-debug agent behavior | Evidence projections, lifecycle timelines, bounded traces, and investigation reports. |
 
-The console exposes these observable boundaries and omits hidden reasoning and
-model token streams.
+An agent should not own authority. The model proposes, the system decides, and
+the runtime executes only approved effects.
 
-## Production Evidence
+## Technical stack
 
-The public evidence package is organized around four deterministic scenarios:
+- **Backend:** Python, FastAPI, LangGraph-style agent workflow, PostgreSQL,
+  Alembic, Qdrant, and typed business tools.
+- **Frontend:** React, TypeScript, Vite, Tailwind, and Vitest.
+- **Retrieval:** Hybrid dense/BM25 retrieval, fusion, reranking, and bounded
+  citation-constrained answer generation.
+- **Observability:** OpenTelemetry-compatible traces, bounded metrics, and a
+  read-only operator console.
+- **Verification:** Pytest, Ruff, Mypy, Playwright, deterministic evaluation,
+  safety evaluation, and resilience evaluation.
 
-1. **Refund request with memory + RAG** — Evidence grounds a refund proposal;
-   the confirmation boundary remains active and no mutation is performed
-   without approval.
-2. **Prompt injection defense** — Untrusted scope-expanding input is rejected
-   by policy and receives no execution authority.
-3. **Duplicate operation protection** — Existing operation state and idempotency
-   controls prevent a second business effect.
-4. **Missing information clarification** — An incomplete target produces a
-   clarification requirement; execution is not attempted.
-
-Each scenario is an evidence snapshot rather than a claim of universal model
-reliability. The [showcase guide](docs/demo-showcase.md) explains the operator
-workflow and the [release evidence](docs/release-evidence.md) records the
-validated D2c and D2d results.
-
-## Investigation and observability
-
-Runs & traces is a read-only operator workflow for inspecting a projected run:
-
-```text
-Request → Evidence → Proposal → Decision → Authority
-```
-
-The registry and investigation view show bounded evidence, deterministic
-decisions, authority state, and outcome. They do not present live telemetry or
-direct execution controls.
-
-## Production showcase
-
-The current visual evidence package is under
-[`screenshots/demo-final-release-v3/`](screenshots/demo-final-release-v3/). These
-screenshots are generated from bounded deterministic projections. They show the
-customer request, agent response, evidence, deterministic decision, and authority
-outcome—not hidden reasoning, raw provider output, or production telemetry.
-
-### 1. Control plane overview
-
-![Control plane overview](screenshots/demo-final-release-v3/01-control-plane-overview.png)
-
-*Overview of the operator control plane: the product story starts with evidence, explicit guarantees, and bounded authority.*
-
-### 2. Authority boundary architecture
-
-![Authority boundary architecture](screenshots/demo-final-release-v3/07-authority-flow.png)
-
-*Architecture view separating context and model proposals from deterministic decisions and controlled runtime authority.*
-
-### 3. Agent lifecycle scenarios
-
-Each scenario shows the original customer request, the bounded agent response, and
-the decision boundary that connects evidence to authority.
-
-#### Refund confirmation
-
-![Refund confirmation boundary](screenshots/demo-final-release-v3/02-refund-confirmation-boundary-v2.png)
-
-*Grounded refund evidence produces a proposal, while the confirmation boundary keeps execution awaiting approval.*
-
-#### Prompt injection defense
-
-![Prompt injection defense](screenshots/demo-final-release-v3/03-prompt-injection-policy-deny-v2.png)
-
-*Untrusted scope expansion is denied by policy and receives no execution authority.*
-
-#### Duplicate operation protection
-
-![Duplicate operation protection](screenshots/demo-final-release-v3/04-idempotency-protection-v2.png)
-
-*An existing refund operation is detected before a second business effect can be created.*
-
-#### Missing information clarification
-
-![Missing information clarification](screenshots/demo-final-release-v3/05-missing-information-clarification-v2.png)
-
-*An incomplete target leads to clarification, with execution explicitly not attempted.*
-
-### 4. Operational run registry
-
-![Operational run registry](screenshots/demo-final-release-v3/06-operational-run-registry.png)
-
-*Runs and traces organize deterministic scenario evidence for operator investigation rather than presenting live telemetry.*
-
-### 5. Investigation report and audit evidence
-
-![Investigation report](screenshots/demo-final-release-v3/08-investigation-report.png)
-
-*Read-only investigation reporting connects available evidence, deterministic decisions, authority state, and outcome without exposing hidden reasoning.*
-
-### 6. Mobile responsive view
-
-![Mobile investigation view](screenshots/demo-final-release-v3/09-mobile-view.png)
-
-*Responsive investigation surface showing that the same evidence and authority boundaries remain available on a narrow viewport.*
-
-For the written architecture tour, see the [architecture document](docs/architecture.md).
-
-## Local demo
+## Local development
 
 ### Requirements
 
 - Docker with Docker Compose
-- Python 3.12 and [`uv`](https://docs.astral.sh/uv/)
+- Python 3.12 and [uv](https://docs.astral.sh/uv/)
 - Node.js and npm
 
-### Start the complete stack
+### Start the stack
 
-```bash
+~~~bash
 cp .env.example .env
 docker compose up --build --detach
-```
+~~~
 
-Open <http://localhost:5173>. The local stack starts PostgreSQL, Qdrant, Jaeger, the backend, and the Operator Console. Setup migrates the database, loads deterministic demo records, and ingests the bundled knowledge base.
+Open <http://localhost:5173>. The local stack starts the backend, PostgreSQL,
+Qdrant, Jaeger, and the Operator Console. Setup applies migrations, seeds
+deterministic records, and loads the bundled knowledge base.
 
-A real `/agent/chat` result requires a reachable OpenAI-compatible provider. The local configuration may use Ollama or another explicitly configured provider. Provider calls are not part of the offline evaluation gates.
+The offline evaluation gates do not require an external model provider. The
+optional live proposal path uses a configured OpenAI-compatible provider for
+semantic proposal generation only; grounding, compilation, policy,
+confirmation, idempotency, and execution authority remain server-owned.
 
-The Playground offers two explicit modes: **Recorded evidence replay** uses the configured bounded
-local path, while **Live proposal run** is enabled only when the server is configured for the
-OpenAI API. In live mode the model returns a structured semantic proposal only; deterministic
-grounding, compilation, policy, confirmation, and execution-authority checks remain in control.
-
-To generate the bounded public showcase run index and scenario run IDs against the local stack:
-
-```bash
-bash scripts/run_demo_suite.sh
-```
-
-The suite writes safe metadata and screenshots under `screenshots/demo-final/`; it does not send
-confirmation commands or expose raw provider responses.
-Without an OpenAI key, the UI falls back to bounded evidence replay and states that fallback
-explicitly. See [demo-scenarios.md](docs/demo-scenarios.md#live-proposal-mode) for the scope and
-limitations of this optional path.
-
-The live evidence flow is:
-
-```text
-Request → Context → LLM proposal → Decision Compiler → Policy → Authority → Evidence
-```
-
-For a hermetic integration proof without a live model, run:
-
-```bash
-make e2e-smoke
-```
-
-The smoke uses an isolated Compose project and fresh volumes, then removes those resources. It validates authenticated request handling, a Risk 2 proposal, persistence across backend restart, one idempotent mutation, replay safety, and bounded Operator Console projections. It does not measure real-model semantic quality.
-
-### Operator Journey Evidence
-
-Browser-level Playwright journeys validate the architecture from the operator's
-point of view, not only through backend assertions. The suite covers a grounded
-refund proposal held at confirmation, policy containment of prompt injection,
-idempotent confirmation replay, clarification for a missing target, a
-citation-constrained knowledge answer, and the run-investigation workflow.
-
-The journeys run against an isolated Compose deployment. A local deterministic
-proposal fixture supplies structured semantic proposals only; the real compiler,
-policy, confirmation, persistence, retrieval, projection, and execution layers
-remain in control. No external model endpoint or credential is required.
-
-```bash
-npm --prefix frontend ci
-npx --prefix frontend playwright install chromium
-bash scripts/run_operator_e2e.sh
-```
-
-Successful captures are written to `screenshots/operator-e2e/`. The suite does
-not expose prompts, raw provider responses, secrets, hidden reasoning, or model
-tokens.
-
-Useful local endpoints:
+Useful endpoints:
 
 | Service | URL |
 | --- | --- |
@@ -465,66 +264,81 @@ Useful local endpoints:
 
 Stop the stack with:
 
-```bash
+~~~bash
 docker compose down
-```
+~~~
 
-See [deployment.md](docs/deployment.md) for health, readiness, container, and production-oriented
-Compose details. See [disaster recovery](docs/disaster-recovery.md) for backup, restore, and
-evidence-recovery assumptions.
+See [deployment](docs/deployment.md) for health, readiness, container, and
+production-oriented topology details.
 
 ## Testing and CI
 
 Backend quality gates:
 
-```bash
+~~~bash
 make test
 make lint
 make typecheck
-```
+~~~
 
 Frontend quality gates:
 
-```bash
+~~~bash
 make frontend-test
 make frontend-typecheck
 make frontend-lint
 make frontend-build
-```
+~~~
 
 Offline evaluation gates:
 
-```bash
+~~~bash
 make eval
 make eval-safety
 make eval-resilience
-```
+~~~
 
-CI also validates dependencies, secrets, Docker/Compose configuration, image policy, six Chromium operator journeys, and the authenticated lifecycle smoke. See [ci.md](docs/ci.md) for the gate graph.
+Browser-level operator journeys are available through the isolated Compose
+workflow:
+
+~~~bash
+npm --prefix frontend ci
+npx --prefix frontend playwright install chromium
+bash scripts/run_operator_e2e.sh
+~~~
+
+The journeys cover grounded proposals, prompt-injection containment,
+idempotent replay, clarification, RAG evidence, and run investigation without
+requiring external provider credentials.
 
 ## Project structure
 
-```text
+~~~text
 app/                 FastAPI, agent graph, policy, persistence, RAG, tools, observability
-evaluation/          Deterministic evaluation and frozen D2d release-gate tooling
 frontend/            React, TypeScript, Vite, Tailwind Operator Console
 tests/               Backend unit and integration tests
-docs/                Architecture, deployment, evaluation, and release evidence
-alembic/             Database migrations
-scripts/             Seed, ingestion, and integration helpers
+evaluation/          Deterministic evaluation and release-gate tooling
+docs/                Architecture, deployment, evaluation, and showcase documentation
+alembic/              Database migrations
+scripts/              Seed, ingestion, validation, and integration helpers
 docker-compose*.yml  Local, integration, and production-oriented Compose definitions
 Makefile             Development and verification commands
-```
+~~~
 
 ## Limitations and scope
 
-- This repository is a production-oriented reference implementation, not a production-readiness, enterprise, capacity, or compliance certification.
-- Live evidence is bound to exact source, provider, model, prompt, schema, dataset, scorer, and contract identities.
-- Model semantic errors can still occur. Deterministic containment does not prove that unseen failures are impossible.
-- The Operator Console displays bounded projections and intentionally omits raw prompts, provider responses, secrets, memory bodies, and hidden reasoning.
-- The release gate covers the documented single-environment reference deployment. It does not certify public-internet TLS, enterprise IAM, Kubernetes, multi-region operation, disaster recovery, or autoscaling capacity.
-- Full application load and capacity characterization, provider cost telemetry, longer soak tests, and stronger chaos exercises remain outside the validated release scope.
-- Backend OIDC/JWT validation is included. Browser login, IdP provisioning, session lifecycle, and external secret management remain deployment-owned integration responsibilities.
+- This repository is a production-oriented reference implementation, not a
+  managed production service or compliance certification.
+- Model semantic errors can still occur; deterministic containment does not
+  prove unseen failures are impossible.
+- The Operator Console displays bounded projections and intentionally omits
+  raw prompts, provider responses, secrets, unrestricted memory, and hidden
+  reasoning.
+- The release evidence covers the documented reference deployment. It does not
+  certify public-internet TLS, enterprise IdP provisioning, multi-region
+  operation, or unrestricted autoscaling capacity.
+- Live provider configuration, browser login, external secret management, and
+  deployment ownership remain environment-specific responsibilities.
 
 ## Further reading
 
@@ -535,7 +349,6 @@ Makefile             Development and verification commands
 - [Evaluation overview](docs/evaluation-overview.md)
 - [Evaluation artifact retention policy](docs/evaluation-artifact-policy.md)
 - [Release evidence](docs/release-evidence.md)
-- [Public release notes](docs/release-notes.md)
-- [D2d operational contract](docs/d2d-release-gate.md)
 - [Deployment expectations](docs/deployment.md)
+- [Production demo walkthrough](docs/demo/walkthrough.md)
 - [Frontend design guidelines](docs/frontend-design-guidelines.md)

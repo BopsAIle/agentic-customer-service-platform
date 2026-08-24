@@ -39,7 +39,7 @@ function authorityState(run: AgentRun): string {
   const semantics = deriveRunSemantics(run);
   if (semantics.authority === "read_access") return "Read access";
   if (semantics.authority === "controlled_execution") return "Granted through controlled path";
-  if (semantics.authority === "confirmation_required") return "Pending approval boundary";
+  if (semantics.authority === "confirmation_required") return "Confirmation required";
   if (semantics.status === "needs_input") return "Not granted · clarification required";
   return "Not authorized";
 }

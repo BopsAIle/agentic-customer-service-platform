@@ -10,7 +10,7 @@ type Props = {
 };
 
 function runStatus(status: string): { label: string; tone: "success" | "warning" | "danger" | "info" | "neutral" } {
-  if (status === "waiting_confirmation") return { label: "Waiting confirmation", tone: "warning" };
+  if (status === "waiting_confirmation") return { label: "Awaiting confirmation", tone: "warning" };
   if (status === "completed") return { label: "Completed", tone: "success" };
   if (status === "error") return { label: "Escalated", tone: "danger" };
   return { label: status.replace(/_/g, " "), tone: "info" };

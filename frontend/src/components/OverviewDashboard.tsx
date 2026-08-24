@@ -76,7 +76,7 @@ export function OverviewDashboard({ runs, busy, onRunSafetyDemo, onNavigate }: P
           <MetricCard label="Projected runs" value={projectedCount(counts.total)} detail={counts.total ? "Loaded from operator API" : "Not available from current projection"} icon={Activity} />
           <MetricCard label="Successful" value={counts.total ? String(counts.completed) : "Not available"} detail="status = completed" icon={CheckCircle2} />
           <MetricCard label="Blocked / failed" value={counts.total ? String(counts.blocked) : "Not available"} detail="bounded status projection" icon={LockKeyhole} />
-          <MetricCard label="Pending confirmation" value={counts.total ? String(counts.pending) : "Not available"} detail="waiting_confirmation" icon={ShieldCheck} />
+          <MetricCard label="Awaiting confirmation" value={counts.total ? String(counts.pending) : "Not available"} detail="confirmation_required" icon={ShieldCheck} />
         </div>
       </Card>
       <Card as="section" className="p-5">
