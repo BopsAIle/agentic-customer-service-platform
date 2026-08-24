@@ -38,6 +38,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, [role="tab"]:fo
   .status-danger { @apply text-danger; }
   .status-info { @apply text-info; }
   .status-neutral { @apply text-muted; }
+  .activity-pulse { @apply h-2 w-2 animate-pulse rounded-full bg-info; }
   .metric-card { @apply rounded-none border-0 bg-void/40 first:rounded-l-lg last:rounded-r-lg; }
   .workspace-grid { @apply grid items-start gap-5 xl:grid-cols-[minmax(0,1.2fr)_minmax(460px,.8fr)]; }
   .workspace-control-grid { @apply grid min-w-0 items-start gap-5 xl:grid-cols-[240px_minmax(0,1fr)_minmax(360px,.78fr)]; }

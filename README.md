@@ -46,6 +46,35 @@ The React Operator Console is designed as a compact AI platform control plane:
 
 No screen exposes chain-of-thought, raw provider responses, secrets, or direct production mutation controls.
 
+## Unified Agent Experience
+
+The `/chat` view brings the customer interaction and the operator's bounded
+agent observability into one screen. It reuses the existing `/agent/chat`
+workflow, so the conversation remains connected to the same retrieval,
+memory, policy, tool, confirmation, and trace projections used by the rest of
+the console.
+
+```text
+Customer message
+      |
+      v
+Context and evidence  ->  Semantic proposal  ->  Deterministic decision
+                                                        |
+                                                        v
+                                      Confirmation / escalation / authority
+                                                        |
+                                                        v
+                                             Bounded agent response
+```
+
+The conversation column shows only user-visible messages. The adjacent
+activity and runtime panels show observable intent, retrieved sources, policy
+outcomes, bounded tool status, memory availability, trace identity, and
+authority state. They intentionally omit raw prompts, provider payloads,
+hidden reasoning, and tool arguments. This makes the customer experience and
+the control-plane decision boundary inspectable without creating a separate
+chatbot execution path.
+
 ## Architecture
 
 ```mermaid
