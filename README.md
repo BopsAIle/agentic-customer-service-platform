@@ -75,6 +75,29 @@ hidden reasoning, and tool arguments. This makes the customer experience and
 the control-plane decision boundary inspectable without creating a separate
 chatbot execution path.
 
+## Live Customer Journey
+
+The unified chat surface can be exercised through the browser as a customer
+conversation while the operator observes the same bounded run projection. The
+journey keeps interaction, grounding, policy, tool status, memory availability,
+and trace identity in one investigation surface.
+
+![Initial unified chat view showing the customer conversation entry point and empty observability panels.](docs/screenshots/live-chat-initial.png)
+
+*Initial unified chat view: the customer interaction starts beside the agent timeline and runtime details.*
+
+![Live agent flow showing a customer conversation with retrieval, grounding, policy, and trace events.](docs/screenshots/live-chat-agent-flow.png)
+
+*Agent flow evidence: retrieved knowledge and deterministic policy activity are visible without exposing hidden reasoning or model tokens.*
+
+![Completed live customer journey showing conversation state, bounded timeline, policy status, and trace details.](docs/screenshots/live-chat-completed.png)
+
+*Completed journey: the final response and operational projection remain separate from execution authority.*
+
+Tool execution and escalation indicators are rendered only when the existing
+backend projection records them. The capture workflow does not synthesize
+missing events or bypass the established agent path.
+
 ## Architecture
 
 ```mermaid
