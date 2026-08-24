@@ -332,11 +332,14 @@ def assert_projection(projection: dict[str, Any], *, confirmation_run: bool) -> 
     expect(tool.get("name") == "cancel_order", "Projection contains the wrong tool.")
     expect(tool.get("risk_level") == 2, "Projection contains the wrong risk level.")
     if confirmation_run:
-        expect(tool.get("status") == "executed", "Confirmed tool was not projected as executed.")
+        expect(tool.get("status") == "completed", "Confirmed tool was not projected as completed.")
         expect("policy_revalidate" in path, "Projection omitted policy revalidation.")
         expect("execute_tool" in path, "Projection omitted confirmed execution.")
     else:
-        expect(tool.get("status") == "pending", "Initial tool was not projected as pending.")
+        expect(
+            tool.get("status") == "blocked_before_execution",
+            "Initial tool was not projected as blocked before execution.",
+        )
         policy = projection.get("policy")
         expect(isinstance(policy, list) and len(policy) >= 1, "Policy projection is missing.")
         assert isinstance(policy, list)

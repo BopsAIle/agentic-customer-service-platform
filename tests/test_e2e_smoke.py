@@ -40,7 +40,13 @@ def test_smoke_projection_rejects_missing_confirmation_metadata() -> None:
                 "customer_id": 2,
                 "conversation_id": CONVERSATION_ID,
                 "path": ["check_pending_action"],
-                "tools": [{"name": "cancel_order", "risk_level": 2, "status": "pending"}],
+                "tools": [
+                    {
+                        "name": "cancel_order",
+                        "risk_level": 2,
+                        "status": "blocked_before_execution",
+                    }
+                ],
                 "policy": [{"outcome": "allow"}],
             },
             confirmation_run=False,
