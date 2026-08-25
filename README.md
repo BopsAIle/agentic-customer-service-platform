@@ -255,6 +255,7 @@ Makefile             Development and verification commands
 - [Identity and security boundaries](docs/security.md)
 - [Distributed reliability boundaries](docs/reliability.md)
 - [Memory privacy boundary](docs/memory-privacy.md)
+- [Engineering hardening roadmap](docs/engineering-hardening-roadmap.md)
 - [Evaluation overview](docs/evaluation-overview.md)
 - [Evaluation artifact retention policy](docs/evaluation-artifact-policy.md)
 - [Release evidence](docs/release-evidence.md)
