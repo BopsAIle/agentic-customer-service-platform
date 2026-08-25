@@ -1,4 +1,4 @@
-import type { AgentExecutionMode, AgentResponse, AgentRun, DemoScenario, Health, MemoryRecord, RuntimeConfig } from "../types";
+import type { AgentExecutionMode, AgentResponse, AgentRun, ConversationView, DemoScenario, Health, MemoryRecord, RuntimeConfig } from "../types";
 import {
   createConfiguredAuthProvider,
   type AuthProvider,
@@ -12,6 +12,7 @@ export class ApiError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    readonly reason?: string,
   ) {
     super(message);
     this.name = "ApiError";
@@ -54,15 +55,39 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!response.ok) {
     if (response.status === 401) authProvider.clearCredential();
-    const message =
+    let detail: { message?: string; reason?: string } | null = null;
+    try {
+      const payload: unknown = await response.json();
+      if (typeof payload === "object" && payload !== null && "detail" in payload) {
+        const raw = (payload as { detail?: unknown }).detail;
+        if (typeof raw === "object" && raw !== null) detail = raw as { message?: string; reason?: string };
+      }
+    } catch {
+      detail = null;
+    }
+    const message = detail?.message ?? (
       response.status === 401
         ? "Authentication session is missing or expired."
         : response.status === 403
           ? "The authenticated operator is not permitted to perform this request."
-          : `Request failed (${response.status}).`;
-    throw new ApiError(message, response.status);
+          : `Request failed (${response.status}).`);
+    throw new ApiError(message, response.status, detail?.reason);
   }
   return response.json() as Promise<T>;
+}
+
+async function requestProjection<T>(path: string): Promise<T> {
+  // Projection persistence is observational and may become visible just after
+  // the agent response. Keep this bounded: three short reads, never polling.
+  for (const delayMs of [0, 100, 250]) {
+    if (delayMs > 0) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      return await request<T>(path);
+    } catch (error) {
+      if (!(error instanceof ApiError) || error.status !== 404 || delayMs === 250) throw error;
+    }
+  }
+  throw new ApiError("Agent run projection is unavailable.", 404);
 }
 
 export const api = {
@@ -73,7 +98,8 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ conversation_id: conversationId, customer_id: customerId, message, execution_mode: executionMode }),
     }),
-  run: (runId: string) => request<AgentRun>(`/ui/agent-runs/${runId}`),
+  run: (runId: string) => requestProjection<AgentRun>(`/ui/agent-runs/${runId}`),
+  conversation: (conversationId: string) => request<ConversationView>(`/ui/conversations/${conversationId}`),
   memory: (customerId: number) => request<MemoryRecord[]>(`/ui/memory/${customerId}`),
   health: () => request<Health>("/ui/system-health"),
   runtimeConfig: () => request<RuntimeConfig>("/ui/runtime-config"),

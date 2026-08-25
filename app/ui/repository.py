@@ -22,6 +22,7 @@ _EXECUTION_METADATA_KEY = "_operator_execution_metadata"
 _PROPOSAL_KEY = "_operator_proposal"
 _ANSWER_GROUNDING_KEY = "_operator_answer_grounding"
 _SECURITY_SIGNAL_KEY = "_operator_security_signal"
+_OPERATION_TYPE_KEY = "_operator_operation_type"
 
 
 class AgentRunProjectionRepository(Protocol):
@@ -258,6 +259,7 @@ def _to_record(projection: AgentRunView) -> AgentRunProjectionRecord:
     retrieval_metadata[_PROPOSAL_KEY] = payload["proposal"]
     retrieval_metadata[_ANSWER_GROUNDING_KEY] = payload["answer_grounding"]
     retrieval_metadata[_SECURITY_SIGNAL_KEY] = payload["security_signal"]
+    retrieval_metadata[_OPERATION_TYPE_KEY] = payload["operation_type"]
     return AgentRunProjectionRecord(
         run_id=projection.run_id,
         request_id=projection.request_id,
@@ -339,6 +341,7 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
     proposal = stored_retrieval_metadata.pop(_PROPOSAL_KEY, None)
     answer_grounding = stored_retrieval_metadata.pop(_ANSWER_GROUNDING_KEY, None)
     security_signal = stored_retrieval_metadata.pop(_SECURITY_SIGNAL_KEY, None)
+    operation_type = stored_retrieval_metadata.pop(_OPERATION_TYPE_KEY, "agent_request")
     return AgentRunView.model_validate(
         {
             "run_id": record.run_id,
@@ -352,6 +355,7 @@ def _from_record(record: AgentRunProjectionRecord) -> AgentRunView:
             "roles": record.roles,
             "intent": record.intent,
             "request_type": record.request_type,
+            "operation_type": operation_type,
             "status": record.status,
             "started_at": record.started_at,
             "duration_ms": record.duration_ms,

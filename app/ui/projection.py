@@ -286,6 +286,13 @@ class UIProjectionStore(InMemoryAgentRunProjectionRepository):
             roles=list(projection.context.principal.roles),
             intent=response.intent.value,
             request_type=response.request_type.value,
+            operation_type=(
+                "idempotency_replay"
+                if state.get("replay_detected")
+                else "memory_summary"
+                if state.get("memory_summary_requested")
+                else "agent_request"
+            ),
             status=run_status,
             started_at=projection.started_at,
             duration_ms=duration_ms,
@@ -437,8 +444,11 @@ def _decision_reason(
 ) -> str | None:
     """Return a deterministic explanation, never the provider's free-form reason."""
 
-    if state.get("security_signal") == "instruction_override_attempt":
-        return "instruction_override_attempt"
+    security_signal = state.get("security_signal")
+    if isinstance(security_signal, str) and security_signal:
+        return security_signal
+    if state.get("replay_detected"):
+        return "idempotency_replay_prevented"
     compile_result = state.get("compile_result")
     compiler_status = getattr(getattr(compile_result, "status", None), "value", None)
     if compiler_status in {"clarification_required", "compile_rejected"}:
@@ -458,6 +468,8 @@ def _decision_reason(
                 ),
             }[response.error_category]
         )
+    if response.error_category == AgentErrorCategory.OWNERSHIP_VIOLATION:
+        return "cross_customer_access_attempt"
     if response.error_category == AgentErrorCategory.POLICY_DENIED:
         return "Policy verification denied execution authority."
     if policy_events:
@@ -481,7 +493,11 @@ def _decision_status(
     policy_events: list[PolicyAuditEvent],
     response: AgentResponse,
 ) -> str:
-    if state.get("security_signal") == "instruction_override_attempt":
+    if state.get("security_signal") is not None:
+        return "deny"
+    if state.get("replay_detected"):
+        return "already_completed"
+    if response.error_category == AgentErrorCategory.OWNERSHIP_VIOLATION:
         return "deny"
     if response.error_category in _BUSINESS_VALIDATION_ERRORS:
         return "validation_failed"
@@ -506,6 +522,10 @@ def _validation_stage(
     explicit_stage = state.get("policy_revalidation_stage")
     if isinstance(explicit_stage, str) and explicit_stage:
         return explicit_stage
+    if state.get("replay_detected"):
+        return "idempotency"
+    if response.error_category == AgentErrorCategory.OWNERSHIP_VIOLATION:
+        return "authorization"
     if response.error_category in _BUSINESS_VALIDATION_ERRORS:
         return "business_validation"
     if response.error_category == AgentErrorCategory.POLICY_DENIED or policy_events:
@@ -534,7 +554,11 @@ def _write_outcome_status(
     response: AgentResponse,
     selected_tool: str | None,
 ) -> str:
-    if state.get("security_signal") == "instruction_override_attempt":
+    if state.get("security_signal") is not None:
+        return "not_attempted"
+    if state.get("replay_detected"):
+        return "not_repeated"
+    if response.error_category == AgentErrorCategory.OWNERSHIP_VIOLATION:
         return "not_attempted"
     if response.write_outcome_unknown or state.get("write_outcome_unknown"):
         return "unknown"

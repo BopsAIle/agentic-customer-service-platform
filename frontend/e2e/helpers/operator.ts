@@ -10,8 +10,8 @@ export type AgentChatProjection = {
   agent_run_id: string;
   message: string;
   request_type: string;
-  tool_call: { name: string; status: string } | null;
-  pending_action: { action_id: string; status: string } | null;
+  tool_call: { name?: string; status: string } | null;
+  pending_action: { action_id?: string; status: string } | null;
 };
 
 export async function loginOperator(page: Page, path = "/overview"): Promise<void> {

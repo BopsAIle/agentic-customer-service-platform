@@ -9,19 +9,11 @@ function decisionTone(outcome: string): "success" | "warning" | "danger" | "neut
   return "neutral";
 }
 
-function lastPolicyEvent(run: AgentRun) {
-  return run.policy.length > 0 ? run.policy[run.policy.length - 1] : undefined;
-}
-
 export function PolicyDecisionCard({ run }: { run: AgentRun }) {
-  const event = lastPolicyEvent(run);
-  const projectedDecision = run.evidence.decision;
-  const decision = projectedDecision && projectedDecision !== "not_recorded" ? projectedDecision : event?.outcome ?? run.evidence.compiler.status ?? "not recorded";
+  const decision = run.evidence.decision ?? "not_recorded";
   const reason = run.evidence.reason ?? run.decision_reason ?? "Reason not recorded in the operator projection.";
-  const projectedStage = run.evidence.validation_stage;
-  const validationStage = projectedStage && projectedStage !== "not_recorded" ? projectedStage : event ? "policy_evaluation" : "not_recorded";
-  const projectedExecution = run.evidence.execution_status;
-  const executionStatus = projectedExecution && !(projectedExecution === "not_attempted" && run.evidence.write_outcome.status !== "not_attempted") ? projectedExecution : run.evidence.write_outcome.status;
+  const validationStage = run.evidence.validation_stage ?? "not_recorded";
+  const executionStatus = run.evidence.execution_status ?? "not_attempted";
   return (
     <Card className="p-4" data-testid="policy-decision-card" aria-label="Decision and validation activity">
       <div className="flex items-center gap-2"><ShieldCheck size={15} className="text-warning" aria-hidden="true" /><span className="text-sm font-medium text-main">Decision and validation</span><Badge tone={decisionTone(decision)}>{decision.replace(/_/g, " ")}</Badge></div>

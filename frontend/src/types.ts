@@ -151,6 +151,7 @@ export type AgentRun = {
   customer_id: number;
   intent: string;
   request_type: string;
+  operation_type?: "agent_request" | "memory_summary" | "idempotency_replay";
   status: string;
   started_at: string;
   duration_ms: number;
@@ -175,6 +176,14 @@ export type AgentRun = {
   fallback_message?: string | null;
   proposal?: AgentProposal | null;
   provider_metadata?: ProviderMetadata | null;
+};
+
+export type ConversationView = {
+  conversation_id: string;
+  customer_id: number;
+  run_count: number;
+  runs: AgentRun[];
+  messages: { role: string; content_available: boolean; content: string | null }[];
 };
 
 export type DemoScenario = {
@@ -241,14 +250,14 @@ export type AgentResponse = {
   degraded_components: string[];
   recovery_action: string | null;
   write_outcome_unknown?: boolean;
-  tool_call?: { name: string; status: string; result?: Record<string, unknown> | null } | null;
+  tool_call?: { name?: string; status: string; result?: Record<string, unknown> | null } | null;
   pending_action?: { action_id?: string; tool_name?: string; status?: string } | null;
   execution_mode: AgentExecutionMode;
   provider: string;
   model: string | null;
   fallback_message: string | null;
-  proposal: AgentProposal | null;
-  provider_metadata: ProviderMetadata | null;
+  proposal?: AgentProposal | null;
+  provider_metadata?: ProviderMetadata | null;
 };
 
 export type ConversationTurn = {

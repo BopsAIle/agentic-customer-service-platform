@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.decision_compiler import CompiledDecision, CompileStatus
 from app.agent.schemas import AgentErrorCategory, AgentRequestType, AgentResponse, Intent
+from app.api.routes.ui import _bounded_operator_view
 from app.auth.models import ActorType, Principal
 from app.core.context import ExecutionContext
 from app.ui.projection import get_projection_store
@@ -140,6 +141,46 @@ def test_projection_redacts_filesystem_paths_from_rag_metadata() -> None:
     assert "site-packages" not in view.model_dump_json()
 
 
+def test_projection_excludes_forensic_policy_inputs_from_trace_metadata() -> None:
+    store = get_projection_store()
+    response = AgentResponse(
+        conversation_id="projection-contract-conversation",
+        agent_run_id="forensic-policy-run",
+        message="Your request is awaiting confirmation.",
+        intent=Intent.REFUND_REQUEST,
+        request_type=AgentRequestType.WRITE_ACTION,
+    )
+    with store.capture(
+        run_id=response.agent_run_id,
+        context=_context(),
+        trace_id="trace-forensic-policy",
+    ) as projection:
+        store.record_node(
+            "policy_revalidate",
+            "ok",
+            1.0,
+            {
+                "original_pending_policy_inputs": '{"customer_id":1}',
+                "restored_policy_inputs_hash": "secret-hash",
+                "policy_revalidation_result": "passed",
+                "restored_fields_count": 4,
+            },
+        )
+        view = store.build_view(
+            projection,
+            response=response,
+            state={"memory_context": []},
+            policy_events=[],
+            duration_ms=1.0,
+        )
+
+    metadata = _bounded_operator_view(view).trace[0].metadata
+    assert "original_pending_policy_inputs" not in metadata
+    assert "restored_policy_inputs_hash" not in metadata
+    assert metadata["policy_revalidation_result"] == "passed"
+    assert metadata["restored_fields_count"] == 4
+
+
 def test_projection_separates_business_validation_from_policy_and_tool_execution() -> None:
     store = get_projection_store()
     response = AgentResponse(
@@ -224,6 +265,88 @@ def test_projection_marks_unexecuted_tool_as_blocked_before_execution() -> None:
     assert view.tools[0].status == "blocked_before_execution"
 
 
+def test_projection_labels_known_cross_customer_access_as_authorization_denial() -> None:
+    store = get_projection_store()
+    response = AgentResponse(
+        conversation_id="projection-contract-conversation",
+        agent_run_id="cross-customer-run",
+        message="I can't access that order.",
+        intent=Intent.ORDER_LOOKUP,
+        request_type=AgentRequestType.READ_ACTION,
+        error_category=AgentErrorCategory.OWNERSHIP_VIOLATION,
+    )
+    state: dict[str, Any] = {
+        "compile_result": None,
+        "selected_tool": "get_order",
+        "tool_execution_status": None,
+        "pending_action": None,
+        "policy_decision": None,
+        "write_outcome_unknown": False,
+        "retrieved_chunks": [],
+        "retrieval_metadata": {},
+        "memory_context": [],
+    }
+    with store.capture(
+        run_id=response.agent_run_id,
+        context=_context(),
+        trace_id="trace-cross-customer",
+    ) as projection:
+        view = store.build_view(
+            projection,
+            response=response,
+            state=state,  # type: ignore[arg-type]
+            policy_events=[],
+            duration_ms=1.0,
+        )
+
+    assert view.evidence.decision == "deny"
+    assert view.evidence.reason == "cross_customer_access_attempt"
+    assert view.evidence.validation_stage == "authorization"
+    assert view.evidence.execution_status == "not_attempted"
+    assert view.evidence.authority == "not_granted"
+
+
+def test_projection_labels_confirmation_replay_without_new_execution() -> None:
+    store = get_projection_store()
+    response = AgentResponse(
+        conversation_id="projection-contract-conversation",
+        agent_run_id="replay-run",
+        message="That action was already completed; I did not execute it again.",
+        intent=Intent.REFUND_REQUEST,
+        request_type=AgentRequestType.WRITE_ACTION,
+    )
+    state: dict[str, Any] = {
+        "compile_result": None,
+        "selected_tool": None,
+        "tool_execution_status": None,
+        "pending_action": None,
+        "policy_decision": None,
+        "write_outcome_unknown": False,
+        "replay_detected": True,
+        "retrieved_chunks": [],
+        "retrieval_metadata": {},
+        "memory_context": [],
+    }
+    with store.capture(
+        run_id=response.agent_run_id,
+        context=_context(),
+        trace_id="trace-replay",
+    ) as projection:
+        view = store.build_view(
+            projection,
+            response=response,
+            state=state,  # type: ignore[arg-type]
+            policy_events=[],
+            duration_ms=1.0,
+        )
+
+    assert view.operation_type == "idempotency_replay"
+    assert view.evidence.decision == "already_completed"
+    assert view.evidence.reason == "idempotency_replay_prevented"
+    assert view.evidence.validation_stage == "idempotency"
+    assert view.evidence.execution_status == "not_repeated"
+
+
 def test_memory_usage_is_bounded_and_annotates_memory_trace() -> None:
     store = get_projection_store()
     response = AgentResponse(
@@ -289,6 +412,7 @@ def test_decision_evidence_round_trips_through_durable_projection(db_session: Se
         actor_type="support_operator",
         intent="refund_request",
         request_type="write_action",
+        operation_type="memory_summary",
         status="waiting_confirmation",
         started_at=datetime.now(UTC),
         duration_ms=1.0,
@@ -323,3 +447,4 @@ def test_decision_evidence_round_trips_through_durable_projection(db_session: Se
     assert loaded.decision_reason == view.decision_reason
     assert loaded.memory.items_used == 1
     assert loaded.memory.decision_influence == "context_only"
+    assert loaded.operation_type == "memory_summary"

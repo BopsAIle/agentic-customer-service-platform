@@ -29,6 +29,7 @@ export function ChatInput({ busy, onSend }: Props) {
           onChange={(event) => setValue(event.target.value)}
           disabled={busy}
           rows={2}
+          maxLength={5000}
           data-testid="chat-input"
         />
         <button className="button button-primary shrink-0" type="submit" disabled={busy || !value.trim()} data-testid="chat-send">

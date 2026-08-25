@@ -25,7 +25,7 @@ const run = (overrides: Partial<AgentRun> = {}): AgentRun => ({
   retrieval_metadata: { backend: "test", embedding_provider: "test", reranker_enabled: false, retrieval_count: 0, latency_seconds: 0, fallback_status: "none", hybrid: false, fusion_strategy: "none", dense_candidate_count: 0, sparse_candidate_count: 0 },
   trace: [],
   decision_reason: null,
-  evidence: { decision: "require_confirmation", validation_stage: "policy_evaluation", execution_status: "blocked", grounding: { status: "not_recorded", reference_type: null, trusted_source: null }, compiler: { status: "passed", selected_tool: "request_refund", requires_retrieval: false, reason: null }, target_validation: { status: "validated" }, confirmation: { status: "pending", required: true, action_id: "action-test", risk_level: 2 }, write_outcome: { status: "pending_confirmation" } },
+  evidence: { decision: "require_confirmation", validation_stage: "policy_evaluation", execution_status: "blocked", authority: "confirmation_required", grounding: { status: "not_recorded", reference_type: null, trusted_source: null }, compiler: { status: "passed", selected_tool: "request_refund", requires_retrieval: false, reason: null }, target_validation: { status: "validated" }, confirmation: { status: "pending", required: true, action_id: "action-test", risk_level: 2 }, write_outcome: { status: "pending_confirmation" } },
   ...overrides,
 });
 
@@ -37,7 +37,7 @@ describe("run semantic projection", () => {
 
   it("does not retain a waiting badge after denial", () => {
     const denied = run({
-      evidence: { ...run().evidence, decision: "deny", execution_status: "not_attempted", write_outcome: { status: "blocked" } },
+      evidence: { ...run().evidence, decision: "deny", execution_status: "not_attempted", authority: "not_granted", write_outcome: { status: "blocked" } },
       policy: [{ action_id: null, tool_name: "request_refund", risk_level: 2, outcome: "deny", reason_codes: [] }],
     });
     expect(deriveRunSemantics(denied).status).toBe("blocked");
@@ -49,7 +49,7 @@ describe("run semantic projection", () => {
     const read = run({
       intent: "order_lookup",
       request_type: "read_action",
-      evidence: { ...run().evidence, decision: "allow", execution_status: "completed", write_outcome: { status: "not_applicable" } },
+      evidence: { ...run().evidence, decision: "allow", execution_status: "completed", authority: "read_access", write_outcome: { status: "not_applicable" } },
       tools: [{ name: "get_order", risk_level: 0, status: "completed", duration_ms: 2, result_fields: ["status"] }],
     });
     expect(deriveRunSemantics(read).status).toBe("completed");

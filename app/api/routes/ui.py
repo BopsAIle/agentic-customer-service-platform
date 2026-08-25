@@ -49,7 +49,7 @@ def _run_or_404(
     run = repository.get_by_run_id(run_id, tenant_id=tenant_id)
     if run is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Agent run not found")
-    return run
+    return _bounded_operator_view(run)
 
 
 @router.get("/agent-runs", response_model=list[AgentRunView])
@@ -61,10 +61,12 @@ def agent_runs(
 ) -> list[AgentRunView]:
     repository = build_agent_run_projection_repository(get_settings(), session)
     if customer_id is not None:
-        return repository.list_for_customer(
+        runs = repository.list_for_customer(
             customer_id, tenant_id=principal.tenant_id or "default", limit=limit
         )
-    return repository.list_recent(tenant_id=principal.tenant_id or "default", limit=limit)
+    else:
+        runs = repository.list_recent(tenant_id=principal.tenant_id or "default", limit=limit)
+    return [_bounded_operator_view(run) for run in runs]
 
 
 @router.get(
@@ -85,6 +87,7 @@ def conversation(
     )
     if not runs:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Conversation not found")
+    runs = [_bounded_operator_view(run) for run in runs]
     messages = [
         {"role": "user", "content_available": False},
         {"role": "assistant", "content_available": False},
@@ -182,6 +185,32 @@ def _policy_event_view(event: object) -> UIPolicyEvent:
         outcome=event.policy_outcome.value,
         reason_codes=event.reason_codes[:10],
     )
+
+
+def _bounded_operator_view(view: AgentRunView) -> AgentRunView:
+    """Remove forensic trace payloads before data reaches the operator UI."""
+
+    sensitive_fragments = (
+        "policy_input",
+        "action_argument",
+        "tool_argument",
+        "prompt",
+        "raw",
+        "hash",
+    )
+    trace = [
+        event.model_copy(
+            update={
+                "metadata": {
+                    key: value
+                    for key, value in event.metadata.items()
+                    if not any(fragment in key.casefold() for fragment in sensitive_fragments)
+                }
+            }
+        )
+        for event in view.trace
+    ]
+    return view.model_copy(update={"trace": trace})
 
 
 @router.get("/rag-events/{agent_run_id}", response_model=list[UIRagDocument])

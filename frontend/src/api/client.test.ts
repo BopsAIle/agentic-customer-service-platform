@@ -93,4 +93,24 @@ describe("authenticated API client", () => {
     expect(new Headers(request.headers).get("Authorization")).toBe(`Bearer ${secret}`);
     expect(request.credentials).toBe("include");
   });
+
+  it("boundedly retries a transient agent-run projection 404", async () => {
+    const projection = { run_id: "run-1", status: "completed" };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(new Response(null, { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(projection), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+    setApiAuthProvider(createAuthProvider("local_demo", "session-demo-token"));
+    await initializeApiAuth();
+
+    await expect(api.run("run-1")).resolves.toEqual(projection);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
 });

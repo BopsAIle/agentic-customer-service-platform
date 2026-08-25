@@ -195,6 +195,9 @@ class AgentRunView(BaseModel):
     roles: list[str] = Field(default_factory=list)
     intent: str
     request_type: str
+    operation_type: Literal["agent_request", "memory_summary", "idempotency_replay"] = (
+        "agent_request"
+    )
     status: str
     started_at: datetime
     duration_ms: float

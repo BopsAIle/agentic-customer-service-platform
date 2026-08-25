@@ -17,20 +17,61 @@ function newConversationId(): string {
   return `chat-${id.slice(0, 8)}`;
 }
 
+const CHAT_SESSION_KEY = "agentic-ops.chat.session.v1";
+type ChatSession = { conversationId: string; customerId: number; messages: ChatMessage[] };
+
+function readChatSession(): ChatSession | null {
+  try {
+    const raw = sessionStorage.getItem(CHAT_SESSION_KEY);
+    if (!raw) return null;
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const candidate = parsed as Partial<ChatSession>;
+    if (typeof candidate.conversationId !== "string" || !Array.isArray(candidate.messages)) return null;
+    return {
+      conversationId: candidate.conversationId,
+      customerId: typeof candidate.customerId === "number" ? candidate.customerId : 1,
+      messages: candidate.messages.filter((item): item is ChatMessage => {
+        if (typeof item !== "object" || item === null) return false;
+        const message = item as Partial<ChatMessage>;
+        return typeof message.id === "string" && (message.role === "customer" || message.role === "agent") && typeof message.content === "string" && typeof message.timestamp === "string";
+      }),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function sessionConversationId(): string {
+  return readChatSession()?.conversationId ?? newConversationId();
+}
+
 export function agentState(response: AgentResponse): string {
   return responseState(response);
 }
 
 export function ChatWindow() {
-  const [conversationId] = useState(newConversationId);
-  const [customerId, setCustomerId] = useState(1);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [conversationId] = useState(sessionConversationId);
+  const [customerId, setCustomerId] = useState(() => readChatSession()?.customerId ?? 1);
+  const [messages, setMessages] = useState<ChatMessage[]>(() => readChatSession()?.messages ?? []);
   const [run, setRun] = useState<AgentRun | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const transcriptEnd = useRef<HTMLDivElement>(null);
 
   useEffect(() => { transcriptEnd.current?.scrollIntoView({ behavior: "smooth" }); }, [messages, busy]);
+  useEffect(() => {
+    try { sessionStorage.setItem(CHAT_SESSION_KEY, JSON.stringify({ conversationId, customerId, messages } satisfies ChatSession)); } catch { /* session persistence is best effort */ }
+  }, [conversationId, customerId, messages]);
+  useEffect(() => {
+    let active = true;
+    void api.conversation(conversationId).then((projection) => {
+      if (!active || projection.runs.length === 0) return;
+      setRun(projection.runs[projection.runs.length - 1]);
+      setCustomerId(projection.customer_id);
+    }).catch(() => { /* a new conversation has no projection yet */ });
+    return () => { active = false; };
+  }, [conversationId]);
 
   const send = async (message: string) => {
     const timestamp = new Date().toISOString();
@@ -47,7 +88,10 @@ export function ChatWindow() {
         setError(projectionError instanceof Error ? `Response returned, but the operator projection is unavailable: ${projectionError.message}` : "Response returned, but the operator projection is unavailable.");
       }
     } catch (caught) {
-      if (caught instanceof ApiError && caught.status === 401) setError("The operator authentication session is missing or expired.");
+      if (caught instanceof ApiError && caught.reason === "input_too_long") {
+        setError("Your message is too long. Please shorten it.");
+      }
+      else if (caught instanceof ApiError && caught.status === 401) setError("The operator authentication session is missing or expired.");
       else setError(caught instanceof Error ? caught.message : "The agent endpoint is unavailable.");
     } finally {
       setBusy(false);

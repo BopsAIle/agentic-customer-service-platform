@@ -32,6 +32,7 @@ function executionState(run: AgentRun): string {
   if (semantics.status === "failed_validation") return "Failed validation";
   if (semantics.status === "suspended") return "Suspended";
   if (semantics.status === "replaced") return "Replaced";
+  if (semantics.status === "replayed") return "Already completed · no repeat";
   return "Not authorized";
 }
 

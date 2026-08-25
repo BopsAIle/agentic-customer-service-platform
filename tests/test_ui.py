@@ -126,6 +126,22 @@ def test_ui_read_endpoints_and_health_have_bounded_contract(
     assert missing.status_code == 404
 
 
+def test_chat_rejects_oversized_input_before_agent_execution(client: TestClient) -> None:
+    response = client.post(
+        "/agent/chat",
+        json={"conversation_id": "oversized-input", "customer_id": 1, "message": "x" * 5001},
+    )
+
+    assert response.status_code == 422
+    assert response.json() == {
+        "detail": {
+            "reason": "input_too_long",
+            "message": "Your message is too long. Please shorten it.",
+            "trace_event": "rejected_before_agent",
+        }
+    }
+
+
 def test_ui_conversation_projection_does_not_return_raw_messages(
     db_session: Session, client: TestClient
 ) -> None:
