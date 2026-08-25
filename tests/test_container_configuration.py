@@ -99,6 +99,8 @@ def test_integration_llm_provider_is_explicit_and_excluded_from_production_overl
         "AGENT_DECISION_CONTRACT_VERSION": "semantic_decision_v3",
         "LANGGRAPH_STRICT_MSGPACK": "true",
         "LLM_PROVIDER": "deterministic_integration",
+        "LLM_STRUCTURED_OUTPUT_MODE": "function_calling",
+        "LLM_REASONING_EFFORT": "none",
         "POLICY_AUDIT_BACKEND": "postgres",
         "AGENT_RUN_PROJECTION_BACKEND": "postgres",
     }

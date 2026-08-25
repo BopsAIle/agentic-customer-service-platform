@@ -7,6 +7,7 @@ It validates delivery artifacts but does not deploy them.
 Backend Quality ─┐
                  ├─> Security Checks -> Deterministic Evaluation -> Docker Build and Scan
 Frontend Quality ┘                                              |
+                                                                ├─> Operator Browser Journeys
                                                                 └─> Authenticated Lifecycle Smoke
 ```
 
@@ -86,6 +87,16 @@ artifacts, deterministic identity across rebuilds, and complete-corpus lexical r
 CI validates `docker compose config`, builds both application images, and scans each image for
 unfixed-excluded critical vulnerabilities. No image is pushed by this workflow.
 
+### Operator browser journeys
+
+Six serial Chromium journeys run against a fresh, isolated Compose project. A local deterministic
+proposal fixture supplies typed semantic proposals without contacting an external provider; the
+application's compiler, policy, confirmation, persistence, retrieval, projection, idempotency, and
+execution paths remain unchanged. The suite verifies the refund confirmation boundary, prompt
+injection containment evidence, duplicate replay safety, missing-target clarification, grounded
+answer citations, and run investigation. It uploads bounded screenshots and Playwright failure
+artifacts for 14 days and never uploads credentials, raw prompts, or hidden reasoning.
+
 ### Authenticated full-stack lifecycle smoke
 
 Pull requests and pushes to `main` run `scripts/e2e_authenticated_smoke.py` after all other gates.
@@ -133,6 +144,7 @@ make eval-resilience
 make security-audit
 make docker-validate
 make e2e-smoke
+bash scripts/run_operator_e2e.sh
 ```
 
 Local Gitleaks, Trivy, and actionlint checks use the exact container versions declared in

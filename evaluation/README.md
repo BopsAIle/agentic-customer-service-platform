@@ -22,6 +22,8 @@ The memory slice adds scenarios for explicit remember/forget, consent-gated cand
 
 The resilience slice uses scoped fault injection for LLM, retrieval, tools, database boundaries, policy, and memory. It covers bounded retry and exhaustion, confirmation without an LLM call, RAG and reranker degradation, fail-closed policy errors, unknown write outcomes, and no duplicate writes. Run it with `make eval-resilience`.
 
+The citation-constrained answer audit contains 20 deterministic grounding cases covering citation coverage, irrelevant or empty evidence, conflicting sources, and unsupported-answer rejection. It performs no provider calls and can be run with `make eval-rag-grounding`.
+
 The default evaluation provider and knowledge fixtures are offline and deterministic; live models
 and Qdrant are not required for CI. Runtime RAG hooks are separate and measure retrieval success,
 citation availability, reranker use, fallback behavior, and latency. The current rule-based

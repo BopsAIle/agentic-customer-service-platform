@@ -289,28 +289,10 @@ def wait_for_ready(base_url: str, timeout_seconds: float = 90.0) -> None:
     raise SmokeFailure(f"Frontend-proxied readiness did not recover; last status={last_status}.")
 
 
-def assert_pending_response(response: dict[str, Any]) -> str:
+def assert_pending_response(response: dict[str, Any]) -> None:
     pending = expect_object(response.get("pending_action"), "pending action")
     expect(pending.get("status") == "pending", "Risk-2 action was not left pending.")
-    expect(pending.get("tool_name") == "cancel_order", "Unexpected pending tool.")
-    expect(pending.get("risk_level") == 2, "Cancellation did not retain Risk-2 metadata.")
-    expect(pending.get("actor_id") == EXPECTED_ACTOR_ID, "Pending actor binding is wrong.")
-    expect(pending.get("actor_type") == "support_operator", "Pending actor type is wrong.")
-    expect(
-        pending.get("effective_customer_id") == CUSTOMER_ID,
-        "Pending customer scope binding is wrong.",
-    )
-    expect(
-        pending.get("conversation_id") == CONVERSATION_ID,
-        "Pending conversation binding is wrong.",
-    )
-    arguments = expect_object(pending.get("arguments"), "pending arguments")
-    expect(arguments == {"customer_id": CUSTOMER_ID, "order_id": ORDER_ID}, "Wrong action args.")
-    action_id = pending.get("action_id")
-    expect(isinstance(action_id, str), "Pending action ID is missing.")
-    assert isinstance(action_id, str)
-    expect(ACTION_ID_PATTERN.fullmatch(action_id) is not None, "Pending action ID is malformed.")
-    return action_id
+    expect(set(pending) == {"status"}, "Customer response exposed pending action metadata.")
 
 
 def assert_projection(projection: dict[str, Any], *, confirmation_run: bool) -> None:
@@ -443,7 +425,7 @@ def run_smoke(stack: ComposeStack) -> None:
         },
     )
     expect(initial_status == 200, f"Initial agent request returned HTTP {initial_status}.")
-    action_id = assert_pending_response(initial)
+    assert_pending_response(initial)
     expect(initial.get("error_category") is None, "Initial agent request returned an error.")
     expect(
         authenticated_order(base_url, stack.token).get("status") == "processing",
@@ -456,6 +438,10 @@ def run_smoke(stack: ComposeStack) -> None:
     )
     expect(initial_projection_status == 200, "Initial inspector projection is unavailable.")
     assert_projection(initial_projection, confirmation_run=False)
+    action_id = initial_projection.get("action_id")
+    expect(isinstance(action_id, str), "Operator projection action ID is missing.")
+    assert isinstance(action_id, str)
+    expect(ACTION_ID_PATTERN.fullmatch(action_id) is not None, "Action ID is malformed.")
     assert_no_sensitive_projection_fields(initial_projection)
     initial_audit_status, initial_audit = request_json_list(
         base_url, f"/ui/policy-audit/{CONVERSATION_ID}", token=stack.token
@@ -495,13 +481,10 @@ def run_smoke(stack: ComposeStack) -> None:
     )
     expect(confirmation_status == 200, f"Confirmation returned HTTP {confirmation_status}.")
     confirmed_action = expect_object(confirmation.get("pending_action"), "confirmed action")
-    expect(confirmed_action.get("action_id") == action_id, "Persisted action ID was not resumed.")
     expect(confirmed_action.get("status") == "executed", "Confirmed action was not executed.")
+    expect(set(confirmed_action) == {"status"}, "Customer response exposed action metadata.")
     tool_call = expect_object(confirmation.get("tool_call"), "confirmed tool call")
-    expect(tool_call.get("name") == "cancel_order", "Confirmation executed the wrong tool.")
     expect(tool_call.get("status") == "executed", "Confirmation tool execution failed.")
-    tool_result = expect_object(tool_call.get("result"), "confirmed tool result")
-    expect(tool_result.get("changed") is True, "First cancellation did not mutate the order.")
     expect(
         authenticated_order(base_url, stack.token).get("status") == "cancelled",
         "Order was not cancelled after confirmation.",
@@ -614,7 +597,7 @@ def run_smoke(stack: ComposeStack) -> None:
     print("Authenticated full-stack lifecycle smoke passed.")
     print("bootstrap=migrated,seeded,knowledge-ingested")
     print("auth=anonymous-401,invalid-401,support-operator-authenticated")
-    print("lifecycle=pending,restarted,resumed,executed,replay-safe")
+    print("lifecycle=confirmation_required,restarted,resumed,completed,replay-safe")
     print("projection=policy-and-tool-metadata-safe")
     print("audit=durable,scoped,bounded,retained-across-restart")
     print("memory=metadata-only,private-content-absent")

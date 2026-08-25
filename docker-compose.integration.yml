@@ -2,10 +2,14 @@
 # Never layer this file into a production deployment.
 services:
   demo-setup:
+    command:
+      ["sh", "-c", "alembic upgrade head && python -m scripts.reset_qa_fixtures && python -m scripts.rag_ingest"]
     environment:
       APP_ENV: integration
       LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: deterministic_integration
+      LLM_STRUCTURED_OUTPUT_MODE: function_calling
+      LLM_REASONING_EFFORT: none
       AGENT_DECISION_CONTRACT_VERSION: semantic_decision_v3
       POLICY_AUDIT_BACKEND: postgres
       AGENT_RUN_PROJECTION_BACKEND: postgres
@@ -15,6 +19,8 @@ services:
       APP_ENV: integration
       LANGGRAPH_STRICT_MSGPACK: "true"
       LLM_PROVIDER: deterministic_integration
+      LLM_STRUCTURED_OUTPUT_MODE: function_calling
+      LLM_REASONING_EFFORT: none
       AGENT_DECISION_CONTRACT_VERSION: semantic_decision_v3
       POLICY_AUDIT_BACKEND: postgres
       AGENT_RUN_PROJECTION_BACKEND: postgres
