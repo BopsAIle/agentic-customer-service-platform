@@ -2,7 +2,14 @@ from collections.abc import Callable
 from typing import TypeGuard
 
 from app.agent.llm.base import DecisionProposalProvider
-from app.agent.nodes.workflow_lifecycle import is_instruction_override_attempt
+from app.agent.nodes.workflow_lifecycle import (
+    explicit_replacement_intent,
+    has_conflicting_intents,
+    is_authority_claim_attempt,
+    is_cross_customer_access_attempt,
+    is_instruction_override_attempt,
+    is_memory_summary_request,
+)
 from app.agent.schemas import (
     AgentErrorCategory,
     AgentRequestType,
@@ -15,6 +22,7 @@ from app.agent.schemas import (
 )
 from app.agent.state import AgentState
 from app.memory.extraction import extract_memory_request
+from app.memory.policy import classify_memory_security_message
 from app.observability.tracing import span
 from app.policies.models import PendingActionStatus
 from app.resilience.config import ResilienceConfig
@@ -23,7 +31,12 @@ from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
 
 
-def _security_block(state: AgentState) -> AgentState:
+def _security_block(
+    state: AgentState,
+    *,
+    signal: str = "instruction_override_attempt",
+    memory_rejection: bool = False,
+) -> AgentState:
     request_type = AgentRequestType.UNCLEAR
     existing_action = state.get("pending_action")
     rejected_action = (
@@ -31,11 +44,11 @@ def _security_block(state: AgentState) -> AgentState:
         if existing_action is not None and existing_action.status == PendingActionStatus.PENDING
         else existing_action
     )
-    return {
+    result: AgentState = {
         "semantic_decision": SemanticDecision(
             intent=Intent.UNKNOWN,
             request_type=request_type,
-            reason="instruction_override_attempt",
+            reason=signal,
         ),
         "intent": Intent.UNKNOWN,
         "request_type": request_type,
@@ -51,19 +64,36 @@ def _security_block(state: AgentState) -> AgentState:
         "suspended_workflow": None,
         "superseded_workflow": None,
         "confirmation_status": "rejected" if rejected_action is not None else "blocked",
-        "security_signal": "instruction_override_attempt",
-        "decision_reason": "instruction_override_attempt",
+        "security_signal": signal,
+        "decision_reason": signal,
         "error_category": AgentErrorCategory.POLICY_DENIED,
-        "last_error": "The request attempted to bypass deterministic authority controls.",
+        "last_error": "The request attempted to cross a deterministic authority boundary.",
     }
+    if memory_rejection:
+        result.update(
+            {
+                "memory_operation_status": "reject",
+                "memory_policy_outcome": "reject",
+                "memory_security_signal": signal,
+            }
+        )
+    return result
 
 
 def make_security_boundary_node() -> Callable[[AgentState], AgentState]:
     """Reject bounded authority-override language before workflow processing."""
 
     def detect_security_boundary(state: AgentState) -> AgentState:
-        if is_instruction_override_attempt(_latest_user_message(state)):
+        message = _latest_user_message(state)
+        memory_signal = classify_memory_security_message(message)
+        if memory_signal is not None:
+            return _security_block(state, signal=memory_signal, memory_rejection=True)
+        if is_instruction_override_attempt(message):
             return _security_block(state)
+        if is_authority_claim_attempt(message):
+            return _security_block(state, signal="authority_claim_attempt")
+        if is_cross_customer_access_attempt(message):
+            return _ownership_block(state)
         return {"security_signal": None}
 
     return detect_security_boundary
@@ -76,6 +106,78 @@ def make_understand_request_node(
     reliability_controller: ReliabilityController | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def understand_request(state: AgentState) -> AgentState:
+        message = _latest_user_message(state)
+        pending_action = state.get("pending_action")
+        previous_pending_intent = pending_action.intent if pending_action is not None else None
+        replacement_intent = explicit_replacement_intent(message, previous_pending_intent)
+        if replacement_intent is not None and pending_action is not None:
+            order_id = pending_action.arguments.get("order_id")
+            target = (
+                {"type": "explicit_order", "order_id": order_id}
+                if isinstance(order_id, int) and order_id > 0
+                else None
+            )
+            replacement = SemanticDecision(
+                intent=replacement_intent,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target=target,
+                reason="explicit_workflow_replacement",
+            )
+            return {
+                "semantic_decision": replacement,
+                "intent": replacement.intent,
+                "request_type": replacement.request_type,
+                "selected_tool": None,
+                "tool_arguments": {},
+                "decision_reason": replacement.reason,
+                "requires_retrieval": False,
+                "last_error": None,
+                "error_category": None,
+                "provider_metadata": _provider_metadata(provider),
+                "security_signal": None,
+            }
+        if is_memory_summary_request(message):
+            summary_decision = SemanticDecisionV3(
+                # Keep the frozen semantic contract unchanged.  The explicit
+                # read-only memory_summary_requested flag carries this local
+                # UI intent without adding a transport enum value.
+                intent=Intent.SUPPORT_FAQ,
+                request_type=AgentRequestType.KNOWLEDGE_ONLY,
+                reason="memory_summary_request",
+            )
+            return {
+                "semantic_decision": normalize_semantic_decision(summary_decision),
+                "intent": Intent.SUPPORT_FAQ,
+                "request_type": AgentRequestType.KNOWLEDGE_ONLY,
+                "selected_tool": None,
+                "tool_arguments": {},
+                "memory_summary_requested": True,
+                "requires_retrieval": False,
+                "decision_reason": "memory_summary_request",
+                "last_error": None,
+                "error_category": None,
+                "provider_metadata": _provider_metadata(provider),
+                "security_signal": None,
+            }
+        if has_conflicting_intents(message):
+            conflict_decision = SemanticDecisionV3(
+                intent=Intent.UNKNOWN,
+                request_type=AgentRequestType.UNCLEAR,
+                reason="conflicting_request_intents",
+                clarification_required=True,
+            )
+            return {
+                "semantic_decision": normalize_semantic_decision(conflict_decision),
+                "intent": Intent.UNKNOWN,
+                "request_type": AgentRequestType.UNCLEAR,
+                "selected_tool": None,
+                "tool_arguments": {},
+                "decision_reason": "conflicting_request_intents",
+                "last_error": None,
+                "error_category": None,
+                "provider_metadata": _provider_metadata(provider),
+                "security_signal": None,
+            }
         context = state["execution_context"]
         timeout_seconds = (resilience_config or ResilienceConfig()).llm_timeout_seconds
         with span(
@@ -200,3 +302,25 @@ def _latest_user_message(state: AgentState) -> str:
         if message["role"] == "user":
             return message["content"]
     return ""
+
+
+def _ownership_block(state: AgentState) -> AgentState:
+    return {
+        "semantic_decision": SemanticDecision(
+            intent=Intent.UNKNOWN,
+            request_type=AgentRequestType.UNCLEAR,
+            reason="cross_customer_access_attempt",
+        ),
+        "intent": Intent.UNKNOWN,
+        "request_type": AgentRequestType.UNCLEAR,
+        "selected_tool": None,
+        "tool_arguments": {},
+        "pending_action": None,
+        "security_signal": "cross_customer_access_attempt",
+        "decision_reason": "cross_customer_access_attempt",
+        "error_category": AgentErrorCategory.OWNERSHIP_VIOLATION,
+        "last_error": "The request crossed the authenticated customer scope.",
+        "workflow_active": False,
+        "workflow_state": "cancelled",
+        "confirmation_status": "blocked",
+    }

@@ -37,6 +37,52 @@ def test_generated_factual_claims_are_covered_by_retrieved_citations() -> None:
     assert answer.unsupported_claims == []
 
 
+def test_processing_time_query_selects_processing_evidence_not_eligibility_window() -> None:
+    evidence = _chunk(
+        "Customers should request a refund within 30 calendar days of delivery. "
+        "Once a request is accepted for processing, the review normally takes 3–5 business days. "
+        "Payment-provider settlement may require additional business days after approval."
+    )
+
+    answer = GroundedAnswerGenerator().answer("How long does a refund normally take?", [evidence])
+
+    assert answer.validation.accepted is True
+    assert "3–5 business days" in answer.answer
+    assert "30 calendar days" not in answer.answer
+
+
+def test_generic_how_long_query_keeps_non_refund_topic() -> None:
+    evidence = RetrievedChunk(
+        chunk_id="warranty-policy#section#0",
+        document_id="warranty-policy",
+        title="Warranty Policy",
+        category="policy",
+        section="coverage",
+        source="knowledge/warranty-policy.md",
+        content="The standard warranty lasts 12 months.",
+        score=0.9,
+    )
+
+    answer = GroundedAnswerGenerator().answer("How long is the warranty?", [evidence])
+
+    assert answer.status == AnswerGroundingStatus.PASS
+    assert answer.validation.accepted is True
+    assert "12 months" in answer.answer
+
+
+def test_turkish_refund_conditions_use_equivalent_english_evidence() -> None:
+    evidence = _chunk(
+        "Refund requests are generally considered after an order has been delivered. "
+        "A delivered order may qualify when the item is damaged or returned under an "
+        "applicable service promise."
+    )
+
+    answer = GroundedAnswerGenerator().answer("İade şartlarınız nelerdir?", [evidence])
+
+    assert answer.validation.accepted is True
+    assert "delivered" in answer.answer
+
+
 def test_irrelevant_retrieval_fails_closed_without_repeating_evidence() -> None:
     evidence = _chunk("Refund requests require an eligible order.")
 
@@ -47,6 +93,30 @@ def test_irrelevant_retrieval_fails_closed_without_repeating_evidence() -> None:
     assert answer.citations == []
     assert answer.confidence == 0.0
     assert "phone" not in answer.answer.casefold()
+
+
+def test_low_confidence_evidence_fails_closed() -> None:
+    evidence = _chunk("Refund requests require an eligible order.", score=0.2)
+
+    answer = GroundedAnswerGenerator().answer("What is the refund policy?", [evidence])
+
+    assert answer.status == AnswerGroundingStatus.INSUFFICIENT_EVIDENCE
+    assert answer.validation.accepted is False
+    assert answer.citations == []
+
+
+def test_unrelated_faq_evidence_does_not_answer_unsupported_question() -> None:
+    evidence = _chunk(
+        "Refund requests are reviewed after delivery.",
+        document_id="refund-faq",
+    )
+
+    answer = GroundedAnswerGenerator().answer("Do you support cryptocurrency refunds?", [evidence])
+
+    assert answer.status == AnswerGroundingStatus.INSUFFICIENT_EVIDENCE
+    assert answer.validation.accepted is False
+    assert answer.citations == []
+    assert "not contain enough information" in answer.answer
 
 
 def test_conflicting_evidence_is_surfaced_without_silent_selection() -> None:

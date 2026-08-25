@@ -54,6 +54,8 @@ def make_memory_action_node(
                     return _memory_failure(classification)
                 memory_span.set_attribute("memory.status", result.status)
                 memory_span.set_attribute("memory.policy_outcome", result.status)
+                if result.security_signal is not None:
+                    memory_span.set_attribute("memory.security_signal", result.security_signal)
             if result.status in {"persisted", "deduplicated"}:
                 with span(
                     "memory.persist",
@@ -72,6 +74,9 @@ def make_memory_action_node(
             return {
                 "memory_operation_status": result.status,
                 "memory_policy_outcome": result.status,
+                "decision_reason": result.reason,
+                "security_signal": result.security_signal,
+                "memory_security_signal": result.security_signal,
                 "last_error": None,
                 "error_category": None
                 if result.status in {"persisted", "deduplicated"}

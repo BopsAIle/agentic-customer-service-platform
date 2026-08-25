@@ -184,7 +184,7 @@ def test_cancellation_interruption_preserves_confirmation_and_rejection_is_safe(
     interrupted = runtime.run(
         conversation_id="cancel-interruption",
         customer_id=1,
-        message="How can I contact support?",
+        message="Yes, but first explain how I can contact support.",
         session=db_session,
     )
     order = db_session.get(Order, 3)
@@ -192,6 +192,8 @@ def test_cancellation_interruption_preserves_confirmation_and_rejection_is_safe(
     assert interrupted.intent == Intent.SUPPORT_FAQ
     assert interrupted.pending_action is None
     assert interrupted.tool_call is None
+    assert "I can answer that first." in interrupted.message
+    assert "waiting for confirmation" in interrupted.message
     assert order is not None
     assert OrderStatus(order.status) == OrderStatus.PENDING
 
@@ -345,6 +347,46 @@ def test_confirmation_like_question_suspends_instead_of_confirming(
     assert confirmation.metadata["confirmation_result"] == "inspect_interruption"
 
 
+def test_knowledge_interruption_ignores_carried_forward_target(
+    db_session: Session,
+) -> None:
+    provider = FakeSemanticDecisionV3Provider(
+        [
+            _refund_decision(),
+            _refund_policy_decision().model_copy(
+                update={
+                    "request_type": AgentRequestType.WRITE_ACTION,
+                    "target": {"type": "explicit_order", "order_id": 2},
+                }
+            ),
+        ]
+    )
+    runtime = AgentRuntime(
+        provider=provider,
+        knowledge_retriever=FixedKnowledgeRetriever(),
+    )
+
+    pending = runtime.run(
+        conversation_id="carried-target-interruption",
+        customer_id=1,
+        message="Refund order 2 because it is a damaged product.",
+        session=db_session,
+    )
+    interrupted = runtime.run(
+        conversation_id="carried-target-interruption",
+        customer_id=1,
+        message="Yes, but first explain refund policy.",
+        session=db_session,
+    )
+
+    assert pending.pending_action is not None
+    assert interrupted.intent == Intent.REFUND_POLICY
+    assert interrupted.citations
+    assert interrupted.tool_call is None
+    assert "I can answer that first." in interrupted.message
+    assert "waiting for confirmation" in interrupted.message
+
+
 def test_explicit_cancel_request_supersedes_pending_refund(db_session: Session) -> None:
     provider = FakeSemanticDecisionV3Provider(
         [
@@ -388,6 +430,38 @@ def test_explicit_cancel_request_supersedes_pending_refund(db_session: Session) 
     assert str(event.metadata["previous_workflow"]).startswith("workflow:")
     assert event.metadata["previous_workflow"] != event.metadata["new_workflow"]
     assert event.metadata["new_workflow"] == event.metadata["superseded_by"]
+
+
+def test_cancel_pending_is_symmetrically_replaced_by_refund(db_session: Session) -> None:
+    provider = FakeSemanticDecisionV3Provider(
+        [
+            SemanticDecisionV3(
+                intent=Intent.ORDER_CANCEL,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target={"type": "explicit_order", "order_id": 3},
+            )
+        ]
+    )
+    runtime = AgentRuntime(provider=provider)
+
+    cancellation = runtime.run(
+        conversation_id="supersede-cancel",
+        customer_id=1,
+        message="Cancel order 3.",
+        session=db_session,
+    )
+    refund = runtime.run(
+        conversation_id="supersede-cancel",
+        customer_id=1,
+        message="No, let's refund it instead.",
+        session=db_session,
+    )
+
+    assert cancellation.pending_action is not None
+    assert refund.intent == Intent.REFUND_REQUEST
+    assert refund.pending_action is None
+    assert "reason" in refund.message.casefold() or "why" in refund.message.casefold()
+    assert len(provider.calls) == 1
 
 
 def test_bounded_confirmation_still_executes_after_resume(db_session: Session) -> None:

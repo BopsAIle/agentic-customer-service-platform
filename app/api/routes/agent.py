@@ -18,7 +18,33 @@ def get_agent_runtime(request: Request) -> AgentRuntime:
     return runtime
 
 
-@router.post("/chat", response_model=AgentResponse)
+@router.post(
+    "/chat",
+    response_model=AgentResponse,
+    response_model_exclude={
+        "pending_action": {
+            "action_id",
+            "conversation_id",
+            "tenant_id",
+            "actor_id",
+            "actor_type",
+            "effective_customer_id",
+            "tool_name",
+            "arguments",
+            "risk_level",
+            "intent",
+            "collected_entities",
+            "validation_context",
+            "policy_inputs",
+            "policy_inputs_hash",
+            "created_at",
+        },
+        "tool_call": {"name", "result"},
+        "citations": True,
+        "proposal": True,
+        "provider_metadata": True,
+    },
+)
 def chat(
     request: AgentChatRequest,
     execution_context: ExecutionContext = Depends(get_execution_context),

@@ -136,6 +136,14 @@ def _check_pending(state: AgentState, clock: Clock, ttl_seconds: int) -> AgentSt
             }
         return {"confirmation_status": "ambiguous"}
     if parsed == "confirmed":
+        if action.status == PendingActionStatus.EXECUTED:
+            return {
+                "confirmation_status": "no_pending",
+                "replay_detected": True,
+                "idempotency_outcome": "replay_prevented",
+                "decision_reason": "idempotency_replay_prevented",
+                "workflow_state": "completed",
+            }
         return {"confirmation_status": "no_pending"}
     return {"confirmation_status": "normal", "pending_action": None}
 

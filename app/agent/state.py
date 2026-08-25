@@ -93,6 +93,8 @@ class AgentState(TypedDict, total=False):
     degraded_components: list[str]
     recovery_action: str | None
     write_outcome_unknown: bool
+    replay_detected: bool
+    idempotency_outcome: str | None
     execution_mode: AgentExecutionMode
     provider: str
     model: str | None
@@ -100,6 +102,8 @@ class AgentState(TypedDict, total=False):
     proposal: AgentProposal | None
     provider_metadata: ProviderRunMetadata | None
     security_signal: str | None
+    memory_security_signal: str | None
+    memory_summary_requested: bool
     previous_intent: Intent | None
     pending_workflow_decision: SemanticDecision | None
     missing_required_fields: list[str]

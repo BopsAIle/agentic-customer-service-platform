@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
-from app.rag.answer_generator import GroundedAnswerGenerator
+from app.rag.answer_generator import GroundedAnswerGenerator, normalize_knowledge_query
 from app.rag.interfaces import KnowledgeRetriever
 from app.resilience.config import ResilienceConfig
 from app.resilience.control import ReliabilityController
@@ -18,7 +18,10 @@ def make_retrieve_node(
     reliability_controller: ReliabilityController | None = None,
 ) -> Callable[[AgentState], AgentState]:
     def retrieve_knowledge(state: AgentState) -> AgentState:
-        query = state.get("knowledge_query") or _latest_user_message(state)
+        customer_query = _latest_user_message(state)
+        query = normalize_knowledge_query(customer_query)
+        if query == customer_query:
+            query = normalize_knowledge_query(state.get("knowledge_query") or customer_query)
         timeout_seconds = (resilience_config or ResilienceConfig()).retrieval_timeout_seconds
         try:
             retrieval = run_with_retry(
@@ -70,7 +73,10 @@ def make_retrieve_node(
             "dense_candidate_count": metadata.dense_candidate_count,
             "sparse_candidate_count": metadata.sparse_candidate_count,
         }
-        grounded = generator.answer(query, chunks)
+        # Retrieval may use a normalized semantic query, but grounding must be
+        # checked against the customer's observable question. This prevents a
+        # broad classifier query from making unrelated evidence look relevant.
+        grounded = generator.answer(customer_query, chunks)
         knowledge_answer = grounded.answer
         tool_result = state.get("tool_result")
         if tool_result is not None:

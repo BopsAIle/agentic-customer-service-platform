@@ -37,6 +37,11 @@ class CancelOrderOutput(BaseModel):
 def get_order(
     session: Session, request: GetOrderInput, *, tenant_id: str = "default"
 ) -> OrderResponse:
+    # Preserve anti-enumeration at HTTP boundaries while allowing the trusted
+    # agent/operator projection to distinguish a known foreign-scope resource.
+    scoped_order = get_order_record(session, request.order_id, tenant_id)
+    if scoped_order is not None and scoped_order.customer_id != request.customer_id:
+        raise OwnershipError("Order", request.order_id, request.customer_id)
     order = get_order_for_customer(session, request.order_id, request.customer_id, tenant_id)
     if order is None:
         raise ResourceNotFoundError("Order", request.order_id)

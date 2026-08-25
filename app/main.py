@@ -2,7 +2,10 @@ import logging
 from collections.abc import AsyncIterator, Callable
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse, Response
 
 from app.agent.runtime import AgentRuntime
 from app.api.router import api_router
@@ -64,5 +67,30 @@ def _safe_close(component: str, close: Callable[[], None]) -> None:
 
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+
+
+@app.exception_handler(RequestValidationError)
+async def bounded_validation_error(request: Request, exc: RequestValidationError) -> Response:
+    """Return safe, actionable validation feedback for oversized chat input."""
+
+    too_long = request.url.path == "/agent/chat" and any(
+        list(error.get("loc", ()))[-1:] == ["message"]
+        and error.get("type") in {"string_too_long", "value_error.any_str.max_length"}
+        for error in exc.errors()
+    )
+    if too_long:
+        return JSONResponse(
+            status_code=422,
+            content={
+                "detail": {
+                    "reason": "input_too_long",
+                    "message": "Your message is too long. Please shorten it.",
+                    "trace_event": "rejected_before_agent",
+                }
+            },
+        )
+    return await request_validation_exception_handler(request, exc)
+
+
 instrument_fastapi(app, settings)
 app.include_router(api_router)

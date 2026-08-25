@@ -91,7 +91,11 @@ class MemoryService:
         if policy.reason.startswith("dlp_"):
             get_metrics().memory_dlp_rejected.add(1, {"level": "restricted"})
         if policy.outcome != "allow" or policy.candidate is None:
-            return MemoryOperationResult(status=policy.outcome, reason=policy.reason)
+            return MemoryOperationResult(
+                status=policy.outcome,
+                reason=policy.reason,
+                security_signal=policy.security_signal,
+            )
         normalized = policy.candidate
         if policy.storage_eligibility == MemoryStorageEligibility.REDACT:
             get_metrics().memory_dlp_redacted.add(1, {"level": policy.sensitivity_level.value})

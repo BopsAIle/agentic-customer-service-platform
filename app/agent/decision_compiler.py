@@ -233,6 +233,15 @@ class DecisionCompiler:
         user_message: str = "",
         restored_action: bool = False,
     ) -> CompiledDecision:
+        route = SEMANTIC_INTENT_ROUTES.get(decision.intent)
+        if route is None:
+            return self._rejected(decision, "Semantic intent has no compiler route.")
+        # Knowledge-only requests never authorize a mutation.  A provider may
+        # carry forward a conversational target while answering an FAQ; that
+        # target is irrelevant to read-only compilation and must not turn a
+        # grounded answer into an invalid tool-argument failure.
+        if route == "knowledge":
+            return self._compile_knowledge(decision)
         admissibility = assess_target_admissibility(decision.intent, decision.target, grounding)
         if admissibility in {
             TargetAdmissibility.REQUIRES_CLARIFICATION,
@@ -242,9 +251,6 @@ class DecisionCompiler:
                 decision,
                 "The request needs a specific, authorized target.",
             )
-        route = SEMANTIC_INTENT_ROUTES.get(decision.intent)
-        if route is None:
-            return self._rejected(decision, "Semantic intent has no compiler route.")
         if route == "action":
             if decision.intent == Intent.ORDER_CANCEL and self._is_contradictory_cancel(
                 user_message
@@ -257,8 +263,6 @@ class DecisionCompiler:
             )
         if route == "read":
             return self._compile_read(decision, context, user_message)
-        if route == "knowledge":
-            return self._compile_knowledge(decision)
         if route == "knowledge_and_action":
             return self._compile_knowledge_and_action(decision, context)
         if route == "memory":
@@ -417,7 +421,7 @@ class DecisionCompiler:
         return CompiledDecision(
             status=CompileStatus.NO_ACTION,
             intent=decision.intent,
-            request_type=decision.request_type,
+            request_type=AgentRequestType.KNOWLEDGE_ONLY,
             requires_retrieval=decision.requires_retrieval,
             knowledge_query=decision.knowledge_query,
             reason=decision.reason,

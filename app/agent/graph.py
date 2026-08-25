@@ -230,10 +230,14 @@ def _load_context(state: AgentState) -> AgentState:
         "memory_key": None,
         "memory_operation_status": None,
         "memory_policy_outcome": None,
+        "memory_security_signal": None,
+        "memory_summary_requested": False,
         "failure_category": None,
         "degraded_components": [],
         "recovery_action": None,
         "write_outcome_unknown": False,
+        "replay_detected": False,
+        "idempotency_outcome": None,
         "pending_action_restored": False,
         "restored_fields_count": 0,
         "compilation_resumed": False,
@@ -302,10 +306,11 @@ def _instrument_node(
                 elif name in {"security_boundary", "understand_request"} and result.get(
                     "security_signal"
                 ):
+                    security_signal = str(result["security_signal"])
                     trace_metadata = {
-                        "security_signal": str(result["security_signal"]),
+                        "security_signal": security_signal,
                         "decision": "deny",
-                        "reason": "instruction_override_attempt",
+                        "reason": security_signal,
                         "execution": "not_attempted",
                         "authority": "not_granted",
                     }
@@ -316,6 +321,18 @@ def _instrument_node(
                         ),
                         "restored_fields_count": int(result.get("restored_fields_count", 0)),
                         "compilation_resumed": bool(result.get("compilation_resumed", False)),
+                    }
+                elif name == "memory_action" and result.get("security_signal"):
+                    trace_metadata = {
+                        "security_signal": str(result["security_signal"]),
+                        "decision": "deny",
+                        "reason": str(
+                            result.get("decision_reason")
+                            or result.get("memory_policy_outcome")
+                            or "memory_write_rejected"
+                        ),
+                        "execution": "not_attempted",
+                        "authority": "not_granted",
                     }
                 elif name == "handle_workflow_interruption":
                     previous_intent = result.get("previous_workflow_intent") or state.get(

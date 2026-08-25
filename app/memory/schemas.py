@@ -84,6 +84,7 @@ class MemoryPolicyDecision(BaseModel):
     retention_policy: MemoryRetentionPolicy = MemoryRetentionPolicy.STANDARD
     storage_eligibility: MemoryStorageEligibility = MemoryStorageEligibility.ALLOWED
     redaction_state: MemoryRedactionState = MemoryRedactionState.NOT_REQUIRED
+    security_signal: str | None = None
 
 
 class MemoryOperationResult(BaseModel):
@@ -91,3 +92,4 @@ class MemoryOperationResult(BaseModel):
     record: MemoryRecordView | None = None
     affected_count: int = 0
     reason: str | None = None
+    security_signal: str | None = None

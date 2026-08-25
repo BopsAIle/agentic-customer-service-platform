@@ -8,7 +8,7 @@ from app.policies.models import PendingActionStatus
 
 _QUESTION_PREFIX = re.compile(
     r"^(?:what|when|where|why|how|who|which|can you|could you|would you|do you|"
-    r"tell me|show me|check|nedir|ne zaman|nerede|neden|nasıl|kim|hangi|"
+    r"tell me|explain|show me|check|nedir|ne zaman|nerede|neden|nasıl|kim|hangi|"
     r"bana anlat|kontrol et)\b",
     re.IGNORECASE,
 )
@@ -27,9 +27,15 @@ _EXPLICIT_REPLACEMENT = re.compile(
     re.IGNORECASE,
 )
 _OVERRIDE_MARKER = re.compile(
-    r"\b(?:ignore|disregard|forget)\s+(?:all\s+)?(?:previous|prior|earlier)\s+"
-    r"(?:instructions|rules)\b|\b(?:bypass|override|skip)\s+(?:the\s+)?"
+    r"\b(?:ignore|disregard|forget)\s+(?:all\s+)?(?:your\s+)?"
+    r"(?:previous|prior|earlier)\s+(?:instructions|rules)\b|"
+    r"\b(?:bypass|override|skip)\s+(?:the\s+)?"
     r"(?:system\s+)?(?:confirmation|validation|policy)\b",
+    re.IGNORECASE,
+)
+_PENDING_OVERRIDE_MARKER = re.compile(
+    r"\b(?:ignore|disregard|bypass|override|skip)\b.*"
+    r"\b(?:rules?|confirmation|validation|policy|safeguards?)\b",
     re.IGNORECASE,
 )
 _ROLE_OVERRIDE_MARKER = re.compile(
@@ -37,8 +43,75 @@ _ROLE_OVERRIDE_MARKER = re.compile(
     r"\bdisable\s+(?:all\s+)?(?:the\s+)?safeguards?\b",
     re.IGNORECASE,
 )
+_IMPERSONATION_OVERRIDE_MARKER = re.compile(
+    r"(?:^|[\n\[])\s*(?:system|developer|internal)(?:\s+message|\s+instruction)?\s*[:\]]|"
+    r"\b(?:system|developer|internal)\s*:\s*|"
+    r"\b(?:system|developer|internal)\s+(?:message|instruction)\b",
+    re.IGNORECASE,
+)
+_BOUNDED_OVERRIDE_MARKER = re.compile(
+    r"\b(?:this\s+is\s+a\s+test\s+environment|test\s+mode| safeguards?\s+do(?:es)?n['’]?t\s+apply|"
+    r"safeguards?\s+(?:are\s+)?disabled|security\s+checks?\s+(?:are\s+)?disabled)\b|"
+    r"\b(?:i['’]?m|i\s+am)\s+(?:the\s+)?(?:engineer|developer|architect)\b.*"
+    r"\b(?:run|execute|approve|authorize|refund|cancel|proceed)\b|"
+    r"\b(?:internal\s+operator|operator\s+override|internal\s+support\s+override)\b.*"
+    r"\b(?:proceed|execute|approve|authorize|refund|cancel)\b|"
+    r"\b(?:sistem\s+mesajı|sistem\s+talimatı|geliştirici\s+talimatı|"
+    r"dahili\s+(?:operatör|destek)\s+(?:talimatı|geçersiz\s+kılma))\b.*"
+    r"\b(?:kapat|devre\s+dışı\s+bırak|atla|bypass|onayla|uygula|iade|iptal)\b",
+    re.IGNORECASE,
+)
+_TURKISH_OVERRIDE_MARKER = re.compile(
+    r"\b(?:önceki\s+talimatları|güvenlik\s+kontrollerini|korumaları|onay\s+gereğini)\b.*"
+    r"\b(?:yok\s+say|kapat|devre\s+dışı\s+bırak|atla|bypass|geç|onayla|uygula)\b",
+    re.IGNORECASE,
+)
+_AUTHORITY_CLAIM_MARKER = re.compile(
+    r"\b(?:company|support|manager|account)\b.*\b(?:permanently\s+authorized|"
+    r"upgraded\s+to|already\s+approved|authorized\s+for|approved\s+all\s+future)\b.*"
+    r"\b(?:automatic|unlimited|future|all|refund|action|approval|authorization)\b|"
+    r"\b(?:permanently\s+authorized|upgraded\s+to\s+unlimited\s+refund\s+approval|"
+    r"approved\s+all\s+future\s+actions?)\b|"
+    r"\b(?:support|customer\s+service|manager|company)\b.*"
+    r"\b(?:told|said|approved|authorized|pre[- ]?approved|granted)\b.*"
+    r"\b(?:never\s+need|no\s+longer\s+need|without|automatic|unlimited|future|"
+    r"confirmation|verification|refund|action|checks?)\b",
+    re.IGNORECASE,
+)
 _REFUND_MARKER = re.compile(r"\b(?:refund|reimburse|money back)\b", re.IGNORECASE)
 _CANCEL_MARKER = re.compile(r"\b(?:cancel|cancellation)\b", re.IGNORECASE)
+_TURKISH_REFUND_MARKER = re.compile(r"\b(?:iade|geri\s+ödeme)\b", re.IGNORECASE)
+_TURKISH_CANCEL_MARKER = re.compile(r"\b(?:iptal|iptali)\b", re.IGNORECASE)
+_NEGATED_REFUND = re.compile(
+    r"\b(?:do not|don't|do not want|don't want|not asking for)\s+(?:a\s+)?refund\b",
+    re.IGNORECASE,
+)
+_KNOWLEDGE_MARKER = re.compile(
+    r"\b(?:explain|how|what|policy|information|tell me|works?|possible)\b",
+    re.IGNORECASE,
+)
+_CONFLICTING_ACTION_MARKER = re.compile(
+    r"\b(?:cancel|submit|create|execute|approve|authorize)\b",
+    re.IGNORECASE,
+)
+_CROSS_CUSTOMER_MARKER = re.compile(
+    r"\b(?:another|other|different|previous|former)\s+customer\b|"
+    r"\bsomeone\s+else(?:'s|s)?\b",
+    re.IGNORECASE,
+)
+_CROSS_CUSTOMER_RESOURCE = re.compile(
+    r"\b(?:order|ticket|details?|refund|approval|account|information|status|amount|existence)\b",
+    re.IGNORECASE,
+)
+_INDIRECT_SCOPE_SUBJECT = re.compile(
+    r"\b(?:my\s+(?:colleague|manager)|their|someone\s+else|they)\b",
+    re.IGNORECASE,
+)
+_INDIRECT_SCOPE_AUTHORITY = re.compile(
+    r"\b(?:said|told|gave\s+me\s+permission|authorized|approved|can\s+(?:see|access)|"
+    r"permission|allowed)\b",
+    re.IGNORECASE,
+)
 _RESUME_PHRASES = frozenset(
     {
         "continue",
@@ -89,7 +162,10 @@ def is_interruption_candidate(message: str) -> bool:
         or (suffix and _QUESTION_PREFIX.match(suffix))
     )
     if _CONFIRMATION_LIKE_PREFIX.match(normalized):
-        return bool(marker and (has_question or _EXPLICIT_REPLACEMENT.search(suffix)))
+        return bool(
+            (marker and (has_question or _EXPLICIT_REPLACEMENT.search(suffix)))
+            or _EXPLICIT_REPLACEMENT.search(normalized)
+        )
     return bool(has_question or _EXPLICIT_REPLACEMENT.search(normalized) or marker)
 
 
@@ -97,13 +173,71 @@ def is_instruction_override_attempt(message: str) -> bool:
     """Recognize bounded authority-override language without fuzzy approval."""
 
     normalized = " ".join(message.casefold().split())
+    if _BOUNDED_OVERRIDE_MARKER.search(normalized) or _TURKISH_OVERRIDE_MARKER.search(normalized):
+        return True
+    if _IMPERSONATION_OVERRIDE_MARKER.search(normalized) and re.search(
+        r"\b(?:disable|skip|bypass|override|approve|authorize|execute|refund|cancel|"
+        r"confirmation|validation|security|safeguards?)\b",
+        normalized,
+    ):
+        return True
     if _ROLE_OVERRIDE_MARKER.search(normalized):
         return True
     if _OVERRIDE_MARKER.search(normalized):
         return bool(_REFUND_MARKER.search(normalized) or _CANCEL_MARKER.search(normalized))
+    if _PENDING_OVERRIDE_MARKER.search(normalized):
+        return bool(
+            re.search(
+                r"\b(?:refund|reimburse|cancel|execute|approve|authorize|proceed|action|tool)\b",
+                normalized,
+            )
+        )
     return bool(
         _REFUND_MARKER.search(normalized)
         and re.search(r"\b(?:approve|authorize)\b.*\bwithout\s+confirmation\b", normalized)
+    )
+
+
+def is_authority_claim_attempt(message: str) -> bool:
+    """Recognize bounded indirect authority claims before business routing."""
+
+    return bool(_AUTHORITY_CLAIM_MARKER.search(_normalize(message)))
+
+
+def is_memory_summary_request(message: str) -> bool:
+    """Recognize the read-only customer memory summary command."""
+
+    return _normalize(message) in {
+        "what do you remember about me",
+        "what information do you remember about me",
+        "what preferences do you remember about me",
+        "what do you remember",
+    }
+
+
+def has_conflicting_intents(message: str) -> bool:
+    """Reject mixed knowledge/mutation requests instead of guessing a write route."""
+
+    normalized = _normalize(message)
+    if not _NEGATED_REFUND.search(normalized) or not _KNOWLEDGE_MARKER.search(normalized):
+        return False
+    remainder = _NEGATED_REFUND.sub("", normalized)
+    return bool(_CONFLICTING_ACTION_MARKER.search(remainder))
+
+
+def is_cross_customer_access_attempt(message: str) -> bool:
+    """Recognize explicit requests to use another customer's scope."""
+
+    normalized = _normalize(message)
+    return bool(
+        (
+            _CROSS_CUSTOMER_MARKER.search(normalized)
+            or (
+                _INDIRECT_SCOPE_SUBJECT.search(normalized)
+                and _INDIRECT_SCOPE_AUTHORITY.search(normalized)
+            )
+        )
+        and _CROSS_CUSTOMER_RESOURCE.search(normalized)
     )
 
 
@@ -111,6 +245,36 @@ def is_resume_request(message: str) -> bool:
     """Recognize bounded resume commands; resumption never confirms the action."""
 
     return _normalize(message) in _RESUME_PHRASES
+
+
+def explicit_replacement_intent(
+    message: str, previous_intent: Intent | str | None
+) -> Intent | None:
+    """Return a bounded replacement intent for an active opposite mutation.
+
+    This is workflow routing, not semantic authority. It only applies when the
+    customer explicitly names the opposite mutation and the existing workflow
+    supplies the prior target for the normal compiler and policy gates.
+    """
+
+    normalized = _normalize(message)
+    try:
+        previous = Intent(previous_intent) if previous_intent is not None else None
+    except ValueError:
+        previous = None
+    if (
+        previous == Intent.ORDER_CANCEL
+        and (_REFUND_MARKER.search(normalized) or _TURKISH_REFUND_MARKER.search(normalized))
+        and re.search(r"\b(?:instead|rather|let['’]?s|no|hayır|yerine|iade)\b", normalized)
+    ):
+        return Intent.REFUND_REQUEST
+    if (
+        previous == Intent.REFUND_REQUEST
+        and (_CANCEL_MARKER.search(normalized) or _TURKISH_CANCEL_MARKER.search(normalized))
+        and re.search(r"\b(?:instead|rather|let['’]?s|no|hayır|yerine|iptal)\b", normalized)
+    ):
+        return Intent.ORDER_CANCEL
+    return None
 
 
 def make_handle_workflow_interruption_node() -> Callable[[AgentState], AgentState]:

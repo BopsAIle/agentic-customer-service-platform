@@ -5,6 +5,8 @@ from app.agent.schemas import (
     Intent,
 )
 from app.agent.state import AgentState, WorkflowLifecycleState
+from app.memory.policy import evaluate_candidate
+from app.memory.schemas import MemoryCandidate, MemoryType
 from app.policies.models import PendingAction, PendingActionStatus
 from app.resilience.errors import FailureCategory
 from app.resilience.fallbacks import degraded_message
@@ -45,7 +47,7 @@ def _error_message(category: AgentErrorCategory | None, state: AgentState) -> st
     )
     return {
         AgentErrorCategory.RESOURCE_NOT_FOUND: resource_not_found,
-        AgentErrorCategory.OWNERSHIP_VIOLATION: "I can't access that resource for this customer.",
+        AgentErrorCategory.OWNERSHIP_VIOLATION: "I can't access another customer's information.",
         AgentErrorCategory.INVALID_STATE: invalid_state,
         AgentErrorCategory.DUPLICATE_ACTION: (
             "It looks like this refund request is already being processed."
@@ -115,10 +117,18 @@ def respond(state: AgentState) -> AgentState:
     clarification_required = bool(
         compile_result is not None and compile_result.status == CompileStatus.CLARIFICATION_REQUIRED
     )
-    if state.get("security_signal") == "instruction_override_attempt":
+    if state.get("security_signal") in {
+        "instruction_override_attempt",
+        "authority_claim_attempt",
+    }:
         message = (
             "I can help with your request, but I can't disable required safeguards or bypass "
             "the normal approval process. I can't bypass those safeguards."
+        )
+    elif state.get("security_signal") == "memory_security_override_attempt":
+        message = (
+            "I can remember preferences and support context, but I can't store permissions, "
+            "roles, or authorization claims."
         )
     elif _suspended_retrieval_unavailable(state):
         message = _unavailable_suspended_workflow_message(state)
@@ -126,6 +136,14 @@ def respond(state: AgentState) -> AgentState:
         message = (
             "I couldn't confirm whether the action completed, so I won't repeat it automatically."
         )
+    elif (
+        _has_suspended_mutation(state)
+        and state.get("knowledge_answer") is None
+        and state.get("workflow_interruption_status") == "suspended"
+    ):
+        message = _suspended_interruption_pending_message(state)
+    elif state.get("memory_summary_requested") and error_category is None:
+        message = _memory_summary_message(state)
     elif state.get("knowledge_answer") is not None and error_category is None:
         message = _customer_knowledge_answer(state)
     elif state.get("failure_category") is not None and not (
@@ -146,7 +164,10 @@ def respond(state: AgentState) -> AgentState:
     elif memory_status == "deduplicated":
         message = "I already had that preference and kept it current."
     elif memory_status == "reject":
-        message = "I can't store that kind of information."
+        message = (
+            "I can remember preferences and support context, but I can't store permissions, "
+            "roles, or authorization claims."
+        )
     elif memory_status == "require_explicit":
         message = "Please explicitly ask me to remember that before I store it."
     elif memory_status == "forgotten":
@@ -254,6 +275,37 @@ def _apply_memory_context(state: AgentState, message: str) -> str:
     return message
 
 
+def _memory_summary_message(state: AgentState) -> str:
+    summaries: list[str] = []
+    for item in state.get("memory_context", []):
+        if not isinstance(item, dict):
+            continue
+        memory_type = str(item.get("memory_type", ""))
+        if memory_type not in {
+            MemoryType.PREFERENCE.value,
+            MemoryType.SUPPORT_CONTEXT.value,
+        }:
+            continue
+        content = item.get("content")
+        key = item.get("normalized_key")
+        if not isinstance(content, str) or not isinstance(key, str):
+            continue
+        try:
+            candidate = MemoryCandidate(
+                memory_type=MemoryType(memory_type),
+                content=content,
+                normalized_key=key,
+                explicit_user_request=True,
+            )
+        except ValueError:
+            continue
+        if evaluate_candidate(candidate).outcome == "allow":
+            summaries.append(content)
+    if not summaries:
+        return "I don't have any saved preferences or support context for you yet."
+    return "I remember: " + " ".join(summaries[:3])
+
+
 def _confirmation_request_message(action: PendingAction) -> str:
     if action.tool_name == "request_refund":
         return (
@@ -316,6 +368,15 @@ def _unavailable_suspended_workflow_message(state: AgentState) -> str:
         "I couldn't find a reliable answer for that question right now. Your "
         f"{label} is still saved and waiting for confirmation. After we finish your "
         f"question, you can continue the {label}."
+    )
+
+
+def _suspended_interruption_pending_message(state: AgentState) -> str:
+    label = _suspended_workflow_label(state)
+    return (
+        "I couldn't complete that question reliably right now. Your "
+        f"{label} is still saved and waiting for confirmation. "
+        f"It was not confirmed or executed; you can continue the {label} when you're ready."
     )
 
 
