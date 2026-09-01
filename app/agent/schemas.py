@@ -7,7 +7,7 @@ from app.memory.schemas import MemoryCandidate
 from app.policies.models import PendingAction
 from app.rag.schemas import Citation
 
-
+## Intent: Mục tiêu của người dùng( lookup, order, refund, hỏi đáp,..)
 class Intent(StrEnum):
     CUSTOMER_LOOKUP = "customer_lookup"
     ORDER_LOOKUP = "order_lookup"
@@ -29,18 +29,30 @@ class Intent(StrEnum):
     MEMORY_FORGET = "memory_forget"
     UNKNOWN = "unknown"
 
-
+# AgentRequestType là cách mà Agent sẽ xử lý yêu cầu người dùng 
+## AgentRequestType: hệ thống sẽ làm gì với yêu cầu người dùng(đọc, trả lời, ghi dữ liệu,..) 
 class AgentRequestType(StrEnum):
-    INFORMATIONAL = "informational"
-    READ_ACTION = "read_action"
-    WRITE_ACTION = "write_action"
-    ESCALATION = "escalation"
-    UNCLEAR = "unclear"
-    KNOWLEDGE_ONLY = "knowledge_only"
-    ACTION_ONLY = "action_only"
-    KNOWLEDGE_AND_ACTION = "knowledge_and_action"
-    MEMORY_ACTION = "memory_action"
-
+    INFORMATIONAL = "informational" #Hỏi năng lực / policy, không cần tool nghiệp vụ
+    READ_ACTION = "read_action"  #Đọc dữ liệu khách/đơn/ticket
+    WRITE_ACTION = "write_action" # Thay đổi trạng thái (hủy, refund, tạo ticket)
+    ESCALATION = "escalation" #Chuyển người thật nếu AI không xử lý được
+    UNCLEAR = "unclear" # Không rõ yêu cầu người dùng 
+    KNOWLEDGE_ONLY = "knowledge_only" #Chỉ tra knowledge (RAG), không tool nghiệp vụ
+    ACTION_ONLY = "action_only" #Chỉ tool, không RAG
+    KNOWLEDGE_AND_ACTION = "knowledge_and_action" #Vừa đọc đơn vừa tra policy
+    MEMORY_ACTION = "memory_action"  #Ghi/xóa memory khách
+""" 
+Khách hỏi
+    │
+    ├─ không hiểu / không an toàn     → UNCLEAR
+    ├─ hỏi “bạn làm được gì?”         → INFORMATIONAL
+    ├─ hỏi policy / FAQ               → KNOWLEDGE_ONLY
+    ├─ xem đơn / ticket               → READ_ACTION  (hoặc ACTION_ONLY)
+    ├─ xem đơn + hỏi có được refund?  → KNOWLEDGE_AND_ACTION
+    ├─ hủy / refund / tạo ticket      → WRITE_ACTION
+    ├─ gặp người                     → ESCALATION
+    └─ nhớ / quên preference          → MEMORY_ACTION
+"""
 
 class AgentExecutionMode(StrEnum):
     """Explicit playground modes; neither mode grants model output authority."""

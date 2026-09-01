@@ -30,16 +30,17 @@ from app.resilience.control import ReliabilityController
 from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
 
-
+# Ham này dùng để vô hiệu hóa các hành động của AI khi phát hiện rủi ro bảo mật
 def _security_block(
     state: AgentState,
     *,
-    signal: str = "instruction_override_attempt",
-    memory_rejection: bool = False,
+    signal: str = "instruction_override_attempt", # Mã cảnh báo bảo mật
+    #(tức người dùng muốn ghi đè lên các chỉ thị/ luật lệ gốc của AI - 1 dạng Prompt Injection)
+    memory_rejection: bool = False, # Cờ memory rejection này quyết định xem có cấm AI ghi nhớ thông tin không( có 1 số thông tin độc hại cần loại bỏ )
 ) -> AgentState:
     request_type = AgentRequestType.UNCLEAR
     existing_action = state.get("pending_action")
-    rejected_action = (
+    rejected_action = ( 
         existing_action.model_copy(update={"status": PendingActionStatus.REJECTED})
         if existing_action is not None and existing_action.status == PendingActionStatus.PENDING
         else existing_action
@@ -79,12 +80,13 @@ def _security_block(
         )
     return result
 
-
+##
 def make_security_boundary_node() -> Callable[[AgentState], AgentState]:
     """Reject bounded authority-override language before workflow processing."""
 
     def detect_security_boundary(state: AgentState) -> AgentState:
         message = _latest_user_message(state)
+        ## Lọc các câu theo pattern những câu có dấu hiệu xấu
         memory_signal = classify_memory_security_message(message)
         if memory_signal is not None:
             return _security_block(state, signal=memory_signal, memory_rejection=True)
@@ -109,6 +111,7 @@ def make_understand_request_node(
         message = _latest_user_message(state)
         pending_action = state.get("pending_action")
         previous_pending_intent = pending_action.intent if pending_action is not None else None
+
         replacement_intent = explicit_replacement_intent(message, previous_pending_intent)
         if replacement_intent is not None and pending_action is not None:
             order_id = pending_action.arguments.get("order_id")
@@ -136,11 +139,9 @@ def make_understand_request_node(
                 "provider_metadata": _provider_metadata(provider),
                 "security_signal": None,
             }
+        # Check xem có cần lấy ra thông tin từ memory không
         if is_memory_summary_request(message):
             summary_decision = SemanticDecisionV3(
-                # Keep the frozen semantic contract unchanged.  The explicit
-                # read-only memory_summary_requested flag carries this local
-                # UI intent without adding a transport enum value.
                 intent=Intent.SUPPORT_FAQ,
                 request_type=AgentRequestType.KNOWLEDGE_ONLY,
                 reason="memory_summary_request",
@@ -159,6 +160,7 @@ def make_understand_request_node(
                 "provider_metadata": _provider_metadata(provider),
                 "security_signal": None,
             }
+        ## Check xem message có mâu thuẫn không
         if has_conflicting_intents(message):
             conflict_decision = SemanticDecisionV3(
                 intent=Intent.UNKNOWN,

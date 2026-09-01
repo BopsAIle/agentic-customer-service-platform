@@ -9,6 +9,10 @@ _ORDER_FOLLOW_UP = re.compile(
     r"^(?:my\s+)?order(?:\s+(?:number|id))?\s*(?:is\s*)?[:#-]?\s*(\d+)\s*[.!]?$",
     re.IGNORECASE,
 )
+_TICKET_FOLLOW_UP = re.compile(
+    r"^(?:my\s+)?ticket(?:\s+(?:number|id))?\s*(?:is\s*)?[:#-]?\s*(\d+)\s*[.!]?$",
+    re.IGNORECASE,
+)
 _NUMERIC_FOLLOW_UP = re.compile(r"^#?\s*(\d+)\s*[.!]?$")
 
 
@@ -34,6 +38,16 @@ def make_resume_workflow_node() -> Callable[[AgentState], AgentState]:
             entities["order_id"] = order_id
             remaining.remove("order_id")
 
+        if "ticket_id" in remaining:
+            ticket_id = _parse_ticket_id(message)
+            if ticket_id is None:
+                return _interruption_or_wait(message)
+            updated = updated.model_copy(
+                update={"target": SemanticTarget(type="explicit_ticket", ticket_id=ticket_id)}
+            )
+            entities["ticket_id"] = ticket_id
+            remaining.remove("ticket_id")
+
         if "reason" in remaining:
             # A numeric answer satisfies an order target, not a refund reason.  Keep
             # the workflow alive so the next turn can supply the remaining field.
@@ -46,7 +60,10 @@ def make_resume_workflow_node() -> Callable[[AgentState], AgentState]:
             remaining.remove("reason")
 
         if remaining:
-            return _partial_resume(updated, entities, remaining)
+            # Fields this node cannot collect from a follow-up must not freeze
+            # the conversation. Re-inspect the message so a new request can
+            # suspend or replace the incomplete workflow.
+            return _interruption_or_wait(message)
         return {
             "semantic_decision": updated,
             "previous_intent": updated.intent,
@@ -63,6 +80,14 @@ def make_resume_workflow_node() -> Callable[[AgentState], AgentState]:
 
 def _parse_order_id(message: str) -> int | None:
     match = _NUMERIC_FOLLOW_UP.fullmatch(message) or _ORDER_FOLLOW_UP.fullmatch(message)
+    if match is None:
+        return None
+    value = int(match.group(1))
+    return value if value > 0 else None
+
+
+def _parse_ticket_id(message: str) -> int | None:
+    match = _NUMERIC_FOLLOW_UP.fullmatch(message) or _TICKET_FOLLOW_UP.fullmatch(message)
     if match is None:
         return None
     value = int(match.group(1))

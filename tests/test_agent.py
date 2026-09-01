@@ -822,6 +822,104 @@ def test_order_lookup_workflow_resumes_when_order_id_arrives(db_session: Session
     assert len(provider.calls) == 1
 
 
+def test_ticket_lookup_asks_for_ticket_number_instead_of_generic_clarify(
+    db_session: Session,
+) -> None:
+    provider = FakeSemanticDecisionV3Provider(
+        [
+            SemanticDecisionV3(
+                intent=Intent.TICKET_LOOKUP,
+                request_type=AgentRequestType.READ_ACTION,
+            )
+        ]
+    )
+    runtime = AgentRuntime(provider=provider)
+
+    initial = runtime.run(
+        conversation_id="ticket-lookup-clarify",
+        customer_id=1,
+        message="Can you check my ticket?",
+        session=db_session,
+    )
+
+    assert initial.intent == Intent.TICKET_LOOKUP
+    assert initial.tool_call is None
+    assert "ticket number" in initial.message.casefold()
+    assert "cancellation, refund, or human assistance" not in initial.message.casefold()
+
+
+def test_ticket_lookup_workflow_resumes_when_ticket_id_arrives(
+    db_session: Session,
+) -> None:
+    provider = FakeSemanticDecisionV3Provider(
+        [
+            SemanticDecisionV3(
+                intent=Intent.TICKET_LOOKUP,
+                request_type=AgentRequestType.READ_ACTION,
+            )
+        ]
+    )
+    runtime = AgentRuntime(provider=provider)
+
+    initial = runtime.run(
+        conversation_id="ticket-lookup-follow-up",
+        customer_id=1,
+        message="Can you check my ticket?",
+        session=db_session,
+    )
+    continued = runtime.run(
+        conversation_id="ticket-lookup-follow-up",
+        customer_id=1,
+        message="1",
+        session=db_session,
+    )
+
+    assert "ticket number" in initial.message.casefold()
+    assert continued.intent == Intent.TICKET_LOOKUP
+    assert continued.tool_call is not None
+    assert continued.tool_call.name == "get_ticket"
+    assert continued.tool_call.status == "executed"
+    assert len(provider.calls) == 1
+
+
+def test_ticket_lookup_follow_up_can_be_replaced_by_explicit_refund(
+    db_session: Session,
+) -> None:
+    provider = FakeSemanticDecisionV3Provider(
+        [
+            SemanticDecisionV3(
+                intent=Intent.TICKET_LOOKUP,
+                request_type=AgentRequestType.READ_ACTION,
+            ),
+            SemanticDecisionV3(
+                intent=Intent.REFUND_REQUEST,
+                request_type=AgentRequestType.WRITE_ACTION,
+                target={"type": "explicit_order", "order_id": 2},
+                reason="damaged product",
+            ),
+        ]
+    )
+    runtime = AgentRuntime(provider=provider)
+
+    runtime.run(
+        conversation_id="ticket-lookup-replace",
+        customer_id=1,
+        message="Can you check my ticket?",
+        session=db_session,
+    )
+    replaced = runtime.run(
+        conversation_id="ticket-lookup-replace",
+        customer_id=1,
+        message="I want a refund for order 2 because it is a damaged product.",
+        session=db_session,
+    )
+
+    assert replaced.intent == Intent.REFUND_REQUEST
+    assert replaced.pending_action is not None
+    assert replaced.pending_action.tool_name == "request_refund"
+    assert len(provider.calls) == 2
+
+
 def test_cancellation_workflow_keeps_confirmation_boundary(db_session: Session) -> None:
     provider = FakeSemanticDecisionV3Provider(
         [

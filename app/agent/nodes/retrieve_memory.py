@@ -12,7 +12,8 @@ from app.resilience.control import ReliabilityController
 from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
 
-
+##Đọc memory của khách theo execution_context.
+#  Fail thì không chặn request — tiếp tục với memory_context rỗng (continue_without_memory).
 def make_retrieve_memory_node(
     service: MemoryService,
     session: Session,

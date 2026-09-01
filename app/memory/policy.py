@@ -24,6 +24,8 @@ _REJECTED_PATTERNS = (
     "cancel every order",
     "refund every order",
 )
+
+# Authority claim patterns là các patterns để phát hiện authority claim
 _AUTHORITY_CLAIM_PATTERNS = (
     re.compile(
         r"\b(?:i am|i'm|i am now|you are|you're)\s+(?:the\s+)?"
@@ -87,6 +89,7 @@ _AUTHORITY_CLAIM_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+# Authority override patterns là các patterns để phát hiện authority override
 _AUTHORITY_OVERRIDE_PATTERNS = (
     re.compile(
         r"\b(?:skip|bypass|avoid|without)\s+(?:the\s+)?"
@@ -138,7 +141,8 @@ _MEMORY_REQUEST_MARKER = re.compile(
     re.IGNORECASE,
 )
 
-
+## hàm này chặn prompt injection kiểu “nhớ giúp tôi là admin / khỏi cần confirm” trước khi hệ thống tin memory hay tin model
+# Nếu có các từ xuất hiện trong 2 tập _AUTHORITY_OVERRIDE_PATTERNS hoặc _AUTHORITY_CLAIM_PATTERNS thì trả về "memory_security_override_attempt"
 def classify_memory_security_message(message: str) -> str | None:
     """Classify raw memory requests before any memory lookup or mutation.
 

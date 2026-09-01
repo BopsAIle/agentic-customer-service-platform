@@ -15,7 +15,7 @@ class PolicyOutcome(StrEnum):
     REQUIRE_HUMAN = "require_human"
     DENY = "deny"
 
-
+#PendingActionStatus là vòng đời của một hành động ghi đã bị đóng băng, chờ khách xác nhận
 class PendingActionStatus(StrEnum):
     PENDING = "pending"
     CONFIRMED = "confirmed"
@@ -23,7 +23,18 @@ class PendingActionStatus(StrEnum):
     EXPIRED = "expired"
     EXECUTED = "executed"
     FAILED = "failed"
-
+"""
+Policy: risk 2 → REQUIRE_CONFIRMATION
+            │
+            ▼
+        PENDING  ── khách Yes ──► CONFIRMED ── restore + revalidate ──► EXECUTED
+            │                         │                                    ▲
+            │                         └── revalidate/tool fail ──────────► FAILED
+            │
+            ├── khách No / prompt injection ──► REJECTED
+            ├── quá TTL (mặc định 300s)     ──► EXPIRED
+            └── câu mơ hồ / hỏi chuyện khác ──► vẫn PENDING
+"""
 
 class PendingAction(BaseModel):
     action_id: str

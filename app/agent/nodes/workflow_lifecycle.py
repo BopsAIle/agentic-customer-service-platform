@@ -263,6 +263,7 @@ def explicit_replacement_intent(
     except ValueError:
         previous = None
     if (
+        # Intent: Lưu mục tiêu người dùng : hủy, đặt, ...
         previous == Intent.ORDER_CANCEL
         and (_REFUND_MARKER.search(normalized) or _TURKISH_REFUND_MARKER.search(normalized))
         and re.search(r"\b(?:instead|rather|let['’]?s|no|hayır|yerine|iade)\b", normalized)
@@ -275,6 +276,23 @@ def explicit_replacement_intent(
     ):
         return Intent.ORDER_CANCEL
     return None
+"""
+Bối cảnh
+Khách đã yêu cầu hủy đơn 5. Policy bắt xác nhận, nên hệ thống chưa hủy. Nó giữ một phiếu chờ:
+
+đang làm: cancel
+đơn: 5
+trạng thái: chờ Yes/No
+Khách không trả lời Yes/No. Họ nói:
+
+“Không, hoàn tiền giúp tôi thay vì hủy.”
+
+Đó là đổi việc, không phải xác nhận việc cũ. Hàm này chỉ để nhận ra đúng case đó.
+"""
+
+
+
+
 
 
 def make_handle_workflow_interruption_node() -> Callable[[AgentState], AgentState]:

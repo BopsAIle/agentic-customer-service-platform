@@ -221,6 +221,12 @@ def respond(state: AgentState) -> AgentState:
             message = "Could you briefly tell me why you are requesting this refund?"
         else:
             message = "I need a little more information before I can continue safely."
+    elif (
+        state.get("workflow_active")
+        and state.get("missing_required_fields")
+        and state.get("intent") == Intent.TICKET_LOOKUP
+    ):
+        message = "I can look up that support ticket. Could you provide your ticket number?"
     elif not tool_name and state.get("intent") == Intent.REFUND_REQUEST:
         message = (
             "I'm sorry to hear that your product arrived damaged. I can help with the refund "
@@ -228,6 +234,8 @@ def respond(state: AgentState) -> AgentState:
         )
     elif not tool_name and state.get("intent") == Intent.ORDER_LOOKUP:
         message = "I can help you check your order status. Could you provide your order number?"
+    elif not tool_name and state.get("intent") == Intent.TICKET_LOOKUP:
+        message = "I can look up that support ticket. Could you provide your ticket number?"
     elif not tool_name and state.get("intent") == Intent.ORDER_CANCEL:
         message = "I can help cancel your order. Let me verify the order details first."
     elif state.get("intent") == Intent.HUMAN_ESCALATION and (
