@@ -106,3 +106,23 @@ test.describe.serial("operator journey evidence", () => {
     await captureJourney(page, "06-investigation.png");
   });
 });
+
+test.describe("operator conversation history", () => {
+  test("new chat starts a fresh thread and restores a previous transcript", async ({ page }) => {
+    await loginOperator(page, "/");
+    await page.getByTestId("customer-scope").selectOption("1");
+    const firstMessage = "What is the refund policy for damaged products?";
+    const first = await submitWorkspaceMessage(page, firstMessage);
+    const originalId = (await page.getByTestId("active-conversation-id").innerText()).trim();
+
+    await page.getByTestId("new-chat").click();
+    await expect(page.getByTestId("agent-response")).toHaveCount(0);
+    await expect(page.getByTestId("active-conversation-id")).not.toHaveText(originalId);
+    await expect(page.getByTestId("conversation-history")).toContainText(firstMessage);
+
+    await page.getByTestId("conversation-item").filter({ hasText: firstMessage }).getByRole("button").first().click();
+    await expect(page.getByTestId("conversation-request").last()).toContainText(firstMessage);
+    await expect(page.getByTestId("agent-response").last()).toContainText(first.message);
+    await expect(page.getByTestId("active-conversation-id")).toHaveText(originalId);
+  });
+});

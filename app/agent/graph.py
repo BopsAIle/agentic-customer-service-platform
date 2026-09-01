@@ -201,10 +201,10 @@ def _load_context(state: AgentState) -> AgentState:
             "selected_tool": None,
             "tool_result": None,
         }
-    existing_customer = state.get("conversation_customer_id")
-    existing_tenant = state.get("conversation_tenant_id")
-    existing_actor_id = state.get("conversation_actor_id")
-    existing_actor_type = state.get("conversation_actor_type")
+    existing_customer = state.get("conversation_customer_id") # Customer ID(Khách hàng đang chat)
+    existing_tenant = state.get("conversation_tenant_id") # Tenant ID
+    existing_actor_id = state.get("conversation_actor_id") # Người đã xác thực đang chat
+    existing_actor_type = state.get("conversation_actor_type") #vai trò người dùng đang chat(admin, customer, agent,..)
     principal = context.principal
     if (
         (existing_customer is not None and existing_customer != context.effective_customer_id)
