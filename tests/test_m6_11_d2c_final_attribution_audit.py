@@ -12,6 +12,7 @@ from evaluation.m6_11_d2c_final_attribution_audit import (
     canonical_audit_bytes,
     write_audit,
 )
+from evaluation.provenance import hash_prompt_bytes
 
 
 def test_m6_11_attribution_counts_are_deterministic() -> None:
@@ -51,4 +52,4 @@ def test_source_artifacts_are_immutable_and_report_is_non_overwriting(tmp_path: 
     with pytest.raises(FileExistsError):
         write_audit(audit, destination)
     for name, expected in SOURCE_HASHES.items():
-        assert hashlib.sha256((SOURCE_ROOT / name).read_bytes()).hexdigest() == expected
+        assert hash_prompt_bytes((SOURCE_ROOT / name).read_bytes()) == expected

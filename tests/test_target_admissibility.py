@@ -96,7 +96,8 @@ def test_grounded_explicit_destructive_target_remains_admissible(db_session: Ses
         grounding=grounding,
     )
     assert result.status == CompileStatus.COMPILED_ACTION
-    assert result.selected_tool == "cancel_order"
+    assert result.proposed_write is not None
+    assert result.proposed_write["tool"] == "cancel_order"
 
 
 def test_symbolic_destructive_boundary_ignores_model_clarification_flag() -> None:

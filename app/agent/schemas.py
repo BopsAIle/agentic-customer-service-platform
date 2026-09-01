@@ -7,6 +7,7 @@ from app.memory.schemas import MemoryCandidate
 from app.policies.models import PendingAction
 from app.rag.schemas import Citation
 
+
 ## Intent: Mục tiêu của người dùng( lookup, order, refund, hỏi đáp,..)
 class Intent(StrEnum):
     CUSTOMER_LOOKUP = "customer_lookup"
@@ -23,24 +24,29 @@ class Intent(StrEnum):
     CANCELLATION_POLICY = "cancellation_policy"
     SHIPPING_POLICY = "shipping_policy"
     SUPPORT_FAQ = "support_faq"
+    WARRANTY_POLICY = "warranty_policy"
+    RETURN_EXCHANGE = "return_exchange"
     REFUND_ELIGIBILITY = "refund_eligibility"
     CANCELLATION_EXPLANATION = "cancellation_explanation"
     MEMORY_REMEMBER = "memory_remember"
     MEMORY_FORGET = "memory_forget"
     UNKNOWN = "unknown"
 
-# AgentRequestType là cách mà Agent sẽ xử lý yêu cầu người dùng 
-## AgentRequestType: hệ thống sẽ làm gì với yêu cầu người dùng(đọc, trả lời, ghi dữ liệu,..) 
+
+# AgentRequestType là cách mà Agent sẽ xử lý yêu cầu người dùng
+## AgentRequestType: hệ thống sẽ làm gì với yêu cầu người dùng(đọc, trả lời, ghi dữ liệu,..)
 class AgentRequestType(StrEnum):
-    INFORMATIONAL = "informational" #Hỏi năng lực / policy, không cần tool nghiệp vụ
-    READ_ACTION = "read_action"  #Đọc dữ liệu khách/đơn/ticket
-    WRITE_ACTION = "write_action" # Thay đổi trạng thái (hủy, refund, tạo ticket)
-    ESCALATION = "escalation" #Chuyển người thật nếu AI không xử lý được
-    UNCLEAR = "unclear" # Không rõ yêu cầu người dùng 
-    KNOWLEDGE_ONLY = "knowledge_only" #Chỉ tra knowledge (RAG), không tool nghiệp vụ
-    ACTION_ONLY = "action_only" #Chỉ tool, không RAG
-    KNOWLEDGE_AND_ACTION = "knowledge_and_action" #Vừa đọc đơn vừa tra policy
-    MEMORY_ACTION = "memory_action"  #Ghi/xóa memory khách
+    INFORMATIONAL = "informational"  # Hỏi năng lực / policy, không cần tool nghiệp vụ
+    READ_ACTION = "read_action"  # Đọc dữ liệu khách/đơn/ticket
+    WRITE_ACTION = "write_action"  # Thay đổi trạng thái (hủy, refund, tạo ticket)
+    ESCALATION = "escalation"  # Chuyển người thật nếu AI không xử lý được
+    UNCLEAR = "unclear"  # Không rõ yêu cầu người dùng
+    KNOWLEDGE_ONLY = "knowledge_only"  # Chỉ tra knowledge (RAG), không tool nghiệp vụ
+    ACTION_ONLY = "action_only"  # Chỉ tool, không RAG
+    KNOWLEDGE_AND_ACTION = "knowledge_and_action"  # Vừa đọc đơn vừa tra policy
+    MEMORY_ACTION = "memory_action"  # Ghi/xóa memory khách
+
+
 """ 
 Khách hỏi
     │
@@ -53,6 +59,7 @@ Khách hỏi
     ├─ gặp người                     → ESCALATION
     └─ nhớ / quên preference          → MEMORY_ACTION
 """
+
 
 class AgentExecutionMode(StrEnum):
     """Explicit playground modes; neither mode grants model output authority."""

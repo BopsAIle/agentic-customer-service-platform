@@ -6,14 +6,17 @@ from app.agent.schemas import SemanticDecision, SemanticTarget
 from app.agent.state import AgentState
 
 _ORDER_FOLLOW_UP = re.compile(
-    r"^(?:my\s+)?order(?:\s+(?:number|id))?\s*(?:is\s*)?[:#-]?\s*(\d+)\s*[.!]?$",
+    r"(?:(?:my\s+)?order(?:\s+(?:number|id))?|(?:mã\s+)?đơn(?:\s+(?:hàng|số|mã))?)"
+    r"\s*(?:is|là)?\s*[:#-]?\s*(\d+)",
     re.IGNORECASE,
 )
 _TICKET_FOLLOW_UP = re.compile(
-    r"^(?:my\s+)?ticket(?:\s+(?:number|id))?\s*(?:is\s*)?[:#-]?\s*(\d+)\s*[.!]?$",
+    r"(?:(?:my\s+)?ticket(?:\s+(?:number|id))?|(?:mã\s+)?phiếu(?:\s+hỗ trợ)?)"
+    r"\s*(?:is|là)?\s*[:#-]?\s*(\d+)",
     re.IGNORECASE,
 )
 _NUMERIC_FOLLOW_UP = re.compile(r"^#?\s*(\d+)\s*[.!]?$")
+_EMBEDDED_ORDER = re.compile(r"(?:order\s*#|đơn\s*#|#)\s*(\d+)", re.IGNORECASE)
 
 
 def make_resume_workflow_node() -> Callable[[AgentState], AgentState]:
@@ -79,7 +82,11 @@ def make_resume_workflow_node() -> Callable[[AgentState], AgentState]:
 
 
 def _parse_order_id(message: str) -> int | None:
-    match = _NUMERIC_FOLLOW_UP.fullmatch(message) or _ORDER_FOLLOW_UP.fullmatch(message)
+    match = (
+        _NUMERIC_FOLLOW_UP.fullmatch(message.strip())
+        or _ORDER_FOLLOW_UP.search(message)
+        or _EMBEDDED_ORDER.search(message)
+    )
     if match is None:
         return None
     value = int(match.group(1))
@@ -87,7 +94,7 @@ def _parse_order_id(message: str) -> int | None:
 
 
 def _parse_ticket_id(message: str) -> int | None:
-    match = _NUMERIC_FOLLOW_UP.fullmatch(message) or _TICKET_FOLLOW_UP.fullmatch(message)
+    match = _NUMERIC_FOLLOW_UP.fullmatch(message.strip()) or _TICKET_FOLLOW_UP.search(message)
     if match is None:
         return None
     value = int(match.group(1))

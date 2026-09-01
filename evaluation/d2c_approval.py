@@ -38,12 +38,16 @@ from evaluation.live_eval_v2 import (
     d2c_schedule_hash,
     live_eval_v2_hash,
 )
-from evaluation.provenance import prompt_hash_for_contract, schema_hash_for_contract
+from evaluation.provenance import (
+    hash_prompt_bytes,
+    prompt_hash_for_contract,
+    schema_hash_for_contract,
+)
 
 D2C_APPROVAL_RECORD_SCHEMA_VERSION = "d2c_review_approval_record_v1"
-D2C_DATASET_DECISION_SHA256 = "e72412c1d8afc47b62627fcf089b827b5012883ec9cfb36402ddba7a29228def"
+D2C_DATASET_DECISION_SHA256 = "aec1060f3e28f85843ef228812115877fd98b43989bd23a05169f3bec2e931b5"
 D2A_DECISION_ID = "model_compatibility_d2a_v1"
-D2A_DECISION_SHA256 = "79a04127a53c3cfa692441f8adeee2a0eb1999983b39e160bfa580d5dad01dee"
+D2A_DECISION_SHA256 = "ae0893fba9a5be9b88e7911261de254844e4891ace1df2a04323e25c6f0bd7b5"
 CONTRACT_VERSION = "semantic_decision_v3"
 MODEL = "gpt-5.6-luna"
 PROVIDER = "official OpenAI API"
@@ -135,7 +139,7 @@ class D2cReviewApproval(BaseModel):
 def _sha256(path: Path) -> str:
     if path.is_symlink() or not path.is_file():
         raise RuntimeError(f"D2C_FROZEN_ARTIFACT_MISSING:{path.as_posix()}")
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hash_prompt_bytes(path.read_bytes())
 
 
 def contract_identity_hash() -> str:

@@ -98,7 +98,8 @@ def test_valid_first_time_risk_two_request_still_compiles_for_confirmation(
         user_message="Cancel order 3.",
     )
     assert result.status == CompileStatus.COMPILED_ACTION
-    assert result.selected_tool == "cancel_order"
+    assert result.proposed_write is not None
+    assert result.proposed_write["tool"] == "cancel_order"
 
 
 def test_invented_refund_reason_instruction_cannot_compile_action(db_session: Session) -> None:
@@ -194,7 +195,8 @@ def test_knowledge_action_and_grounded_refund_paths_remain_intact(db_session: Se
         user_message="Refund order 1 because it arrived damaged.",
     )
     assert refund.status == CompileStatus.COMPILED_ACTION
-    assert refund.selected_tool == "request_refund"
+    assert refund.proposed_write is not None
+    assert refund.proposed_write["tool"] == "request_refund"
 
 
 @pytest.mark.parametrize(

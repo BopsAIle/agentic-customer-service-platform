@@ -2,6 +2,7 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from app.agent.cskh import memory_query_for
 from app.agent.schemas import AgentErrorCategory
 from app.agent.state import AgentState
 from app.memory.service import MemoryService
@@ -12,8 +13,7 @@ from app.resilience.control import ReliabilityController
 from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
 
-##Đọc memory của khách theo execution_context.
-#  Fail thì không chặn request — tiếp tục với memory_context rỗng (continue_without_memory).
+
 def make_retrieve_memory_node(
     service: MemoryService,
     session: Session,
@@ -28,7 +28,7 @@ def make_retrieve_memory_node(
                 "error_category": AgentErrorCategory.POLICY_DENIED,
                 "last_error": "Authenticated execution context is required for memory.",
             }
-        query = _latest_user_message(state)
+        query = memory_query_for(_latest_user_message(state), state.get("situation"))
         with span("memory.retrieve") as memory_span:
             try:
                 records = run_with_retry(

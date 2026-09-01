@@ -18,9 +18,9 @@ def test_d2a_decision_freezes_exact_contract_dataset_and_candidates() -> None:
     assert decision["status"] == "ACCEPTED"
     assert decision["contract"] == {
         "version": "semantic_decision_v3",
-        "schema_hash": ("b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b"),
+        "schema_hash": ("9072994198f9d5586365548875c81760aa697be9604aaacc927892d2d9a39dd0"),
         "function_schema_hash": (
-            "49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1"
+            "0580240826edb240d9dbd371f85bbb9e3c7f0d582a3b57c919a3ab363feaf8ef"
         ),
         "prompt_hash": ("4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0"),
         "structured_output_mode": "function_calling",

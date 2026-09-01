@@ -99,16 +99,16 @@ def test_d1b_metadata_and_static_artifact_preflight() -> None:
         schedule=_schedule(_cases()),
     )
     assert metadata.direct_schema_hash == (
-        "217f876a52d0eaffe885ff44d66b592c66deb8894bbae1b3e075aba67a021006"
+        "c172844788a5bdac58f92f0a4ee359bac108f5de087ff6ccfe20182f72070c20"
     )
     assert metadata.direct_prompt_hash == (
         "f51a66c3f3b914867061f59d1970ab0c0c0b7dc52db880fac97a7397c1d2d90b"
     )
     assert metadata.semantic_schema_hash == (
-        "b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b"
+        "9072994198f9d5586365548875c81760aa697be9604aaacc927892d2d9a39dd0"
     )
     assert metadata.semantic_function_schema_hash == (
-        "49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1"
+        "0580240826edb240d9dbd371f85bbb9e3c7f0d582a3b57c919a3ab363feaf8ef"
     )
     assert metadata.semantic_prompt_hash == (
         "d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365"

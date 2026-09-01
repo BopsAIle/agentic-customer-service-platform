@@ -146,7 +146,9 @@ def test_explicit_cancellation_injects_trusted_customer_scope(db_session: Sessio
         context(),
     )
     assert result.status == CompileStatus.COMPILED_ACTION
-    assert result.selected_tool == "cancel_order"
+    assert result.selected_tool == "get_order"
+    assert result.proposed_write is not None
+    assert result.proposed_write["tool"] == "cancel_order"
     assert result.tool_arguments == {"customer_id": 1, "order_id": 3}
 
 
@@ -215,8 +217,10 @@ def test_refund_ticket_escalation_and_read_compilation(db_session: Session) -> N
         context(),
         user_message="Refund order 2 because the delivered item was damaged.",
     )
-    assert refund.selected_tool == "request_refund"
-    assert refund.tool_arguments == {
+    assert refund.selected_tool == "get_order"
+    assert refund.proposed_write is not None
+    assert refund.proposed_write["tool"] == "request_refund"
+    assert refund.proposed_write["arguments"] == {
         "customer_id": 1,
         "order_id": 2,
         "reason": "The delivered item was damaged.",
@@ -230,9 +234,10 @@ def test_refund_ticket_escalation_and_read_compilation(db_session: Session) -> N
         ),
         context(),
     )
-    assert ticket_creation.selected_tool == "create_support_ticket"
-    assert ticket_creation.tool_arguments["customer_id"] == 1
-    assert ticket_creation.tool_arguments["order_id"] is None
+    assert ticket_creation.proposed_write is not None
+    assert ticket_creation.proposed_write["tool"] == "create_support_ticket"
+    assert ticket_creation.proposed_write["arguments"]["customer_id"] == 1
+    assert ticket_creation.proposed_write["arguments"]["order_id"] is None
 
     escalation = compiler(db_session).compile(
         SemanticDecision(
@@ -243,9 +248,10 @@ def test_refund_ticket_escalation_and_read_compilation(db_session: Session) -> N
         ),
         context(),
     )
-    assert escalation.selected_tool == "escalate_to_human"
-    assert escalation.tool_arguments["customer_id"] == 1
-    assert escalation.tool_arguments["priority"] == "urgent"
+    assert escalation.proposed_write is not None
+    assert escalation.proposed_write["tool"] == "escalate_to_human"
+    assert escalation.proposed_write["arguments"]["customer_id"] == 1
+    assert escalation.proposed_write["arguments"]["priority"] == "urgent"
 
     lookup = compiler(db_session).compile(
         SemanticDecision(
@@ -380,7 +386,9 @@ def test_explicit_damaged_ticket_request_can_compile(
         user_message="Open a support ticket because my package arrived damaged.",
     )
     assert result.status == CompileStatus.COMPILED_ACTION
-    assert result.selected_tool == "create_support_ticket"
+    assert result.selected_tool is None
+    assert result.proposed_write is not None
+    assert result.proposed_write["tool"] == "create_support_ticket"
 
 
 def test_invented_refund_reason_is_rejected(
@@ -412,7 +420,8 @@ def test_user_supported_refund_reason_can_compile(
         user_message="Refund order 1 because it arrived damaged.",
     )
     assert result.status == CompileStatus.COMPILED_ACTION
-    assert result.selected_tool == "request_refund"
+    assert result.proposed_write is not None
+    assert result.proposed_write["tool"] == "request_refund"
 
 
 @pytest.mark.parametrize(
@@ -461,7 +470,8 @@ def test_explicit_english_and_turkish_refund_reasons_remain_executable(
         user_message=message,
     )
     assert result.status == CompileStatus.COMPILED_ACTION
-    assert result.selected_tool == "request_refund"
+    assert result.proposed_write is not None
+    assert result.proposed_write["tool"] == "request_refund"
 
 
 def test_refund_reason_without_authoritative_user_message_fails_closed(

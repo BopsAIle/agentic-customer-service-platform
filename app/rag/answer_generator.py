@@ -353,6 +353,16 @@ def normalize_knowledge_query(query: str) -> str:
         and re.search(r"\b(?:refund|return|reimburse|money\s+back)\b", normalized)
     ):
         return "refund processing review settlement"
+    if re.search(r"\b(?:đổi trả|doi tra|trả hàng|tra hang)\b", normalized):
+        return "return exchange damaged wrong item timeframe"
+    if re.search(r"\b(?:bảo hành|bao hanh)\b", normalized):
+        return "warranty coverage period repair replacement"
+    if re.search(r"\b(?:vận chuyển|van chuyen|giao hàng|giao hang)\b", normalized):
+        return "shipping processing transit delays"
+    if re.search(r"\b(?:hoàn tiền|hoan tien)\b", normalized):
+        return "refund eligibility delivered damaged 30 calendar days"
+    if re.search(r"\b(?:hủy đơn|huy don)\b", normalized):
+        return "cancellation after shipment"
     return query
 
 

@@ -26,6 +26,7 @@ from app.core.config import Settings
 
 _PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "system.txt"
 _SEMANTIC_PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "system_semantic_decision_v2.txt"
+_CSKH_PROMPT_PATH = Path(__file__).parents[1] / "prompts" / "system_cskh_triage.txt"
 
 
 class OpenAICompatibleProvider(DecisionProposalProvider):
@@ -45,6 +46,9 @@ class OpenAICompatibleProvider(DecisionProposalProvider):
             else _PROMPT_PATH
         )
         self._system_prompt = prompt_path.read_text(encoding="utf-8")
+        if self.decision_contract_version in {"semantic_decision_v2", "semantic_decision_v3"}:
+            cskh_prompt = _CSKH_PROMPT_PATH.read_text(encoding="utf-8")
+            self._system_prompt = f"{self._system_prompt}\n\n{cskh_prompt}"
         model_kwargs: dict[str, object] = {
             "model": settings.llm_model,
             "base_url": settings.llm_base_url,

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from pathlib import Path
 
@@ -16,6 +15,7 @@ from evaluation.d2c_spec import (
     assert_d2c_execution_ready,
     canonical_d2c_spec,
 )
+from evaluation.provenance import hash_prompt_bytes
 
 
 def test_d2c_machine_spec_matches_typed_canonical_design() -> None:
@@ -28,7 +28,7 @@ def test_d2c_machine_spec_matches_typed_canonical_design() -> None:
     assert tracked.dataset_hash is None
     assert tracked.model_calls_performed == 0
     assert tracked.evaluation_artifacts_generated is False
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == D2C_SPEC_ARTIFACT_SHA256
+    assert hash_prompt_bytes(path.read_bytes()) == D2C_SPEC_ARTIFACT_SHA256
 
 
 def test_d2c_holds_architecture_model_and_contract_identity_fixed() -> None:

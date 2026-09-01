@@ -416,8 +416,8 @@ def _semantic_outcome(
     started_compile = time.perf_counter()
     result = compiler.compile(decision, context)
     measured_compile_ms = (time.perf_counter() - started_compile) * 1000
-    actual_tool = result.selected_tool
-    arguments = _safe_compiled_arguments(result.tool_arguments)
+    actual_tool = result.compiled_action_tool()
+    arguments = _safe_compiled_arguments(result.compiled_action_arguments())
     effective_clarification = result.status == CompileStatus.CLARIFICATION_REQUIRED
     effective_clarification_correct = effective_clarification == case.expect_clarification
     routing: bool | None = _routing_correct(case, actual_tool)

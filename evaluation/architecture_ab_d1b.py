@@ -373,8 +373,8 @@ def _semantic_outcome_v3(
         grounding=grounding,
     )
     compiler_latency = (time.perf_counter() - compile_started) * 1000
-    actual_tool = result.selected_tool
-    arguments = _safe_arguments(result.tool_arguments)
+    actual_tool = result.compiled_action_tool()
+    arguments = _safe_arguments(result.compiled_action_arguments())
     effective_clarification = result.status is CompileStatus.CLARIFICATION_REQUIRED
     effective_clarification_correct = effective_clarification == case.expect_clarification
     routing = _routing_correct(case, actual_tool)

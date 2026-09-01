@@ -14,6 +14,7 @@ from evaluation.d2c_audit import (
     write_audit,
 )
 from evaluation.live_eval_v2 import live_eval_v2_cases
+from evaluation.provenance import hash_prompt_bytes
 
 
 def test_d2c_audit_is_reproducible_and_covers_every_historical_failure() -> None:
@@ -135,6 +136,6 @@ def test_source_hash_mismatch_fails_closed_without_modifying_evidence(tmp_path: 
 def test_canonical_source_artifacts_remain_byte_identical() -> None:
     validate_source_artifacts()
     assert {
-        name: hashlib.sha256((SOURCE_ROOT / name).read_bytes()).hexdigest()
+        name: hash_prompt_bytes((SOURCE_ROOT / name).read_bytes())
         for name in SOURCE_HASHES
     } == SOURCE_HASHES

@@ -1,14 +1,16 @@
 from collections.abc import Callable
 from typing import TypeGuard
 
+from app.agent.cskh import has_cskh_substance, infer_situation
 from app.agent.llm.base import DecisionProposalProvider
 from app.agent.nodes.workflow_lifecycle import (
     explicit_replacement_intent,
-    has_conflicting_intents,
     is_authority_claim_attempt,
     is_cross_customer_access_attempt,
+    is_impersonation_or_sandbox_override,
     is_instruction_override_attempt,
     is_memory_summary_request,
+    is_pure_injection_attempt,
 )
 from app.agent.schemas import (
     AgentErrorCategory,
@@ -30,17 +32,16 @@ from app.resilience.control import ReliabilityController
 from app.resilience.errors import ResilienceError, RetryExhaustedError
 from app.resilience.retry import run_with_retry
 
-# Ham này dùng để vô hiệu hóa các hành động của AI khi phát hiện rủi ro bảo mật
+
 def _security_block(
     state: AgentState,
     *,
-    signal: str = "instruction_override_attempt", # Mã cảnh báo bảo mật
-    #(tức người dùng muốn ghi đè lên các chỉ thị/ luật lệ gốc của AI - 1 dạng Prompt Injection)
-    memory_rejection: bool = False, # Cờ memory rejection này quyết định xem có cấm AI ghi nhớ thông tin không( có 1 số thông tin độc hại cần loại bỏ )
+    signal: str = "instruction_override_attempt",
+    memory_rejection: bool = False,
 ) -> AgentState:
     request_type = AgentRequestType.UNCLEAR
     existing_action = state.get("pending_action")
-    rejected_action = ( 
+    rejected_action = (
         existing_action.model_copy(update={"status": PendingActionStatus.REJECTED})
         if existing_action is not None and existing_action.status == PendingActionStatus.PENDING
         else existing_action
@@ -69,6 +70,8 @@ def _security_block(
         "decision_reason": signal,
         "error_category": AgentErrorCategory.POLICY_DENIED,
         "last_error": "The request attempted to cross a deterministic authority boundary.",
+        "write_blocked": True,
+        "offer_pending_write": False,
     }
     if memory_rejection:
         result.update(
@@ -80,23 +83,47 @@ def _security_block(
         )
     return result
 
-##
+
+def _security_annotate(state: AgentState, signal: str) -> AgentState:
+    """Block writes without aborting CSKH analysis."""
+
+    existing_action = state.get("pending_action")
+    rejected_action = (
+        existing_action.model_copy(update={"status": PendingActionStatus.REJECTED})
+        if existing_action is not None and existing_action.status == PendingActionStatus.PENDING
+        else existing_action
+    )
+    return {
+        "security_signal": signal,
+        "write_blocked": True,
+        "offer_pending_write": False,
+        "decision_reason": signal,
+        "pending_action": rejected_action,
+        "confirmation_status": "rejected" if rejected_action is not None else None,
+        "error_category": None,
+        "last_error": None,
+    }
+
+
 def make_security_boundary_node() -> Callable[[AgentState], AgentState]:
-    """Reject bounded authority-override language before workflow processing."""
+    """Annotate override language; fail-closed only for injection or cross-customer reads."""
 
     def detect_security_boundary(state: AgentState) -> AgentState:
         message = _latest_user_message(state)
-        ## Lọc các câu theo pattern những câu có dấu hiệu xấu
         memory_signal = classify_memory_security_message(message)
         if memory_signal is not None:
             return _security_block(state, signal=memory_signal, memory_rejection=True)
-        if is_instruction_override_attempt(message):
-            return _security_block(state)
-        if is_authority_claim_attempt(message):
-            return _security_block(state, signal="authority_claim_attempt")
         if is_cross_customer_access_attempt(message):
             return _ownership_block(state)
-        return {"security_signal": None}
+        if is_impersonation_or_sandbox_override(message) or (
+            is_pure_injection_attempt(message) and not has_cskh_substance(message)
+        ):
+            return _security_block(state)
+        if is_instruction_override_attempt(message):
+            return _security_annotate(state, "instruction_override_attempt")
+        if is_authority_claim_attempt(message):
+            return _security_annotate(state, "authority_claim_attempt")
+        return {"security_signal": None, "write_blocked": False}
 
     return detect_security_boundary
 
@@ -113,7 +140,11 @@ def make_understand_request_node(
         previous_pending_intent = pending_action.intent if pending_action is not None else None
 
         replacement_intent = explicit_replacement_intent(message, previous_pending_intent)
-        if replacement_intent is not None and pending_action is not None:
+        if (
+            replacement_intent is not None
+            and pending_action is not None
+            and pending_action.status == PendingActionStatus.PENDING
+        ):
             order_id = pending_action.arguments.get("order_id")
             target = (
                 {"type": "explicit_order", "order_id": order_id}
@@ -137,9 +168,8 @@ def make_understand_request_node(
                 "last_error": None,
                 "error_category": None,
                 "provider_metadata": _provider_metadata(provider),
-                "security_signal": None,
+                "situation": infer_situation(message, intent=replacement.intent),
             }
-        # Check xem có cần lấy ra thông tin từ memory không
         if is_memory_summary_request(message):
             summary_decision = SemanticDecisionV3(
                 intent=Intent.SUPPORT_FAQ,
@@ -158,27 +188,7 @@ def make_understand_request_node(
                 "last_error": None,
                 "error_category": None,
                 "provider_metadata": _provider_metadata(provider),
-                "security_signal": None,
-            }
-        ## Check xem message có mâu thuẫn không
-        if has_conflicting_intents(message):
-            conflict_decision = SemanticDecisionV3(
-                intent=Intent.UNKNOWN,
-                request_type=AgentRequestType.UNCLEAR,
-                reason="conflicting_request_intents",
-                clarification_required=True,
-            )
-            return {
-                "semantic_decision": normalize_semantic_decision(conflict_decision),
-                "intent": Intent.UNKNOWN,
-                "request_type": AgentRequestType.UNCLEAR,
-                "selected_tool": None,
-                "tool_arguments": {},
-                "decision_reason": "conflicting_request_intents",
-                "last_error": None,
-                "error_category": None,
-                "provider_metadata": _provider_metadata(provider),
-                "security_signal": None,
+                "situation": infer_situation(message, intent=Intent.SUPPORT_FAQ),
             }
         context = state["execution_context"]
         timeout_seconds = (resilience_config or ResilienceConfig()).llm_timeout_seconds
@@ -213,7 +223,7 @@ def make_understand_request_node(
                     "failure_category": error.category.value,
                     "recovery_action": "clarify",
                     "provider_metadata": _provider_metadata(provider),
-                    "security_signal": None,
+                    "situation": infer_situation(message),
                 }
             except (TypeError, ValueError):
                 llm_span.set_attribute("llm.status", "error")
@@ -225,7 +235,7 @@ def make_understand_request_node(
                     "failure_category": "llm_malformed_output",
                     "recovery_action": "clarify",
                     "provider_metadata": _provider_metadata(provider),
-                    "security_signal": None,
+                    "situation": infer_situation(message),
                 }
             llm_span.set_attribute("llm.status", "ok")
         if not _matches_contract(decision, decision_contract_version):
@@ -238,14 +248,16 @@ def make_understand_request_node(
                 "failure_category": "llm_contract_mismatch",
                 "recovery_action": "clarify",
                 "provider_metadata": _provider_metadata(provider),
-                "security_signal": None,
+                "situation": infer_situation(message),
             }
         if isinstance(decision, (SemanticDecision, SemanticDecisionV3)):
+            normalized = normalize_semantic_decision(decision)
             return {
-                "semantic_decision": normalize_semantic_decision(decision),
+                "semantic_decision": normalized,
                 "last_error": None,
                 "error_category": None,
                 "provider_metadata": _provider_metadata(provider),
+                "situation": infer_situation(message, intent=normalized.intent),
             }
         extracted_candidate, extracted_key = extract_memory_request(_latest_user_message(state))
         return {
@@ -261,7 +273,7 @@ def make_understand_request_node(
             "last_error": None,
             "error_category": None,
             "provider_metadata": _provider_metadata(provider),
-            "security_signal": None,
+            "situation": infer_situation(message, intent=decision.intent),
         }
 
     return understand_request
@@ -325,4 +337,6 @@ def _ownership_block(state: AgentState) -> AgentState:
         "workflow_active": False,
         "workflow_state": "cancelled",
         "confirmation_status": "blocked",
+        "write_blocked": True,
+        "offer_pending_write": False,
     }

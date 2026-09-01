@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict
 from app.agent.schemas import Intent
 from evaluation.d2c_runner import D2cAttemptArtifact
 from evaluation.live_eval_v2 import D2cScenario, live_eval_v2_cases
+from evaluation.provenance import hash_prompt_bytes
 
 AUDIT_VERSION = "d2c_attribution_audit_v1"
 SOURCE_EXPERIMENT_ID = "d2c_semantic_v3_20260813T221348Z"
@@ -107,7 +108,7 @@ class D2cAttributionAudit(BaseModel):
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hash_prompt_bytes(path.read_bytes())
 
 
 def validate_source_artifacts(source_root: Path = SOURCE_ROOT) -> None:

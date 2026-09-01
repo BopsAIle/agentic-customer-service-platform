@@ -1,3 +1,4 @@
+from app.agent.cskh import is_vietnamese_message
 from app.agent.decision_compiler import CompileStatus
 from app.agent.schemas import (
     AgentErrorCategory,
@@ -120,7 +121,7 @@ def respond(state: AgentState) -> AgentState:
     if state.get("security_signal") in {
         "instruction_override_attempt",
         "authority_claim_attempt",
-    }:
+    } and not state.get("handling_recommendation"):
         message = (
             "I can help with your request, but I can't disable required safeguards or bypass "
             "the normal approval process. I can't bypass those safeguards."
@@ -139,9 +140,19 @@ def respond(state: AgentState) -> AgentState:
     elif (
         _has_suspended_mutation(state)
         and state.get("knowledge_answer") is None
+        and _handling_message(state) is None
         and state.get("workflow_interruption_status") == "suspended"
     ):
         message = _suspended_interruption_pending_message(state)
+    elif _has_suspended_mutation(state) and error_category is None:
+        body = state.get("knowledge_answer") or _handling_message(state)
+        message = _customer_knowledge_answer(
+            state if state.get("knowledge_answer") else {**state, "knowledge_answer": body or ""}
+        )
+    elif _handling_message(state) is not None and error_category is None:
+        message = _handling_message(state) or ""
+        if pending_action is not None and pending_action.status == PendingActionStatus.PENDING:
+            message = f"{message} {_confirmation_request_message(pending_action)}"
     elif state.get("memory_summary_requested") and error_category is None:
         message = _memory_summary_message(state)
     elif state.get("knowledge_answer") is not None and error_category is None:
@@ -216,9 +227,17 @@ def respond(state: AgentState) -> AgentState:
     ):
         missing = set(state.get("missing_required_fields", []))
         if "order_id" in missing:
-            message = "Could you provide your order number?"
+            message = (
+                "Bạn cho mình mã đơn được không?"
+                if _latest_user_is_vietnamese(state)
+                else "Could you provide your order number?"
+            )
         elif "reason" in missing:
-            message = "Could you briefly tell me why you are requesting this refund?"
+            message = (
+                "Bạn cho mình biết lý do hoàn tiền nhé."
+                if _latest_user_is_vietnamese(state)
+                else "Could you briefly tell me why you are requesting this refund?"
+            )
         else:
             message = "I need a little more information before I can continue safely."
     elif (
@@ -317,18 +336,23 @@ def _memory_summary_message(state: AgentState) -> str:
 def _confirmation_request_message(action: PendingAction) -> str:
     if action.tool_name == "request_refund":
         return (
-            "I can submit your refund request. Before I continue, I need your confirmation. "
+            "I can submit your refund request after this confirmation. "
             "Would you like me to proceed?"
         )
     if action.tool_name == "cancel_order":
         return (
-            "I can submit your cancellation request. Before I continue, I need your "
-            "confirmation. Would you like me to proceed?"
+            "I can submit your cancellation request after this confirmation. "
+            "Would you like me to proceed?"
         )
-    return (
-        "I can submit this request. Before I continue, I need your confirmation. "
-        "Would you like me to proceed?"
-    )
+    return "I can submit this request after this confirmation. Would you like me to proceed?"
+
+
+def _handling_message(state: AgentState) -> str | None:
+    recommendation = state.get("handling_recommendation")
+    if not isinstance(recommendation, dict):
+        return None
+    summary = recommendation.get("summary")
+    return summary if isinstance(summary, str) and summary.strip() else None
 
 
 def _customer_knowledge_answer(state: AgentState) -> str:
@@ -386,6 +410,13 @@ def _suspended_interruption_pending_message(state: AgentState) -> str:
         f"{label} is still saved and waiting for confirmation. "
         f"It was not confirmed or executed; you can continue the {label} when you're ready."
     )
+
+
+def _latest_user_is_vietnamese(state: AgentState) -> bool:
+    for message in reversed(state.get("messages", [])):
+        if message["role"] == "user":
+            return is_vietnamese_message(message["content"])
+    return False
 
 
 def _response_workflow_state(state: AgentState) -> WorkflowLifecycleState:

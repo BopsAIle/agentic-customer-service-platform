@@ -1,11 +1,11 @@
 from __future__ import annotations
 
-import hashlib
 import json
 from collections import Counter
 from pathlib import Path
 
 from evaluation.d2c_oracle import LiveEvalV2Decision, canonical_live_eval_v2_decision
+from evaluation.provenance import hash_prompt_bytes
 from evaluation.live_eval_v2 import (
     D2C_SCHEDULE_VERSION,
     LIVE_EVAL_V2_SCHEMA_VERSION,
@@ -19,7 +19,7 @@ from evaluation.live_eval_v2 import (
 
 EXPECTED_DATASET_HASH = "1a4844e843a49cd01083adc81330398206dde4b6b4c3a4c42b0d4228a8d1556b"
 EXPECTED_SCHEDULE_HASH = "9b2cd9fa10bd9279dc0d0b3de11aebd383c1cd6e12ab42733a802e281efd26fe"
-EXPECTED_DECISION_HASH = "e72412c1d8afc47b62627fcf089b827b5012883ec9cfb36402ddba7a29228def"
+EXPECTED_DECISION_HASH = "aec1060f3e28f85843ef228812115877fd98b43989bd23a05169f3bec2e931b5"
 
 
 def test_live_eval_v2_has_frozen_counts_and_unique_required_fields() -> None:
@@ -124,4 +124,4 @@ def test_live_eval_v2_decision_artifact_matches_canonical_record() -> None:
     assert tracked.execution_authorized is False
     assert tracked.model_calls_performed == 0
     assert tracked.benchmark_artifacts_generated is False
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == EXPECTED_DECISION_HASH
+    assert hash_prompt_bytes(path.read_bytes()) == EXPECTED_DECISION_HASH

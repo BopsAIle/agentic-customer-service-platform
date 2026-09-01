@@ -14,6 +14,8 @@ from typing import Literal, cast
 
 from pydantic import BaseModel, ConfigDict
 
+from evaluation.provenance import hash_prompt_bytes
+
 AUDIT_VERSION = "m6_12_semantic_failure_analysis_v1"
 M6_11_AUDIT = Path(
     "artifacts/live-eval/production-robustness/"
@@ -71,7 +73,7 @@ class SemanticFailureAnalysis(BaseModel):
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hash_prompt_bytes(path.read_bytes())
 
 
 def _load_source() -> dict[str, object]:

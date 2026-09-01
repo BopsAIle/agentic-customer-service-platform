@@ -249,6 +249,8 @@ class AgentRuntime:
                         )
                         projection.view = view
                         projection_repository.upsert(view)
+                        if projection_repository is not projection_store:
+                            projection_store.upsert(view)
                     except Exception as error:
                         # The projection is observational. Never turn a committed business
                         # result into a replayable failure because its read model is unavailable.

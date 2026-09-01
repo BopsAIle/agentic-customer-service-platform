@@ -122,7 +122,7 @@ def test_v3_transport_schema_exposes_branch_local_required_identifiers() -> None
 
 def test_v2_and_v3_share_the_hardened_prompt_and_have_distinct_schemas() -> None:
     assert schema_hash_for_contract("semantic_decision_v2") == (
-        "3e3a4e21a215c612a9449532cb421d2d97b42d172ad1513843fd40c659a29bc7"
+        "6e24a900ec1610a0d90d4fa720c61d29ecb50b85b1be9882eb000f9d1d8ec5e3"
     )
     assert prompt_hash_for_contract("semantic_decision_v2") == (
         "d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365"

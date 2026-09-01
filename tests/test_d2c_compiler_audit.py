@@ -16,6 +16,7 @@ from evaluation.d2c_compiler_audit import (
     canonical_audit_bytes,
     write_audit,
 )
+from evaluation.provenance import hash_prompt_bytes
 
 
 def test_audit_classifies_all_targeted_failures() -> None:
@@ -126,13 +127,13 @@ def test_source_evidence_identity_is_frozen() -> None:
     assert audit.source_artifact_sha256 == SOURCE_ARTIFACT_HASHES
     assert audit.source_attribution_audit_sha256 == ATTRIBUTION_AUDIT_SHA256
     assert (
-        hashlib.sha256(
+        hash_prompt_bytes(
             (SOURCE_EVIDENCE_ROOT / "audit" / ATTRIBUTION_AUDIT_NAME).read_bytes()
-        ).hexdigest()
+        )
         == ATTRIBUTION_AUDIT_SHA256
     )
     for name, expected in SOURCE_ARTIFACT_HASHES.items():
-        assert hashlib.sha256((SOURCE_EVIDENCE_ROOT / name).read_bytes()).hexdigest() == expected
+        assert hash_prompt_bytes((SOURCE_EVIDENCE_ROOT / name).read_bytes()) == expected
 
 
 def test_attribution_source_hash_mismatch_fails_closed(tmp_path: Path) -> None:

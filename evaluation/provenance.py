@@ -72,8 +72,14 @@ def prompt_path_for_contract(contract_version: str) -> Path:
     raise ValueError(f"unsupported decision contract: {contract_version}")
 
 
+def hash_prompt_bytes(data: bytes) -> str:
+    """Hash prompt text with LF newlines so Windows checkouts match committed hashes."""
+
+    return hashlib.sha256(data.replace(b"\r\n", b"\n").replace(b"\r", b"\n")).hexdigest()
+
+
 def prompt_hash_for_contract(contract_version: str) -> str:
-    return hashlib.sha256(prompt_path_for_contract(contract_version).read_bytes()).hexdigest()
+    return hash_prompt_bytes(prompt_path_for_contract(contract_version).read_bytes())
 
 
 def git_metadata(

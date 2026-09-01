@@ -494,7 +494,7 @@ def _decision_status(
     response: AgentResponse,
 ) -> str:
     if state.get("security_signal") is not None:
-        return "deny"
+        return "deny" if state.get("error_category") is not None else "annotate"
     if state.get("replay_detected"):
         return "already_completed"
     if response.error_category == AgentErrorCategory.OWNERSHIP_VIOLATION:

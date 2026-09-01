@@ -198,8 +198,9 @@ def test_refund_with_explicit_reason_can_compile_to_action() -> None:
             user_message="Package arrived damaged.",
         )
     assert result.status is CompileStatus.COMPILED_ACTION
-    assert result.selected_tool == "request_refund"
-    assert result.tool_arguments == {
+    assert result.proposed_write is not None
+    assert result.proposed_write["tool"] == "request_refund"
+    assert result.proposed_write["arguments"] == {
         "customer_id": 3,
         "order_id": 6,
         "reason": "Package arrived damaged.",

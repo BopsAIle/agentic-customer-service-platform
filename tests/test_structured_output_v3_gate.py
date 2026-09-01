@@ -101,7 +101,7 @@ def test_v3_gate_configuration_is_methodologically_equal_across_arms() -> None:
     }
     assert qwen["decision_contract_version"] == CONTRACT_VERSION
     assert qwen["decision_schema_hash"] == (
-        "b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b"
+        "9072994198f9d5586365548875c81760aa697be9604aaacc927892d2d9a39dd0"
     )
     assert qwen["prompt_hash"] == (
         "d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365"

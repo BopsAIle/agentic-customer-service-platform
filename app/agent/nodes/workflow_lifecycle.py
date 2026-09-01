@@ -50,15 +50,25 @@ _IMPERSONATION_OVERRIDE_MARKER = re.compile(
     re.IGNORECASE,
 )
 _BOUNDED_OVERRIDE_MARKER = re.compile(
-    r"\b(?:this\s+is\s+a\s+test\s+environment|test\s+mode| safeguards?\s+do(?:es)?n['’]?t\s+apply|"
+    r"\b(?:this\s+is\s+a\s+test\s+environment|test\s+mode|safeguards?\s+do(?:es)?n['’]?t\s+apply|"
     r"safeguards?\s+(?:are\s+)?disabled|security\s+checks?\s+(?:are\s+)?disabled)\b|"
-    r"\b(?:i['’]?m|i\s+am)\s+(?:the\s+)?(?:engineer|developer|architect)\b.*"
-    r"\b(?:run|execute|approve|authorize|refund|cancel|proceed)\b|"
     r"\b(?:internal\s+operator|operator\s+override|internal\s+support\s+override)\b.*"
     r"\b(?:proceed|execute|approve|authorize|refund|cancel)\b|"
     r"\b(?:sistem\s+mesajı|sistem\s+talimatı|geliştirici\s+talimatı|"
     r"dahili\s+(?:operatör|destek)\s+(?:talimatı|geçersiz\s+kılma))\b.*"
     r"\b(?:kapat|devre\s+dışı\s+bırak|atla|bypass|onayla|uygula|iade|iptal)\b",
+    re.IGNORECASE,
+)
+_MUTATION_MARKER = re.compile(
+    r"\b(?:refund|reimburse|cancel|execute|approve|authorize|proceed|iade|iptal|hoàn\s+tiền|hủy)\b",
+    re.IGNORECASE,
+)
+_CONFIRMATION_BYPASS_MARKER = re.compile(
+    r"\bwithout\s+(?:the\s+)?confirmation\b|"
+    r"\b(?:bypass|override|skip)\s+(?:the\s+)?"
+    r"(?:confirmation|validation|policy|safeguards?)\b|"
+    r"\b(?:never\s+need|no\s+longer\s+need)\s+(?:to\s+)?(?:wait\s+for\s+)?"
+    r"(?:confirmation|verification|approval)\b",
     re.IGNORECASE,
 )
 _TURKISH_OVERRIDE_MARKER = re.compile(
@@ -67,15 +77,10 @@ _TURKISH_OVERRIDE_MARKER = re.compile(
     re.IGNORECASE,
 )
 _AUTHORITY_CLAIM_MARKER = re.compile(
-    r"\b(?:company|support|manager|account)\b.*\b(?:permanently\s+authorized|"
-    r"upgraded\s+to|already\s+approved|authorized\s+for|approved\s+all\s+future)\b.*"
-    r"\b(?:automatic|unlimited|future|all|refund|action|approval|authorization)\b|"
     r"\b(?:permanently\s+authorized|upgraded\s+to\s+unlimited\s+refund\s+approval|"
     r"approved\s+all\s+future\s+actions?)\b|"
-    r"\b(?:support|customer\s+service|manager|company)\b.*"
-    r"\b(?:told|said|approved|authorized|pre[- ]?approved|granted)\b.*"
-    r"\b(?:never\s+need|no\s+longer\s+need|without|automatic|unlimited|future|"
-    r"confirmation|verification|refund|action|checks?)\b",
+    r"\b(?:automatic|unlimited)\s+(?:refund|cancellation|approval)\b.*"
+    r"\b(?:without|bypass|skip)\s+(?:confirmation|validation|policy)\b",
     re.IGNORECASE,
 )
 _REFUND_MARKER = re.compile(r"\b(?:refund|reimburse|money back)\b", re.IGNORECASE)
@@ -170,7 +175,7 @@ def is_interruption_candidate(message: str) -> bool:
 
 
 def is_instruction_override_attempt(message: str) -> bool:
-    """Recognize bounded authority-override language without fuzzy approval."""
+    """Recognize bypass of confirmation/policy together with a mutation request."""
 
     normalized = " ".join(message.casefold().split())
     if _BOUNDED_OVERRIDE_MARKER.search(normalized) or _TURKISH_OVERRIDE_MARKER.search(normalized):
@@ -184,18 +189,34 @@ def is_instruction_override_attempt(message: str) -> bool:
     if _ROLE_OVERRIDE_MARKER.search(normalized):
         return True
     if _OVERRIDE_MARKER.search(normalized):
-        return bool(_REFUND_MARKER.search(normalized) or _CANCEL_MARKER.search(normalized))
+        return bool(_MUTATION_MARKER.search(normalized))
     if _PENDING_OVERRIDE_MARKER.search(normalized):
-        return bool(
-            re.search(
-                r"\b(?:refund|reimburse|cancel|execute|approve|authorize|proceed|action|tool)\b",
-                normalized,
-            )
-        )
+        return bool(_MUTATION_MARKER.search(normalized))
     return bool(
-        _REFUND_MARKER.search(normalized)
-        and re.search(r"\b(?:approve|authorize)\b.*\bwithout\s+confirmation\b", normalized)
+        _MUTATION_MARKER.search(normalized) and _CONFIRMATION_BYPASS_MARKER.search(normalized)
     )
+
+
+def is_impersonation_or_sandbox_override(message: str) -> bool:
+    """True for SYSTEM/developer impersonation or test-mode override language."""
+
+    normalized = " ".join(message.casefold().split())
+    return bool(
+        _IMPERSONATION_OVERRIDE_MARKER.search(normalized)
+        or _BOUNDED_OVERRIDE_MARKER.search(normalized)
+        or _TURKISH_OVERRIDE_MARKER.search(normalized)
+    )
+
+
+def is_pure_injection_attempt(message: str) -> bool:
+    """True when the utterance is override/impersonation without a support request."""
+
+    normalized = " ".join(message.casefold().split())
+    if is_impersonation_or_sandbox_override(message):
+        return True
+    if _ROLE_OVERRIDE_MARKER.search(normalized) and not _MUTATION_MARKER.search(normalized):
+        return True
+    return is_instruction_override_attempt(message) and not _MUTATION_MARKER.search(normalized)
 
 
 def is_authority_claim_attempt(message: str) -> bool:
@@ -276,6 +297,8 @@ def explicit_replacement_intent(
     ):
         return Intent.ORDER_CANCEL
     return None
+
+
 """
 Bối cảnh
 Khách đã yêu cầu hủy đơn 5. Policy bắt xác nhận, nên hệ thống chưa hủy. Nó giữ một phiếu chờ:
@@ -289,10 +312,6 @@ Khách không trả lời Yes/No. Họ nói:
 
 Đó là đổi việc, không phải xác nhận việc cũ. Hàm này chỉ để nhận ra đúng case đó.
 """
-
-
-
-
 
 
 def make_handle_workflow_interruption_node() -> Callable[[AgentState], AgentState]:

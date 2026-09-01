@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.agent.cskh import DEFAULT_KNOWLEDGE_QUERIES
 from app.agent.schemas import (
     AgentRequestType,
     Intent,
@@ -56,6 +57,19 @@ class CompiledDecision(BaseModel):
     refund_reason_validation_invoked: bool = False
     compiler_clarification_cause: str | None = None
     missing_required_fields: list[str] = Field(default_factory=list)
+    proposed_write: dict[str, object] | None = None
+
+    def compiled_action_tool(self) -> str | None:
+        proposed = self.proposed_write or {}
+        tool = proposed.get("tool")
+        return tool if isinstance(tool, str) and tool else self.selected_tool
+
+    def compiled_action_arguments(self) -> dict[str, object]:
+        proposed = self.proposed_write or {}
+        arguments = proposed.get("arguments")
+        if isinstance(arguments, dict):
+            return dict(arguments)
+        return dict(self.tool_arguments)
 
 
 class BusinessTargetResolver:
@@ -102,6 +116,8 @@ KNOWLEDGE_INTENTS: Final[frozenset[Intent]] = frozenset(
         Intent.CANCELLATION_POLICY,
         Intent.SHIPPING_POLICY,
         Intent.SUPPORT_FAQ,
+        Intent.WARRANTY_POLICY,
+        Intent.RETURN_EXCHANGE,
     }
 )
 
@@ -109,11 +125,25 @@ KNOWLEDGE_AND_ACTION_INTENTS: Final[frozenset[Intent]] = frozenset(
     {Intent.REFUND_ELIGIBILITY, Intent.CANCELLATION_EXPLANATION}
 )
 KNOWLEDGE_QUERIES: Final[dict[Intent, str]] = {
+    **DEFAULT_KNOWLEDGE_QUERIES,
     Intent.REFUND_ELIGIBILITY: "refund eligibility policy",
     Intent.CANCELLATION_EXPLANATION: "cancellation after shipment",
 }
 _TICKET_REQUEST_MARKERS = frozenset(
-    {"ticket", "support", "open", "create", "record", "kayıt", "destek", "aç", "oluştur"}
+    {
+        "ticket",
+        "support",
+        "open",
+        "create",
+        "record",
+        "kayıt",
+        "destek",
+        "aç",
+        "oluştur",
+        "tạo",
+        "mở",
+        "phiếu",
+    }
 )
 _GENERIC_REASON_WORDS = frozenset(
     {
@@ -153,6 +183,19 @@ _GENERIC_REASON_WORDS = frozenset(
         "siparişi",
         "yap",
         "yapın",
+        "vì",
+        "khi",
+        "nhận",
+        "tôi",
+        "mình",
+        "bạn",
+        "muốn",
+        "đơn",
+        "mã",
+        "hàng",
+        "hoàn",
+        "tiền",
+        "giúp",
     }
 )
 _LATEST_ORDER_MARKERS = frozenset(
@@ -232,7 +275,11 @@ class DecisionCompiler:
         grounding: SemanticGrounding | None = None,
         user_message: str = "",
         restored_action: bool = False,
+        situation: dict[str, str] | None = None,
+        write_blocked: bool = False,
     ) -> CompiledDecision:
+        if not restored_action:
+            decision = self._maybe_advise_instead_of_write(decision, situation)
         route = SEMANTIC_INTENT_ROUTES.get(decision.intent)
         if route is None:
             return self._rejected(decision, "Semantic intent has no compiler route.")
@@ -258,8 +305,15 @@ class DecisionCompiler:
                 return self._clarification(
                     decision, "The cancellation request is contradictory and needs clarification."
                 )
-            return self._compile_action(
-                decision, context, user_message, restored_action=restored_action
+            return self._defer_unconfirmed_write(
+                self._compile_action(
+                    decision,
+                    context,
+                    user_message,
+                    restored_action=restored_action,
+                ),
+                decision,
+                restored_action=restored_action,
             )
         if route == "read":
             return self._compile_read(decision, context, user_message)
@@ -377,6 +431,75 @@ class DecisionCompiler:
             )
         return self._rejected(decision, "Executable semantic intent is unsupported.")
 
+    @staticmethod
+    def _maybe_advise_instead_of_write(
+        decision: SemanticDecision, situation: dict[str, str] | None
+    ) -> SemanticDecision:
+        goal = (situation or {}).get("customer_goal")
+        if goal != "ask_policy" or decision.intent not in ACTION_TOOLS:
+            return decision
+        category = (situation or {}).get("category")
+        mapped = Intent.REFUND_POLICY
+        if decision.intent is Intent.ORDER_CANCEL:
+            mapped = Intent.CANCELLATION_POLICY
+        elif category == "return_exchange":
+            mapped = Intent.RETURN_EXCHANGE
+        elif category == "warranty":
+            mapped = Intent.WARRANTY_POLICY
+        elif decision.intent is Intent.TICKET_CREATE:
+            mapped = Intent.SUPPORT_FAQ
+        elif decision.intent is Intent.HUMAN_ESCALATION:
+            return decision
+        return decision.model_copy(
+            update={"intent": mapped, "request_type": AgentRequestType.KNOWLEDGE_ONLY}
+        )
+
+    @staticmethod
+    def _defer_unconfirmed_write(
+        compiled: CompiledDecision,
+        decision: SemanticDecision,
+        *,
+        restored_action: bool,
+    ) -> CompiledDecision:
+        if restored_action or compiled.status != CompileStatus.COMPILED_ACTION:
+            return compiled
+        if compiled.selected_tool not in ACTION_TOOLS.values():
+            return compiled
+        proposed = {
+            "tool": compiled.selected_tool,
+            "arguments": dict(compiled.tool_arguments),
+        }
+        gather_tool: str | None = None
+        gather_arguments: dict[str, object] = {}
+        customer_id = compiled.tool_arguments.get("customer_id")
+        order_id = compiled.tool_arguments.get("order_id")
+        ticket_id = compiled.tool_arguments.get("ticket_id")
+        if isinstance(customer_id, int):
+            gather_arguments["customer_id"] = customer_id
+        if isinstance(order_id, int) and order_id > 0:
+            gather_tool = "get_order"
+            gather_arguments["order_id"] = order_id
+        elif isinstance(ticket_id, int) and ticket_id > 0:
+            gather_tool = "get_ticket"
+            gather_arguments["ticket_id"] = ticket_id
+        knowledge_query = compiled.knowledge_query or KNOWLEDGE_QUERIES.get(
+            Intent.REFUND_POLICY if decision.intent is Intent.REFUND_REQUEST else decision.intent,
+            "refund eligibility cancellation shipping",
+        )
+        if decision.intent is Intent.ORDER_CANCEL:
+            knowledge_query = KNOWLEDGE_QUERIES[Intent.CANCELLATION_POLICY]
+        elif decision.intent is Intent.REFUND_REQUEST:
+            knowledge_query = KNOWLEDGE_QUERIES[Intent.REFUND_POLICY]
+        return compiled.model_copy(
+            update={
+                "selected_tool": gather_tool,
+                "tool_arguments": gather_arguments if gather_tool else {},
+                "requires_retrieval": True,
+                "knowledge_query": knowledge_query,
+                "proposed_write": proposed,
+            }
+        )
+
     def _compile_read(
         self, decision: SemanticDecision, context: ExecutionContext, user_message: str
     ) -> CompiledDecision:
@@ -418,12 +541,17 @@ class DecisionCompiler:
     def _compile_knowledge(self, decision: SemanticDecision) -> CompiledDecision:
         if decision.clarification_required and not decision.knowledge_query:
             return self._clarification(decision, "The knowledge request needs clarification.")
+        knowledge_query = decision.knowledge_query or KNOWLEDGE_QUERIES.get(decision.intent)
+        if not knowledge_query:
+            knowledge_query = DEFAULT_KNOWLEDGE_QUERIES.get(
+                decision.intent, "customer support policy"
+            )
         return CompiledDecision(
             status=CompileStatus.NO_ACTION,
             intent=decision.intent,
             request_type=AgentRequestType.KNOWLEDGE_ONLY,
-            requires_retrieval=decision.requires_retrieval,
-            knowledge_query=decision.knowledge_query,
+            requires_retrieval=True,
+            knowledge_query=knowledge_query,
             reason=decision.reason,
         )
 

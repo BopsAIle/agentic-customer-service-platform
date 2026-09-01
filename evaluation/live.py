@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import hashlib
 import subprocess
 import sys
 import time
@@ -45,7 +44,11 @@ from evaluation.live_scoring import (
     compare_reports,
     write_report,
 )
-from evaluation.provenance import build_provenance, prompt_path_for_contract
+from evaluation.provenance import (
+    build_provenance,
+    hash_prompt_bytes,
+    prompt_path_for_contract,
+)
 
 _PROMPT_PATH = Path(__file__).parents[1] / "app" / "agent" / "prompts" / "system.txt"
 
@@ -136,7 +139,7 @@ def _prompt_metadata(contract_version: str = "direct_tool_v1") -> dict[str, obje
         source_revision = "unknown"
     return {
         "prompt_version": prompt_path.name,
-        "prompt_hash": hashlib.sha256(prompt_bytes).hexdigest(),
+        "prompt_hash": hash_prompt_bytes(prompt_bytes),
         "source_revision": source_revision,
     }
 

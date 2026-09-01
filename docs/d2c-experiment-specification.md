@@ -51,7 +51,7 @@ The frozen identities are:
 - Dataset SHA-256: `1a4844e843a49cd01083adc81330398206dde4b6b4c3a4c42b0d4228a8d1556b`
 - Oracle SHA-256: `d0fdae4316283a28bf81be38712bd8cd735b76c995f64ce24678fb409da052b2`
 - Schedule SHA-256: `9b2cd9fa10bd9279dc0d0b3de11aebd383c1cd6e12ab42733a802e281efd26fe`
-- Dataset decision SHA-256: `e72412c1d8afc47b62627fcf089b827b5012883ec9cfb36402ddba7a29228def`
+- Dataset decision SHA-256: `aec1060f3e28f85843ef228812115877fd98b43989bd23a05169f3bec2e931b5`
 
 Only synthetic data is present. The decision remains `FROZEN_NOT_APPROVED_FOR_EXECUTION`.
 
@@ -61,8 +61,8 @@ The model remains exact `gpt-5.6-luna`; the provider remains the official OpenAI
 output stays `function_calling`, reasoning `none`, temperature `0`, timeout 30 seconds, and model
 request retry count zero. The V3 contract, schema, function schema, and prompt hashes remain:
 
-- Contract schema: `b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b`
-- Function schema: `49ad87926db3b66c183000da65f528008b2021d0c040e76218a5e4c3318d2fc1`
+- Contract schema: `9072994198f9d5586365548875c81760aa697be9604aaacc927892d2d9a39dd0`
+- Function schema: `0580240826edb240d9dbd371f85bbb9e3c7f0d582a3b57c919a3ab363feaf8ef`
 - Prompt: `d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365`
 
 Required metrics are routing, intent and semantic-target correctness; appropriate/missed/unnecessary
@@ -114,7 +114,7 @@ python -m evaluation.d2c_approval create \
   --experiment-id <d2c-experiment-id> \
   --source-revision <40-char-commit> \
   --confirm-spec-sha256 aaaa7f7f42dd23da4aae43340442cea266df1e3ff2a5068ed8ff62e5181e7d6d \
-  --confirm-decision-sha256 e72412c1d8afc47b62627fcf089b827b5012883ec9cfb36402ddba7a29228def \
+  --confirm-decision-sha256 aec1060f3e28f85843ef228812115877fd98b43989bd23a05169f3bec2e931b5 \
   --confirm-reviewed \
   --output evaluation/approvals/<record-id>.json
 ```

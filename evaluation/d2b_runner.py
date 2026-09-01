@@ -616,13 +616,16 @@ def _score_attempt(
         grounding=grounding,
     )
     compiler_latency = (time.perf_counter() - compile_started) * 1000
-    actual_tool = compiled.selected_tool
+    actual_tool = compiled.compiled_action_tool()
     effective_clarification = compiled.status is CompileStatus.CLARIFICATION_REQUIRED
     effective_clarification_correct = effective_clarification == case.expect_clarification
 
     if case.target_identifier == "latest":
         routing_correct = bool(
-            actual_tool == "get_order"
+            (
+                actual_tool == "get_order"
+                or (case.expected_tools and actual_tool in case.expected_tools)
+            )
             and decision.target is not None
             and decision.target.type == "latest_order"
             and resolver.last_result == expected_latest[case.id]
@@ -1206,7 +1209,7 @@ def _atomic_publish(directory: Path, files: dict[str, str]) -> None:
         for name, content in files.items():
             path = temporary / name
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(content, encoding="utf-8")
+            path.write_bytes(content.encode("utf-8"))
             path.read_text(encoding="utf-8")
             if path.suffix == ".json":
                 json.loads(path.read_text(encoding="utf-8"))

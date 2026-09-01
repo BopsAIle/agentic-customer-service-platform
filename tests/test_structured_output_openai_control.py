@@ -36,7 +36,7 @@ def test_openai_control_configuration_matches_local_methodology() -> None:
     assert config["runtime"] == "OpenAI API"
     assert config["decision_contract_version"] == "semantic_decision_v2"
     assert config["schema_hash"] == (
-        "3e3a4e21a215c612a9449532cb421d2d97b42d172ad1513843fd40c659a29bc7"
+        "6e24a900ec1610a0d90d4fa720c61d29ecb50b85b1be9882eb000f9d1d8ec5e3"
     )
     assert config["prompt_hash"] == (
         "d2cf899be3b826285e8e8f8d2c3f7d1332d6b4f5ed2d0b90fbec5e4ab11cf365"

@@ -23,7 +23,7 @@ from evaluation.live_eval_v2 import live_eval_v2_cases
 ARTIFACT_VERSION = "m6_16_containment_gap_validation_v1"
 SOURCE_EXPERIMENT = "d2c_m6_15_semantic_v3_20260814T001654Z"
 SOURCE_ATTEMPTS_SHA256 = "762342b32b02e57d2751bddd41ce9281600532ac28c1559bd3b1cfc4ce6f8114"
-SCHEMA_HASH = "b0c7c1ddb1fe4423b528f7ce05fbc63fa117737c797149f5903d327a8de6280b"
+SCHEMA_HASH = "9072994198f9d5586365548875c81760aa697be9604aaacc927892d2d9a39dd0"
 PROMPT_HASH = "4755f6074ffc8e22281c3a73c08d187c66f0ca8a8255b2c9696f274b1ae6eba0"
 
 
@@ -111,8 +111,9 @@ def _replay(case_id: str) -> tuple[bool, str, str | None]:
             user_message=message,
         )
     intervention = compiled.status is CompileStatus.CLARIFICATION_REQUIRED
-    executable = compiled.selected_tool in {"cancel_order", "request_refund"}
-    return intervention, compiled.status.value, compiled.selected_tool if executable else None
+    action_tool = compiled.compiled_action_tool()
+    executable = action_tool in {"cancel_order", "request_refund"}
+    return intervention, compiled.status.value, action_tool if executable else None
 
 
 def build_validation() -> M6_16Validation:

@@ -3,6 +3,7 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from app.agent.cskh import infer_situation
 from app.agent.decision_compiler import (
     BusinessTargetResolver,
     CompileStatus,
@@ -37,7 +38,11 @@ def make_compile_decision_node(
         assert isinstance(decision, SemanticDecision)
         workflow_id = state.get("workflow_id") or f"workflow:{state['agent_run_id']}"
         user_message = _conversation_user_message(state)
+        latest_message = _latest_user_message(state)
         restored_action = bool(state.get("pending_action_restored"))
+        # Always classify the current turn. Checkpointed situation from a
+        # previous policy question must not remap a restored/resumed write.
+        situation = infer_situation(latest_message, intent=decision.intent)
         grounding = (
             _restored_grounding(state, decision)
             if restored_action
@@ -49,8 +54,9 @@ def make_compile_decision_node(
             state["execution_context"],
             grounding=grounding,
             user_message=user_message,
-            restored_action=restored_action
-            and state.get("grounding_status") == GroundingStatus.NOT_APPLICABLE.value,
+            restored_action=restored_action,
+            situation=situation,
+            write_blocked=bool(state.get("write_blocked")),
         )
         with span(
             "decision.compile",
@@ -77,7 +83,7 @@ def make_compile_decision_node(
                 "tool_arguments": {},
                 "error_category": AgentErrorCategory.INVALID_TOOL_ARGUMENTS,
                 "last_error": "The semantic request could not be compiled safely.",
-                "decision_reason": result.reason,
+                "decision_reason": _decision_reason(state, result.reason),
                 "compile_result": result,
                 "grounding_status": grounding.status.value,
                 "grounding_reference_type": grounding.reference_type,
@@ -93,6 +99,8 @@ def make_compile_decision_node(
                     "suspended" if state.get("suspended_workflow") is not None else "completed"
                 ),
                 "workflow_id": workflow_id,
+                "proposed_write": None,
+                "offer_pending_write": False,
             }
         workflow_is_active = bool(
             result.status == CompileStatus.CLARIFICATION_REQUIRED and result.missing_required_fields
@@ -102,7 +110,7 @@ def make_compile_decision_node(
             "grounding_reference_type": grounding.reference_type,
             "grounding_trusted_source": grounding.trusted_source,
             "target_validation_status": admissibility.value,
-            "decision_reason": result.reason,
+            "decision_reason": _decision_reason(state, result.reason),
         }
         return {
             "intent": result.intent,
@@ -113,7 +121,7 @@ def make_compile_decision_node(
             "knowledge_query": result.knowledge_query,
             "memory_candidate": result.memory_candidate,
             "memory_key": result.memory_key,
-            "decision_reason": result.reason,
+            "decision_reason": _decision_reason(state, result.reason),
             "compile_result": result,
             "grounding_status": grounding.status.value,
             "grounding_reference_type": grounding.reference_type,
@@ -140,9 +148,18 @@ def make_compile_decision_node(
             "workflow_policy_inputs": {},
             "error_category": None,
             "last_error": None,
+            "proposed_write": result.proposed_write,
+            "offer_pending_write": False,
+            "situation": situation,
         }
 
     return compile_decision
+
+
+def _decision_reason(state: AgentState, compiled_reason: str | None) -> str | None:
+    if state.get("write_blocked") or state.get("security_signal"):
+        return state.get("decision_reason") or compiled_reason
+    return compiled_reason
 
 
 def _latest_user_message(state: AgentState) -> str:

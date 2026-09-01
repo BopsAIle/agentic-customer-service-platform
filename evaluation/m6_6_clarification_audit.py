@@ -16,6 +16,7 @@ from pydantic import BaseModel, ConfigDict
 
 from evaluation.d2c_runner import D2cAttemptArtifact
 from evaluation.live_eval_v2 import D2cScenario, live_eval_v2_cases
+from evaluation.provenance import hash_prompt_bytes
 
 AUDIT_VERSION = "m6_6_clarification_audit_v1"
 BASELINE_ID = "d2c_semantic_v3_20260813T221348Z"
@@ -90,7 +91,7 @@ class ClarificationAudit(BaseModel):
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hash_prompt_bytes(path.read_bytes())
 
 
 def _validate_root(root: Path, expected: dict[str, str]) -> None:

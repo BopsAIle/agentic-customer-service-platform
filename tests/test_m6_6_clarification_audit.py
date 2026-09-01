@@ -14,6 +14,7 @@ from evaluation.m6_6_clarification_audit import (
     canonical_bytes,
     write_audit,
 )
+from evaluation.provenance import hash_prompt_bytes
 
 
 def test_clarification_delta_is_exact_and_privacy_safe() -> None:
@@ -57,7 +58,7 @@ def test_sources_are_immutable_and_writer_refuses_overwrite(tmp_path: Path) -> N
         write_audit(audit, destination)
     for name, expected in BASELINE_HASHES.items():
         root = BASELINE_ROOT
-        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected
+        assert hash_prompt_bytes((root / name).read_bytes()) == expected
     for name, expected in CURRENT_HASHES.items():
         root = CURRENT_ROOT
-        assert hashlib.sha256((root / name).read_bytes()).hexdigest() == expected
+        assert hash_prompt_bytes((root / name).read_bytes()) == expected

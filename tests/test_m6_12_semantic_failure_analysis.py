@@ -12,6 +12,7 @@ from evaluation.m6_12_semantic_failure_analysis import (
     canonical_bytes,
     write_analysis,
 )
+from evaluation.provenance import hash_prompt_bytes
 
 
 def test_m6_12_counts_and_recommendation_are_frozen() -> None:
@@ -41,4 +42,4 @@ def test_m6_12_artifact_is_immutable_and_source_hashes_are_pinned(tmp_path: Path
     with pytest.raises(FileExistsError):
         write_analysis(analysis, destination)
     for name, expected in M6_10_ARTIFACT_HASHES.items():
-        assert hashlib.sha256((M6_10_ROOT / name).read_bytes()).hexdigest() == expected
+        assert hash_prompt_bytes((M6_10_ROOT / name).read_bytes()) == expected

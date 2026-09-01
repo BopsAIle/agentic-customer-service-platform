@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.agent.decision_compiler import CompileStatus
 from app.agent.llm.base import DecisionProposalProvider
+from app.agent.nodes.assess_situation import assess_situation
 from app.agent.nodes.check_pending import make_check_pending_node
 from app.agent.nodes.compile_decision import make_compile_decision_node
 from app.agent.nodes.confirmed import make_confirmed_execution_node
@@ -22,6 +23,7 @@ from app.agent.nodes.retrieve_knowledge import make_retrieve_node
 from app.agent.nodes.retrieve_memory import make_retrieve_memory_node
 from app.agent.nodes.revalidate import make_revalidate_node
 from app.agent.nodes.select_tool import select_tool
+from app.agent.nodes.synthesize_handling import synthesize_handling
 from app.agent.nodes.understand_request import (
     make_security_boundary_node,
     make_understand_request_node,
@@ -53,7 +55,9 @@ def _after_context(state: AgentState) -> str:
 
 
 def _after_security_boundary(state: AgentState) -> str:
-    return "respond" if state.get("security_signal") is not None else "retrieve_memory"
+    if state.get("error_category") is not None:
+        return "respond"
+    return "check_pending_action"
 
 
 def _after_pending(state: AgentState) -> str:
@@ -92,7 +96,7 @@ def _after_understanding(state: AgentState) -> str:
         return "respond"
     if state.get("workflow_interruption_pending"):
         return "handle_workflow_interruption"
-    return "compile_decision"
+    return "retrieve_memory"
 
 
 def _after_workflow_interruption(state: AgentState) -> str:
@@ -111,19 +115,25 @@ def _after_selection(state: AgentState) -> str:
     if state.get("error_category") is not None:
         return "respond"
     compile_result = state.get("compile_result")
-    if compile_result is not None and compile_result.status == CompileStatus.CLARIFICATION_REQUIRED:
+    if (
+        compile_result is not None
+        and compile_result.status == CompileStatus.CLARIFICATION_REQUIRED
+        and not state.get("requires_retrieval")
+    ):
         return "respond"
     if state.get("intent") in {Intent.MEMORY_REMEMBER, Intent.MEMORY_FORGET}:
         return "memory_action"
+    if state.get("selected_tool"):
+        return "validate_tool"
+    if state.get("requires_retrieval") or state.get("proposed_write"):
+        return "retrieve_knowledge"
     if state.get("request_type") in {
         AgentRequestType.INFORMATIONAL,
         AgentRequestType.UNCLEAR,
         AgentRequestType.KNOWLEDGE_ONLY,
     }:
-        if state.get("requires_retrieval"):
-            return "retrieve_knowledge"
-        return "respond"
-    return "validate_tool"
+        return "retrieve_knowledge" if state.get("requires_retrieval") else "respond"
+    return "respond"
 
 
 def _after_validation(state: AgentState) -> str:
@@ -152,9 +162,23 @@ def _after_revalidation(state: AgentState) -> str:
 
 
 def _after_execution(state: AgentState) -> str:
+    if state.get("error_category") == AgentErrorCategory.RESOURCE_NOT_FOUND and state.get(
+        "proposed_write"
+    ):
+        return "retrieve_knowledge"
     if state.get("error_category") is not None:
         return "respond"
-    return "retrieve_knowledge" if state.get("requires_retrieval") else "respond"
+    if state.get("requires_retrieval") or state.get("proposed_write"):
+        return "retrieve_knowledge"
+    return "respond"
+
+
+def _after_synthesize(state: AgentState) -> str:
+    if state.get("error_category") is not None:
+        return "respond"
+    if state.get("offer_pending_write") and state.get("selected_tool"):
+        return "validate_tool"
+    return "respond"
 
 
 def _load_context(state: AgentState) -> AgentState:
@@ -247,11 +271,17 @@ def _load_context(state: AgentState) -> AgentState:
         "workflow_resume_source": None,
         "workflow_transition": None,
         "workflow_interruption_type": None,
+        "proposed_write": None,
+        "write_blocked": False,
+        "situation": {
+            "category": "other",
+            "customer_goal": "",
+            "urgency": "normal",
+            "language": "en",
+        },
+        "handling_recommendation": {},
+        "offer_pending_write": False,
     }
-
-
-def _inspect_risk(state: AgentState) -> AgentState:
-    return {}
 
 
 def _instrument_node(
@@ -307,12 +337,14 @@ def _instrument_node(
                     "security_signal"
                 ):
                     security_signal = str(result["security_signal"])
+                    denied = result.get("error_category") is not None
                     trace_metadata = {
                         "security_signal": security_signal,
-                        "decision": "deny",
+                        "decision": "deny" if denied else "annotate",
                         "reason": security_signal,
                         "execution": "not_attempted",
                         "authority": "not_granted",
+                        "write_blocked": bool(result.get("write_blocked", False)),
                     }
                 elif name == "restore_pending_action":
                     trace_metadata = {
@@ -583,7 +615,14 @@ def build_graph(
             ),
         ),
     )
-    graph.add_node("inspect_risk", cast(Any, _instrument_node("inspect_risk", _inspect_risk)))
+    graph.add_node(
+        "assess_situation",
+        cast(Any, _instrument_node("assess_situation", assess_situation)),
+    )
+    graph.add_node(
+        "synthesize_handling",
+        cast(Any, _instrument_node("synthesize_handling", synthesize_handling)),
+    )
     graph.add_node(
         "create_pending_action",
         cast(
@@ -674,9 +713,8 @@ def build_graph(
     graph.add_conditional_edges(
         "security_boundary",
         _after_security_boundary,
-        {"retrieve_memory": "retrieve_memory", "respond": "respond"},
+        {"check_pending_action": "check_pending_action", "respond": "respond"},
     )
-    graph.add_edge("retrieve_memory", "check_pending_action")
     graph.add_conditional_edges(
         "check_pending_action",
         _after_pending,
@@ -708,7 +746,7 @@ def build_graph(
         _after_understanding,
         {
             "handle_workflow_interruption": "handle_workflow_interruption",
-            "compile_decision": "compile_decision",
+            "retrieve_memory": "retrieve_memory",
             "respond": "respond",
         },
     )
@@ -717,6 +755,7 @@ def build_graph(
         _after_workflow_interruption,
         {"compile_decision": "compile_decision", "respond": "respond"},
     )
+    graph.add_edge("retrieve_memory", "compile_decision")
     graph.add_edge("compile_decision", "select_tool_or_response")
     graph.add_conditional_edges(
         "select_tool_or_response",
@@ -737,9 +776,8 @@ def build_graph(
             "respond": "respond",
         },
     )
-    graph.add_edge("evaluate_policy", "inspect_risk")
     graph.add_conditional_edges(
-        "inspect_risk",
+        "evaluate_policy",
         _after_policy,
         {
             "execute_tool": "execute_tool",
@@ -762,6 +800,12 @@ def build_graph(
     graph.add_edge("memory_action", "respond")
     graph.add_edge("execute_confirmed_action", "respond")
     graph.add_edge("execute_human_escalation", "respond")
-    graph.add_edge("retrieve_knowledge", "respond")
+    graph.add_edge("retrieve_knowledge", "assess_situation")
+    graph.add_edge("assess_situation", "synthesize_handling")
+    graph.add_conditional_edges(
+        "synthesize_handling",
+        _after_synthesize,
+        {"validate_tool": "validate_tool", "respond": "respond"},
+    )
     graph.add_edge("respond", END)
     return graph.compile(checkpointer=checkpointer)

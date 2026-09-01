@@ -21,6 +21,7 @@ from evaluation.d2c_audit import SOURCE_ROOT as D2C_SOURCE_ROOT
 from evaluation.d2c_audit import validate_source_artifacts
 from evaluation.d2c_runner import D2cAttemptArtifact
 from evaluation.live_eval_v2 import D2cScenario, live_eval_v2_cases
+from evaluation.provenance import hash_prompt_bytes
 
 COMPILER_AUDIT_VERSION = "d2c_compiler_alignment_audit_v1"
 SOURCE_EVIDENCE_ROOT = D2C_SOURCE_ROOT
@@ -113,7 +114,7 @@ class D2cCompilerAlignmentAudit(BaseModel):
 
 
 def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
+    return hash_prompt_bytes(path.read_bytes())
 
 
 def _load_attribution_records(source_root: Path) -> tuple[dict[str, object], ...]:
